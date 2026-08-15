@@ -88,6 +88,34 @@ def _to_int(val, default=0):
         return default
 
 
+def _get_all_records_safe(ws, expected_header):
+    """
+    A drop-in replacement for gspread's ws.get_all_records().
+
+    gspread's own get_all_records() raises GSpreadException if the sheet's
+    actual header row (row 1) has duplicate or blank column names - which
+    can easily happen after manual edits to the Google Sheet. That crashes
+    the whole page.
+
+    This version ignores whatever text is actually in row 1 and instead
+    maps every data row (row 2 onwards) POSITIONALLY onto our own known
+    `expected_header` column list. Extra/missing cells are padded with "".
+    This can never raise a duplicate/blank-header error.
+    """
+    values = _with_retry(ws.get_all_values)
+    if len(values) <= 1:
+        return []
+
+    records = []
+    width = len(expected_header)
+    for row in values[1:]:
+        if not any(str(c).strip() for c in row):
+            continue  # skip fully blank rows
+        row = (row + [""] * width)[:width]  # pad/truncate to expected width
+        records.append(dict(zip(expected_header, row)))
+    return records
+
+
 @st.cache_resource(show_spinner=False)
 def get_client():
     creds_dict = dict(st.secrets["gcp_service_account"])
@@ -143,7 +171,7 @@ def add_answer_key(exam_name, date_str, start_time_str, end_time_str,
                     total_questions, answer_string,
                     negative_marking=False, negative_marks_value=0.0):
     ws = _cached_worksheet("AnswerKeys")
-    existing = _with_retry(ws.get_all_records)
+    existing = _get_all_records_safe(ws, ANSWERKEYS_HEADER)
     key_id = f"K{len(existing) + 1:04d}"
     _with_retry(
         ws.append_row,
@@ -155,7 +183,7 @@ def add_answer_key(exam_name, date_str, start_time_str, end_time_str,
 
 def get_all_answer_keys():
     ws = _cached_worksheet("AnswerKeys")
-    records = _with_retry(ws.get_all_records)
+    records = _get_all_records_safe(ws, ANSWERKEYS_HEADER)
     return pd.DataFrame(records)
 
 
@@ -303,16 +331,14 @@ def get_all_results_df():
     """
     Reads the Results sheet into a DataFrame.
 
-    IMPORTANT: get_all_records() derives columns from row 1 of the sheet.
-    If the sheet is brand-new (only the header row, zero result rows) or
-    the header row was edited/reordered by hand, some of the expected
-    columns (marks/total/key_id/...) may be missing. Every caller of this
-    function must NOT assume those columns exist - always check first
-    (see get_leaderboard_by_key / get_overall_leaderboard below), otherwise
-    a KeyError crashes the whole page.
+    Uses _get_all_records_safe() (positional mapping onto RESULTS_HEADER)
+    instead of gspread's get_all_records(), so a duplicate/blank/edited
+    header row in the actual Google Sheet can never crash this. Every
+    caller must still NOT assume all columns are non-empty - always check
+    first (see get_leaderboard_by_key / get_overall_leaderboard below).
     """
     ws = _cached_worksheet("Results")
-    records = _with_retry(ws.get_all_records)
+    records = _get_all_records_safe(ws, RESULTS_HEADER)
     df = pd.DataFrame(records)
 
     if df.empty:
