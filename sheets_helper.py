@@ -11,6 +11,7 @@ Sheet er নাম/ID .streamlit/secrets.toml e SHEET_ID hisebe rakha thakbe.
 """
 
 import json
+import time
 from datetime import datetime
 
 import gspread
@@ -28,6 +29,23 @@ RESULTS_HEADER = ["timestamp", "student", "key_id", "score", "total", "wrong_que
 CONFIG_HEADER = ["config_key", "config_value"]
 
 
+def _with_retry(func, *args, **kwargs):
+    """
+    Google Sheets API majhe majhe rate-limit (429) error dey jodi
+    onek gulo request khub tarataari jai. Eta hole ektu wait kore
+    abar try kore - normally 2-3 bar er moddhei kaj kore jay.
+    """
+    delays = [1, 2, 4, 8]
+    last_err = None
+    for delay in delays:
+        try:
+            return func(*args, **kwargs)
+        except gspread.exceptions.APIError as e:
+            last_err = e
+            time.sleep(delay)
+    return func(*args, **kwargs) if last_err is None else (_ for _ in ()).throw(last_err)
+
+
 @st.cache_resource(show_spinner=False)
 def get_client():
     """Service account credential diye gspread client toiri kore."""
@@ -39,47 +57,60 @@ def get_client():
 @st.cache_resource(show_spinner=False)
 def get_spreadsheet():
     client = get_client()
-    return client.open_by_key(st.secrets["SHEET_ID"])
+    return _with_retry(client.open_by_key, st.secrets["SHEET_ID"])
 
 
 def _get_or_create_worksheet(sh, title, header):
     try:
-        ws = sh.worksheet(title)
+        ws = _with_retry(sh.worksheet, title)
     except gspread.WorksheetNotFound:
-        ws = sh.add_worksheet(title=title, rows=1000, cols=len(header) + 2)
-        ws.append_row(header)
+        ws = _with_retry(sh.add_worksheet, title=title, rows=1000, cols=len(header) + 2)
+        _with_retry(ws.append_row, header)
         return ws
     # ensure header exists
-    values = ws.get_all_values()
+    values = _with_retry(ws.get_all_values)
     if not values:
-        ws.append_row(header)
+        _with_retry(ws.append_row, header)
     return ws
+
+
+@st.cache_resource(show_spinner=False)
+def _cached_worksheet(title):
+    """
+    Worksheet object ekbar khuje pele seta cache kore rakha hoy, tai
+    baar baar "eta ache kina" check korar jonno notun API call lage na.
+    Eita e main fix jeta APIError (rate limit) thamiye dey.
+    """
+    header_map = {
+        "AnswerKeys": ANSWERKEYS_HEADER,
+        "Config": CONFIG_HEADER,
+        "Results": RESULTS_HEADER,
+    }
+    sh = get_spreadsheet()
+    return _get_or_create_worksheet(sh, title, header_map[title])
 
 
 def init_sheets():
     """First time run hole shob worksheet toiri kore dey."""
-    sh = get_spreadsheet()
-    _get_or_create_worksheet(sh, "AnswerKeys", ANSWERKEYS_HEADER)
-    _get_or_create_worksheet(sh, "Config", CONFIG_HEADER)
-    _get_or_create_worksheet(sh, "Results", RESULTS_HEADER)
-    return sh
+    _cached_worksheet("AnswerKeys")
+    _cached_worksheet("Config")
+    _cached_worksheet("Results")
+    return get_spreadsheet()
 
 
 # ---------------- Answer Keys ----------------
 
 def add_answer_key(date_str, start_time_str, end_time_str, answer_string):
-    sh = get_spreadsheet()
-    ws = _get_or_create_worksheet(sh, "AnswerKeys", ANSWERKEYS_HEADER)
-    existing = ws.get_all_records()
+    ws = _cached_worksheet("AnswerKeys")
+    existing = _with_retry(ws.get_all_records)
     key_id = f"K{len(existing) + 1:04d}"
-    ws.append_row([key_id, date_str, start_time_str, end_time_str, answer_string])
+    _with_retry(ws.append_row, [key_id, date_str, start_time_str, end_time_str, answer_string])
     return key_id
 
 
 def get_all_answer_keys():
-    sh = get_spreadsheet()
-    ws = _get_or_create_worksheet(sh, "AnswerKeys", ANSWERKEYS_HEADER)
-    records = ws.get_all_records()
+    ws = _cached_worksheet("AnswerKeys")
+    records = _with_retry(ws.get_all_records)
     return pd.DataFrame(records)
 
 
@@ -106,54 +137,78 @@ def get_active_answer_key(now=None):
     return None, None
 
 
-# ---------------- Config / Calibration ----------------
+# ---------------- Config (generic key-value store) ----------------
 
-def save_calibration(calibration_dict):
-    sh = get_spreadsheet()
-    ws = _get_or_create_worksheet(sh, "Config", CONFIG_HEADER)
-    values = ws.get_all_values()
-    json_str = json.dumps(calibration_dict)
+def set_config_value(key, value):
+    """Config sheet e je kono key-value save/update kore (JSON string hisebe)."""
+    ws = _cached_worksheet("Config")
+    values = _with_retry(ws.get_all_values)
+    json_str = json.dumps(value)
 
-    # existing row thakle update, na thakle notun row
     row_idx = None
     for i, row in enumerate(values):
-        if row and row[0] == "calibration":
+        if row and row[0] == key:
             row_idx = i + 1  # gspread 1-indexed
             break
 
     if row_idx:
-        ws.update(f"A{row_idx}:B{row_idx}", [["calibration", json_str]])
+        _with_retry(ws.update, f"A{row_idx}:B{row_idx}", [[key, json_str]])
     else:
-        ws.append_row(["calibration", json_str])
+        _with_retry(ws.append_row, [key, json_str])
 
 
-def load_calibration():
-    sh = get_spreadsheet()
-    ws = _get_or_create_worksheet(sh, "Config", CONFIG_HEADER)
-    values = ws.get_all_values()
+def get_config_value(key, default=None):
+    ws = _cached_worksheet("Config")
+    values = _with_retry(ws.get_all_values)
     for row in values:
-        if row and row[0] == "calibration":
+        if row and row[0] == key:
             try:
                 return json.loads(row[1])
             except Exception:
-                return None
-    return None
+                return default
+    return default
+
+
+# ---------------- Calibration (Config er upore banano) ----------------
+
+def save_calibration(calibration_dict):
+    set_config_value("calibration", calibration_dict)
+
+
+def load_calibration():
+    return get_config_value("calibration", default=None)
+
+
+# ---------------- Mentor Password (mentor nijei UI theke change korte parbe) ----------------
+
+def get_mentor_password():
+    """
+    Sheet e save kora password thakle seta use hobe.
+    Prothom bar (Sheet e kichu save kora na thakle) Streamlit Secrets
+    er MENTOR_PASSWORD ke "starting password" hisebe use kora hobe.
+    """
+    saved = get_config_value("mentor_password", default=None)
+    if saved:
+        return saved
+    return st.secrets.get("MENTOR_PASSWORD", "")
+
+
+def set_mentor_password(new_password):
+    set_config_value("mentor_password", new_password)
 
 
 # ---------------- Results ----------------
 
 def append_result(student, key_id, score, total, wrong_questions):
-    sh = get_spreadsheet()
-    ws = _get_or_create_worksheet(sh, "Results", RESULTS_HEADER)
+    ws = _cached_worksheet("Results")
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     wrong_str = ",".join(str(q) for q in wrong_questions)
-    ws.append_row([timestamp, student, key_id, score, total, wrong_str])
+    _with_retry(ws.append_row, [timestamp, student, key_id, score, total, wrong_str])
 
 
 def get_leaderboard():
-    sh = get_spreadsheet()
-    ws = _get_or_create_worksheet(sh, "Results", RESULTS_HEADER)
-    records = ws.get_all_records()
+    ws = _cached_worksheet("Results")
+    records = _with_retry(ws.get_all_records)
     df = pd.DataFrame(records)
     if df.empty:
         return df
