@@ -4,6 +4,5 @@ numpy
 pandas
 gspread
 google-auth
-google-api-python-client
 streamlit-image-coordinates
 Pillow
