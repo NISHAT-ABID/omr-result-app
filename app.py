@@ -63,11 +63,97 @@ def is_mentor():
     return False
 
 
-# ---------------- Mentor: Answer Key tab (visual click input) ----------------
+# ---------------- Mentor: Answer Key tab (native bubble-grid input) ----------------
+#
+# This does NOT depend on any sheet image or calibration - it's a plain,
+# self-contained UI. Step 1 is always "how many MCQs" (40 or 100), then a
+# clean bubble grid (A/B/C/D radio per question) to fill the key.
+
+def _inject_bubble_grid_css():
+    st.markdown(
+        """
+        <style>
+        .st-key-answer_bubble_grid div[data-testid="stRadio"] {
+            margin-bottom: -14px;
+        }
+        .st-key-answer_bubble_grid div[data-testid="stRadio"] > label {
+            display: none;
+        }
+        .st-key-answer_bubble_grid div[role="radiogroup"] {
+            gap: 6px;
+        }
+        .st-key-answer_bubble_grid div[role="radiogroup"] label {
+            border: 1px solid rgba(128,128,128,0.35);
+            border-radius: 999px;
+            padding: 2px 10px 2px 6px;
+            margin-right: 0 !important;
+        }
+        .q-num-badge {
+            display: inline-block;
+            min-width: 28px;
+            font-weight: 600;
+            color: var(--text-color, inherit);
+            opacity: 0.75;
+            padding-top: 6px;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _answer_key(q):
+    return f"ans_q_{q}"
+
+
+def _count_answered(total_q):
+    return sum(1 for q in range(1, total_q + 1) if st.session_state.get(_answer_key(q)) is not None)
+
+
+def _build_answer_string(total_q):
+    return "".join(st.session_state.get(_answer_key(q)) or "?" for q in range(1, total_q + 1))
+
+
+def _render_bubble_block(q_start, q_end):
+    for q in range(q_start, q_end + 1):
+        num_col, radio_col = st.columns([0.55, 3], gap="small")
+        with num_col:
+            st.markdown(f"<div class='q-num-badge'>{q}</div>", unsafe_allow_html=True)
+        with radio_col:
+            st.radio(
+                f"Q{q}",
+                options=["A", "B", "C", "D"],
+                index=None,
+                horizontal=True,
+                key=_answer_key(q),
+                label_visibility="collapsed",
+            )
+
 
 def render_answer_key_tab():
     st.subheader("🗓️ Set Today's Answer Key & Exam Time")
 
+    # ---- Step 1: how many MCQs (always asked first) ----
+    st.markdown("#### ① কতগুলো MCQ থাকবে? (Exam Style)")
+    exam_style = st.radio(
+        "Exam Style",
+        ["📄 100 Questions (Q1-100)", "📄 40 Questions (Q1-40)"],
+        horizontal=True,
+        label_visibility="collapsed",
+        key="mentor_exam_style_choice",
+    )
+    total_q = 100 if "100" in exam_style else 40
+
+    # reset the answer grid whenever the question-count changes
+    if st.session_state.get("mentor_answer_total_q") != total_q:
+        for q in range(1, 101):
+            st.session_state.pop(_answer_key(q), None)
+        st.session_state["mentor_answer_total_q"] = total_q
+
+    st.divider()
+
+    # ---- Step 2: exam details ----
+    st.markdown("#### ② Exam Details")
     exam_name = st.text_input("Exam name", placeholder="e.g. Physics Model Test - 3")
 
     d = st.date_input("Exam date", value=date.today())
@@ -77,13 +163,6 @@ def render_answer_key_tab():
     with col2:
         end_t = st.time_input("End time", value=dtime(9, 30))
 
-    exam_style = st.radio(
-        "Exam Style",
-        ["100 Marks (Question 1-100)", "40 Marks (Question 1-40)"],
-        horizontal=True,
-    )
-    total_q = 100 if "100" in exam_style else 40
-
     pdf_file = st.file_uploader(
         "Question PDF (optional - if provided, students can view it in the app)",
         type=["pdf"],
@@ -92,66 +171,51 @@ def render_answer_key_tab():
 
     st.divider()
 
-    calibration = sh.load_calibration()
-    if not calibration:
-        st.warning("⚠️ Calibrate the OMR sheet first under Mentor Panel > Calibration, then you can fill in answers here by clicking bubbles. For now, you can enter answers as text below.")
-        _render_text_fallback(exam_name, d, start_t, end_t, total_q, pdf_file)
-        return
+    # ---- Step 3: fill answers (native bubble grid) ----
+    answered = _count_answered(total_q)
+    st.markdown(f"#### ③ ✏️ Fill the Answer Key ({answered}/{total_q} answered)")
+    st.progress(answered / total_q if total_q else 0)
 
-    grid = omr_scanner.build_grid(calibration)
-
-    # session state setup / reset if exam style changed
-    if st.session_state.get("mentor_answer_total_q") != total_q:
-        st.session_state["mentor_answer_map"] = {}
-        st.session_state["mentor_answer_total_q"] = total_q
-        st.session_state["mentor_last_click"] = None
-
-    answer_map = st.session_state.setdefault("mentor_answer_map", {})
-
-    st.markdown(f"### ✏️ Fill the Answer Key - Click the Bubbles ({len(answer_map)}/{total_q} answered)")
-    st.progress(len(answer_map) / total_q if total_q else 0)
-
-    img = omr_scanner.render_sheet_image(grid, total_questions=total_q, answers=answer_map)
-    coords = streamlit_image_coordinates(img, key="answer_click_img")
-
-    if coords is not None:
-        pt = (coords["x"], coords["y"])
-        if st.session_state.get("mentor_last_click") != pt:
-            st.session_state["mentor_last_click"] = pt
-            hit = omr_scanner.find_clicked_bubble(grid, total_q, pt[0], pt[1])
-            if hit:
-                q, opt = hit
-                if answer_map.get(q) == opt:
-                    del answer_map[q]
-                else:
-                    answer_map[q] = opt
-                st.rerun()
-
-    col_a, col_b = st.columns(2)
-    with col_a:
-        if st.button("🗑️ Clear All"):
-            st.session_state["mentor_answer_map"] = {}
+    tool_col1, tool_col2 = st.columns(2)
+    with tool_col1:
+        if st.button("🗑️ Clear All", use_container_width=True):
+            for q in range(1, total_q + 1):
+                st.session_state.pop(_answer_key(q), None)
             st.rerun()
-    with col_b:
-        with st.popover("⌨️ Fill Quickly with Text"):
+    with tool_col2:
+        with st.popover("⌨️ Fill Quickly with Text", use_container_width=True):
             text_val = st.text_input(f"{total_q} characters (A/B/C/D), no spaces", key="quick_text_ans")
             if st.button("Apply Text"):
                 cleaned = text_val.strip().upper().replace(" ", "")
                 if len(cleaned) != total_q or any(c not in "ABCD" for c in cleaned):
                     st.error(f"You must enter exactly {total_q} A/B/C/D characters.")
                 else:
-                    st.session_state["mentor_answer_map"] = {i + 1: c for i, c in enumerate(cleaned)}
+                    for i, c in enumerate(cleaned):
+                        st.session_state[_answer_key(i + 1)] = c
                     st.rerun()
+
+    _inject_bubble_grid_css()
+    with st.container(key="answer_bubble_grid"):
+        if total_q == 100:
+            blocks = [(1, 25), (26, 50), (51, 75), (76, 100)]
+        else:
+            blocks = [(1, 20), (21, 40)]
+
+        grid_cols = st.columns(len(blocks))
+        for col, (b_start, b_end) in zip(grid_cols, blocks):
+            with col:
+                _render_bubble_block(b_start, b_end)
 
     st.divider()
 
     if st.button("✅ Save Answer Key", type="primary", use_container_width=True):
+        answered = _count_answered(total_q)
         if not exam_name.strip():
             st.error("Please enter an exam name.")
-        elif len(answer_map) != total_q:
-            st.error(f"You must answer all {total_q} questions (currently {len(answer_map)} answered).")
+        elif answered != total_q:
+            st.error(f"You must answer all {total_q} questions (currently {answered} answered).")
         else:
-            answer_string = "".join(answer_map[i] for i in range(1, total_q + 1))
+            answer_string = _build_answer_string(total_q)
             pdf_url = ""
             if pdf_file is not None:
                 with st.spinner("Uploading question PDF..."):
@@ -164,33 +228,8 @@ def render_answer_key_tab():
             end_str = f"{d.strftime('%Y-%m-%d')} {end_t.strftime('%H:%M')}"
             key_id = sh.add_answer_key(exam_name.strip(), d.strftime("%Y-%m-%d"), start_str, end_str,
                                         total_q, answer_string, pdf_url)
-            st.session_state["mentor_answer_map"] = {}
-            st.session_state["mentor_last_click"] = None
-            st.success(f"✅ Answer key for '{exam_name}' saved! Key ID: {key_id}")
-
-
-def _render_text_fallback(exam_name, d, start_t, end_t, total_q, pdf_file):
-    answer_string = st.text_input(f"Enter the {total_q} correct answers (e.g. ABCDABCD...)", max_chars=total_q)
-    st.caption(f"Character count: {len(answer_string)}/{total_q}")
-
-    if st.button("✅ Save Answer Key (Text)", type="primary"):
-        cleaned = answer_string.strip().upper().replace(" ", "")
-        if not exam_name.strip():
-            st.error("Please enter an exam name.")
-        elif len(cleaned) != total_q or any(c not in "ABCD" for c in cleaned):
-            st.error(f"You must enter exactly {total_q} A/B/C/D characters, no spaces or other characters.")
-        else:
-            pdf_url = ""
-            if pdf_file is not None:
-                with st.spinner("Uploading question PDF..."):
-                    try:
-                        pdf_url = sh.upload_pdf_to_drive(pdf_file.getvalue(), pdf_file.name)
-                    except Exception as e:
-                        st.warning(f"Could not upload the PDF (answer key was still saved): {e}")
-            start_str = f"{d.strftime('%Y-%m-%d')} {start_t.strftime('%H:%M')}"
-            end_str = f"{d.strftime('%Y-%m-%d')} {end_t.strftime('%H:%M')}"
-            key_id = sh.add_answer_key(exam_name.strip(), d.strftime("%Y-%m-%d"), start_str, end_str,
-                                        total_q, cleaned, pdf_url)
+            for q in range(1, total_q + 1):
+                st.session_state.pop(_answer_key(q), None)
             st.success(f"✅ Answer key for '{exam_name}' saved! Key ID: {key_id}")
 
 
