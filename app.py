@@ -1,501 +1,338 @@
 """
-app.py
-------
-OMR Result App - main Streamlit application.
+sheets_helper.py
+-----------------
+All functions for using Google Sheets as the app's database.
+3 worksheets (tabs) are needed inside one Google Sheet:
+  1. AnswerKeys  -> key_id, exam_name, date, start_time, end_time,
+                    total_questions, answer_string,
+                    negative_marking, negative_marks_value
+  2. Config      -> calibration_json, mentor_password (key-value store)
+  3. Results     -> timestamp, student, key_id, score, total, wrong_questions,
+                    answered, skipped, correct, wrong_count, accuracy, marks
 
-Pages:
-  - Login (shared password to keep the app private)
-  - Mentor: Set answer key (visual click) + exam time, calibration,
-            password change
-  - Student: Enter your name and upload an OMR sheet to see your result
-  - Leaderboard: Daily + Overall analysis - open to everyone
-
-Run with: streamlit run app.py
+The Sheet name/ID is stored as SHEET_ID in .streamlit/secrets.toml.
 """
 
-from datetime import datetime, date, time as dtime, timedelta
+import json
+import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
-import cv2
+import gspread
 import numpy as np
+import pandas as pd
 import streamlit as st
-from PIL import Image
-from streamlit_image_coordinates import streamlit_image_coordinates
+from google.oauth2.service_account import Credentials
 
-import omr_scanner
-import sheets_helper as sh
+SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets",
+]
 
-st.set_page_config(page_title="OMR Result App", page_icon="📝", layout="centered")
+ANSWERKEYS_HEADER = [
+    "key_id", "exam_name", "date", "start_time", "end_time",
+    "total_questions", "answer_string",
+    "negative_marking", "negative_marks_value",
+]
+RESULTS_HEADER = [
+    "timestamp", "student", "key_id", "score", "total", "wrong_questions",
+    "answered", "skipped", "correct", "wrong_count", "accuracy", "marks",
+]
+CONFIG_HEADER = ["config_key", "config_value"]
 
-
-# ---------------- Auth ----------------
-
-def check_password():
-    if st.session_state.get("authed"):
-        return True
-
-    st.markdown(
-        "<h1 style='text-align:center;'>📝 OMR Result App</h1>"
-        "<p style='text-align:center; color:gray;'>Enter the password to log in</p>",
-        unsafe_allow_html=True,
-    )
-    _, mid, _ = st.columns([1, 2, 1])
-    with mid:
-        pw = st.text_input("Password", type="password", label_visibility="collapsed", placeholder="Password")
-        if st.button("Login", use_container_width=True, type="primary"):
-            if pw == st.secrets.get("APP_PASSWORD", ""):
-                st.session_state["authed"] = True
-                st.rerun()
-            else:
-                st.error("Incorrect password.")
-    return False
+BD_TZ = ZoneInfo("Asia/Dhaka")
 
 
-def is_mentor():
-    if st.session_state.get("mentor_authed"):
-        return True
-    pw = st.text_input("Mentor password", type="password", key="mentor_pw")
-    if st.button("Mentor Login"):
-        if pw == sh.get_mentor_password():
-            st.session_state["mentor_authed"] = True
-            st.rerun()
-        else:
-            st.error("Incorrect mentor password.")
-    return False
+def now_bd():
+    """
+    Streamlit Cloud's server runs on UTC time, but the mentor sets exam
+    times based on Bangladesh time. So whenever we need "what time is it
+    right now", use this function - it always returns the correct
+    Bangladesh time regardless of where the server is located.
+    """
+    return datetime.now(BD_TZ).replace(tzinfo=None)
 
 
-# ---------------- Mentor: Answer Key tab (native bubble-grid input) ----------------
-#
-# This does NOT depend on any sheet image or calibration - it's a plain,
-# self-contained UI. Step 1 is always "how many MCQs" (40 or 100), then a
-# clean bubble grid (A/B/C/D radio per question) to fill the key.
-
-def _inject_bubble_grid_css():
-    st.markdown(
-        """
-        <style>
-        .st-key-answer_bubble_grid div[data-testid="stRadio"] {
-            margin-bottom: -14px;
-        }
-        .st-key-answer_bubble_grid div[data-testid="stRadio"] > label {
-            display: none;
-        }
-        .st-key-answer_bubble_grid div[role="radiogroup"] {
-            gap: 6px;
-        }
-        .st-key-answer_bubble_grid div[role="radiogroup"] label {
-            border: 1px solid rgba(128,128,128,0.35);
-            border-radius: 999px;
-            padding: 2px 10px 2px 6px;
-            margin-right: 0 !important;
-        }
-        .q-num-badge {
-            display: inline-block;
-            min-width: 28px;
-            font-weight: 600;
-            color: var(--text-color, inherit);
-            opacity: 0.75;
-            padding-top: 6px;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+def _with_retry(func, *args, **kwargs):
+    """Google Sheets API sometimes rate-limits (429); wait and retry."""
+    delays = [1, 2, 4, 8]
+    last_err = None
+    for delay in delays:
+        try:
+            return func(*args, **kwargs)
+        except gspread.exceptions.APIError as e:
+            last_err = e
+            time.sleep(delay)
+    return func(*args, **kwargs) if last_err is None else (_ for _ in ()).throw(last_err)
 
 
-def _answer_key(q):
-    return f"ans_q_{q}"
+@st.cache_resource(show_spinner=False)
+def get_client():
+    creds_dict = dict(st.secrets["gcp_service_account"])
+    creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+    return gspread.authorize(creds)
 
 
-def _count_answered(total_q):
-    return sum(1 for q in range(1, total_q + 1) if st.session_state.get(_answer_key(q)) is not None)
+@st.cache_resource(show_spinner=False)
+def get_spreadsheet():
+    client = get_client()
+    return _with_retry(client.open_by_key, st.secrets["SHEET_ID"])
 
 
-def _build_answer_string(total_q):
-    return "".join(st.session_state.get(_answer_key(q)) or "?" for q in range(1, total_q + 1))
-
-
-def _render_bubble_block(q_start, q_end):
-    for q in range(q_start, q_end + 1):
-        num_col, radio_col = st.columns([0.55, 3], gap="small")
-        with num_col:
-            st.markdown(f"<div class='q-num-badge'>{q}</div>", unsafe_allow_html=True)
-        with radio_col:
-            st.radio(
-                f"Q{q}",
-                options=["A", "B", "C", "D"],
-                index=None,
-                horizontal=True,
-                key=_answer_key(q),
-                label_visibility="collapsed",
-            )
-
-
-def render_answer_key_tab():
-    st.subheader("🗓️ Set Today's Answer Key & Exam Time")
-
-    # ---- Step 1: how many MCQs (always asked first) ----
-    st.markdown("#### ① কতগুলো MCQ থাকবে? (Exam Style)")
-    exam_style = st.radio(
-        "Exam Style",
-        ["📄 100 Questions (Q1-100)", "📄 40 Questions (Q1-40)"],
-        horizontal=True,
-        label_visibility="collapsed",
-        key="mentor_exam_style_choice",
-    )
-    total_q = 100 if "100" in exam_style else 40
-
-    # reset the answer grid whenever the question-count changes
-    if st.session_state.get("mentor_answer_total_q") != total_q:
-        for q in range(1, 101):
-            st.session_state.pop(_answer_key(q), None)
-        st.session_state["mentor_answer_total_q"] = total_q
-
-    st.divider()
-
-    # ---- Step 2: exam details ----
-    st.markdown("#### ② Exam Details")
-    exam_name = st.text_input("Exam name", placeholder="e.g. Physics Model Test - 3")
-
-    d = st.date_input("Exam date", value=date.today())
-    col1, col2 = st.columns(2)
-    with col1:
-        start_t = st.time_input("Start time", value=dtime(9, 0))
-    with col2:
-        end_t = st.time_input("End time", value=dtime(9, 30))
-
-    st.divider()
-
-    # ---- Step 3: fill answers (native bubble grid) ----
-    answered = _count_answered(total_q)
-    st.markdown(f"#### ③ ✏️ Fill the Answer Key ({answered}/{total_q} answered)")
-    st.progress(answered / total_q if total_q else 0)
-
-    tool_col1, tool_col2 = st.columns(2)
-    with tool_col1:
-        if st.button("🗑️ Clear All", use_container_width=True):
-            for q in range(1, total_q + 1):
-                st.session_state.pop(_answer_key(q), None)
-            st.rerun()
-    with tool_col2:
-        with st.popover("⌨️ Fill Quickly with Text", use_container_width=True):
-            text_val = st.text_input(f"{total_q} characters (A/B/C/D), no spaces", key="quick_text_ans")
-            if st.button("Apply Text"):
-                cleaned = text_val.strip().upper().replace(" ", "")
-                if len(cleaned) != total_q or any(c not in "ABCD" for c in cleaned):
-                    st.error(f"You must enter exactly {total_q} A/B/C/D characters.")
-                else:
-                    for i, c in enumerate(cleaned):
-                        st.session_state[_answer_key(i + 1)] = c
-                    st.rerun()
-
-    _inject_bubble_grid_css()
-    with st.container(key="answer_bubble_grid"):
-        if total_q == 100:
-            blocks = [(1, 25), (26, 50), (51, 75), (76, 100)]
-        else:
-            blocks = [(1, 20), (21, 40)]
-
-        grid_cols = st.columns(len(blocks))
-        for col, (b_start, b_end) in zip(grid_cols, blocks):
-            with col:
-                _render_bubble_block(b_start, b_end)
-
-    st.divider()
-
-    if st.button("✅ Save Answer Key", type="primary", use_container_width=True):
-        answered = _count_answered(total_q)
-        if not exam_name.strip():
-            st.error("Please enter an exam name.")
-        elif answered != total_q:
-            st.error(f"You must answer all {total_q} questions (currently {answered} answered).")
-        else:
-            answer_string = _build_answer_string(total_q)
-
-            start_str = f"{d.strftime('%Y-%m-%d')} {start_t.strftime('%H:%M')}"
-            end_str = f"{d.strftime('%Y-%m-%d')} {end_t.strftime('%H:%M')}"
-            key_id = sh.add_answer_key(exam_name.strip(), d.strftime("%Y-%m-%d"), start_str, end_str,
-                                        total_q, answer_string)
-            for q in range(1, total_q + 1):
-                st.session_state.pop(_answer_key(q), None)
-            st.success(f"✅ Answer key for '{exam_name}' saved! Key ID: {key_id}")
-
-
-# ---------------- Mentor Panel ----------------
-
-def page_mentor():
-    st.header("👨‍🏫 Mentor Panel")
-    if not is_mentor():
-        return
-
-    tab1, tab2, tab3, tab4 = st.tabs(
-        ["📝 Answer Key", "🎯 Calibration", "📋 All Answer Keys", "🔑 Password"]
-    )
-
-    with tab1:
-        render_answer_key_tab()
-
-    with tab2:
-        existing_calibration = sh.load_calibration()
-
-        if existing_calibration and not st.session_state.get("force_recalibrate"):
-            st.success("✅ Calibration is already saved - no need to redo it.")
-            with st.expander("View the currently active calibration"):
-                st.json(existing_calibration)
-            st.caption("Students can submit OMR sheets normally. You don't need to visit this page again unless the sheet design changes.")
-            if st.button("🔄 Recalibrate"):
-                st.session_state["force_recalibrate"] = True
-                st.session_state["calib_points"] = []
-                st.rerun()
-        else:
-            if existing_calibration:
-                st.info("You're creating a new calibration - the old one will be replaced when you save.")
-                if st.button("❌ Go Back to the Previous Calibration"):
-                    st.session_state["force_recalibrate"] = False
-                    st.rerun()
-
-            st.subheader("🎯 OMR Sheet Calibration (only needed once)")
-            st.markdown(
-                """
-Upload a **straight, clear photo of a blank OMR sheet**, then click 4 points
-on the image below in this order:
-
-1. Question **1** - center of bubble **A**
-2. Question **1** - center of bubble **D**
-3. Question **25** - center of bubble **A**
-4. Question **26** - center of bubble **A**
-                """
-            )
-            uploaded = st.file_uploader("Upload blank OMR sheet", type=["png", "jpg", "jpeg"], key="calib_upload")
-
-            if uploaded:
-                image = Image.open(uploaded).convert("RGB")
-                img_bgr = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-                warped, ok = omr_scanner.detect_and_warp(img_bgr)
-                if not ok:
-                    st.warning("Couldn't automatically detect the sheet's 4 corners. You can still click below to calibrate, but retaking the photo straighter/flatter will help.")
-
-                warped_rgb = cv2.cvtColor(warped, cv2.COLOR_BGR2RGB)
-                warped_pil = Image.fromarray(warped_rgb)
-
-                if "calib_points" not in st.session_state:
-                    st.session_state["calib_points"] = []
-
-                labels = ["Q1-A", "Q1-D", "Q25-A", "Q26-A"]
-                current_step = len(st.session_state["calib_points"])
-
-                if current_step < 4:
-                    st.info(f"Now click: **{labels[current_step]}**")
-                    coords = streamlit_image_coordinates(warped_pil, key="calib_img")
-                    if coords is not None:
-                        pt = (coords["x"], coords["y"])
-                        if not st.session_state["calib_points"] or st.session_state["calib_points"][-1] != pt:
-                            st.session_state["calib_points"].append(pt)
-                            st.rerun()
-                else:
-                    st.success("All 4 points have been clicked!")
-                    pts = st.session_state["calib_points"]
-                    for lbl, pt in zip(labels, pts):
-                        st.write(f"- {lbl}: {pt}")
-
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        if st.button("🔄 Start Over"):
-                            st.session_state["calib_points"] = []
-                            st.rerun()
-                    with col2:
-                        if st.button("💾 Save Calibration", type="primary"):
-                            calibration = {
-                                "q1_a": pts[0],
-                                "q1_d": pts[1],
-                                "q25_a": pts[2],
-                                "q26_a": pts[3],
-                            }
-                            sh.save_calibration(calibration)
-                            st.success("Calibration saved! Students can now upload OMR sheets.")
-                            st.session_state["calib_points"] = []
-                            st.session_state["force_recalibrate"] = False
-
-    with tab3:
-        st.subheader("📋 All Answer Keys")
-        df = sh.get_all_answer_keys()
-        if df.empty:
-            st.info("No answer key has been set yet.")
-        else:
-            show_cols = ["key_id", "exam_name", "date", "start_time", "end_time", "total_questions"]
-            show_cols = [c for c in show_cols if c in df.columns]
-            display_df = df[show_cols].iloc[::-1].reset_index(drop=True)
-            st.dataframe(display_df, use_container_width=True, hide_index=True)
-
-    with tab4:
-        st.subheader("🔑 Change Mentor Password")
-        st.caption("This password is for you (the mentor) only - no coding needed, you can change it right here.")
-
-        current_pw = st.text_input("Current password", type="password", key="cur_pw")
-        new_pw1 = st.text_input("New password", type="password", key="new_pw1")
-        new_pw2 = st.text_input("Re-enter new password", type="password", key="new_pw2")
-
-        if st.button("✅ Update Password", type="primary"):
-            if current_pw != sh.get_mentor_password():
-                st.error("Current password is incorrect.")
-            elif not new_pw1:
-                st.error("New password cannot be empty.")
-            elif new_pw1 != new_pw2:
-                st.error("The two new password entries don't match.")
-            else:
-                sh.set_mentor_password(new_pw1)
-                st.session_state["mentor_authed"] = False
-                st.success("Password changed! Please log in again with the new password.")
-                st.rerun()
-
-
-# ---------------- Student Panel ----------------
-
-def page_student():
-    st.header("🎓 Student - Submit OMR")
-
-    calibration = sh.load_calibration()
-    if not calibration:
-        st.error("The mentor hasn't calibrated the OMR sheet yet. Please ask the mentor to complete calibration first.")
-        return
-
-    name = st.text_input("Enter your name", placeholder="e.g. Rahim Ahmed")
-
-    active = sh.get_active_answer_key()
-
-    if active:
-        remaining = active["end_dt"] - sh.now_bd()
-        mins_left = max(0, int(remaining.total_seconds() // 60))
-        with st.container(border=True):
-            st.markdown(f"### 🟢 Active Exam: {active['exam_name'] or active['key_id']}")
-            c1, c2 = st.columns(2)
-            c1.metric("Total Questions/Marks", active["total_questions"])
-            c2.metric("Time Remaining", f"{mins_left} min")
+def _get_or_create_worksheet(sh, title, header):
+    try:
+        ws = _with_retry(sh.worksheet, title)
+    except gspread.WorksheetNotFound:
+        ws = _with_retry(sh.add_worksheet, title=title, rows=1000, cols=len(header) + 2)
+        _with_retry(ws.append_row, header)
+        return ws
+    values = _with_retry(ws.get_all_values)
+    if not values:
+        _with_retry(ws.append_row, header)
     else:
-        upcoming = sh.get_upcoming_answer_key()
-        if upcoming:
-            st.warning(
-                f"No exam is active right now. Next exam: **{upcoming['exam_name'] or upcoming['key_id']}** "
-                f"starts at **{upcoming['start_dt'].strftime('%Y-%m-%d %H:%M')}**."
-            )
-        else:
-            st.info("No exam is active or upcoming right now.")
-
-    uploaded = st.file_uploader("Upload a photo of your filled OMR sheet", type=["png", "jpg", "jpeg"])
-
-    if uploaded:
-        image = Image.open(uploaded).convert("RGB")
-        st.image(image, caption="Uploaded photo", use_container_width=True)
-
-        disabled = not active or not name.strip()
-        if not name.strip():
-            st.caption("⚠️ Please enter your name first.")
-
-        if st.button("📤 Submit & See Score", type="primary", disabled=disabled):
-            with st.spinner("Checking your answers..."):
-                img_bgr = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-                warped, ok = omr_scanner.detect_and_warp(img_bgr)
-                if not ok:
-                    st.warning("Couldn't clearly detect the sheet's corners - still trying anyway. The result may be inaccurate; retake the photo straighter and try again if it looks wrong.")
-
-                grid = omr_scanner.build_grid(calibration)
-                student_answers = omr_scanner.read_answers(warped, grid)
-
-                active_now = sh.get_active_answer_key()
-                if not active_now:
-                    st.error("No exam is active right now (outside the mentor's time window). The result cannot be recorded.")
-                    return
-
-                key_string = active_now["answer_string"]
-                key_id = active_now["key_id"]
-                end_dt = active_now["end_dt"]
-
-                score, total, wrong = omr_scanner.score_answers(student_answers, key_string)
-                sh.append_result(name.strip(), key_id, score, total, wrong)
-
-                st.success(f"Result saved! Score: {score} / {total}")
-                st.metric("Your Score", f"{score} / {total}")
-
-                if wrong:
-                    window_closed = end_dt is not None and sh.now_bd() > end_dt
-                    if window_closed:
-                        st.write("Questions you got wrong, with the correct answer:")
-                        lines = [f"Q{q}: correct answer {key_string[q - 1]}" for q in wrong]
-                        st.write(", ".join(lines))
-                    else:
-                        st.write("Question numbers you got wrong:", ", ".join(str(w) for w in wrong))
-                        st.caption("Correct answers will be shown once the exam time window closes.")
+        # update header if an older sheet is missing newer columns
+        existing_header = values[0]
+        if existing_header != header and len(header) > len(existing_header):
+            _with_retry(ws.update, "A1", [header])
+    return ws
 
 
-# ---------------- Leaderboard Panel ----------------
-
-def page_leaderboard():
-    st.header("🏆 Leaderboard")
-
-    tab1, tab2 = st.tabs(["📅 Daily Exam Leaderboard", "📊 Overall Analysis"])
-
-    with tab1:
-        keys_df = sh.get_all_answer_keys()
-        if keys_df.empty:
-            st.info("No exam/answer key has been set yet.")
-        else:
-            keys_df = keys_df.iloc[::-1].reset_index(drop=True)
-            options = {}
-            for _, row in keys_df.iterrows():
-                label = f"{row.get('exam_name') or row['key_id']} | {row['date']} | {row['start_time'][-5:]}-{row['end_time'][-5:]}"
-                options[label] = row["key_id"]
-
-            choice = st.selectbox("Choose which exam's results to view", list(options.keys()))
-            if st.button("🔄 Refresh", key="refresh_daily"):
-                st.rerun()
-
-            selected_key = options[choice]
-            df = sh.get_leaderboard_by_key(selected_key)
-            if df.empty:
-                st.info("No results have been submitted for this exam yet.")
-            else:
-                st.dataframe(
-                    df[["rank", "student", "score", "total", "timestamp"]],
-                    use_container_width=True,
-                    hide_index=True,
-                )
-
-    with tab2:
-        st.caption("Ranking by average percentage across all exams combined.")
-        if st.button("🔄 Refresh", key="refresh_overall"):
-            st.rerun()
-
-        df = sh.get_overall_leaderboard()
-        if df.empty:
-            st.info("No results have been submitted yet.")
-        else:
-            show_df = df[["rank", "student", "avg_percent", "exams_taken", "total_score", "total_possible"]].copy()
-            show_df.columns = ["Rank", "Student", "Average %", "Exams Taken", "Total Score", "Total Possible"]
-            st.dataframe(show_df, use_container_width=True, hide_index=True)
+@st.cache_resource(show_spinner=False)
+def _cached_worksheet(title):
+    header_map = {
+        "AnswerKeys": ANSWERKEYS_HEADER,
+        "Config": CONFIG_HEADER,
+        "Results": RESULTS_HEADER,
+    }
+    sh = get_spreadsheet()
+    return _get_or_create_worksheet(sh, title, header_map[title])
 
 
-# ---------------- Main ----------------
+def init_sheets():
+    _cached_worksheet("AnswerKeys")
+    _cached_worksheet("Config")
+    _cached_worksheet("Results")
+    return get_spreadsheet()
 
-def main():
-    if not check_password():
-        return
 
-    sh.init_sheets()
+# ---------------- Answer Keys ----------------
 
-    st.sidebar.markdown("## 📝 OMR Result App")
-    st.sidebar.divider()
-    page = st.sidebar.radio(
-        "Menu",
-        ["🎓 Student - Submit OMR", "🏆 Leaderboard", "👨‍🏫 Mentor Panel"],
-        label_visibility="collapsed",
+def add_answer_key(exam_name, date_str, start_time_str, end_time_str,
+                    total_questions, answer_string,
+                    negative_marking=False, negative_marks_value=0.0):
+    ws = _cached_worksheet("AnswerKeys")
+    existing = _with_retry(ws.get_all_records)
+    key_id = f"K{len(existing) + 1:04d}"
+    _with_retry(
+        ws.append_row,
+        [key_id, exam_name, date_str, start_time_str, end_time_str,
+         total_questions, answer_string,
+         int(bool(negative_marking)), float(negative_marks_value or 0)],
+    )
+    return key_id
+
+
+def get_all_answer_keys():
+    ws = _cached_worksheet("AnswerKeys")
+    records = _with_retry(ws.get_all_records)
+    return pd.DataFrame(records)
+
+
+def _parse_negative_marking(row):
+    try:
+        negative_marking = bool(int(row.get("negative_marking") or 0))
+    except (TypeError, ValueError):
+        negative_marking = str(row.get("negative_marking", "")).strip().upper() in ("TRUE", "1", "YES")
+    try:
+        negative_marks_value = float(row.get("negative_marks_value") or 0)
+    except (TypeError, ValueError):
+        negative_marks_value = 0.0
+    return negative_marking, negative_marks_value
+
+
+def get_active_answer_key(now=None):
+    """
+    Finds which answer key is active right now.
+    Returns: dict {key_id, exam_name, answer_string, total_questions,
+                   end_dt, negative_marking, negative_marks_value}  or None.
+    """
+    if now is None:
+        now = now_bd()
+    df = get_all_answer_keys()
+    if df.empty:
+        return None
+
+    for _, row in df.iterrows():
+        try:
+            start_dt = datetime.strptime(str(row["start_time"]), "%Y-%m-%d %H:%M")
+            end_dt = datetime.strptime(str(row["end_time"]), "%Y-%m-%d %H:%M")
+        except Exception:
+            continue
+        if start_dt <= now <= end_dt:
+            negative_marking, negative_marks_value = _parse_negative_marking(row)
+            return {
+                "key_id": row["key_id"],
+                "exam_name": row.get("exam_name", ""),
+                "answer_string": row["answer_string"],
+                "total_questions": int(row.get("total_questions") or len(row["answer_string"])),
+                "end_dt": end_dt,
+                "start_dt": start_dt,
+                "negative_marking": negative_marking,
+                "negative_marks_value": negative_marks_value,
+            }
+    return None
+
+
+def get_upcoming_answer_key(now=None):
+    """Finds the nearest upcoming exam (start time in the future), or None."""
+    if now is None:
+        now = now_bd()
+    df = get_all_answer_keys()
+    if df.empty:
+        return None
+    best_row = None
+    best_dt = None
+    for _, row in df.iterrows():
+        try:
+            start_dt = datetime.strptime(str(row["start_time"]), "%Y-%m-%d %H:%M")
+        except Exception:
+            continue
+        if start_dt > now and (best_dt is None or start_dt < best_dt):
+            best_dt = start_dt
+            best_row = row
+    if best_row is None:
+        return None
+    return {
+        "key_id": best_row["key_id"],
+        "exam_name": best_row.get("exam_name", ""),
+        "start_dt": best_dt,
+    }
+
+
+# ---------------- Config (generic key-value store) ----------------
+
+def set_config_value(key, value):
+    ws = _cached_worksheet("Config")
+    values = _with_retry(ws.get_all_values)
+    json_str = json.dumps(value)
+
+    row_idx = None
+    for i, row in enumerate(values):
+        if row and row[0] == key:
+            row_idx = i + 1
+            break
+
+    if row_idx:
+        _with_retry(ws.update, f"A{row_idx}:B{row_idx}", [[key, json_str]])
+    else:
+        _with_retry(ws.append_row, [key, json_str])
+
+
+def get_config_value(key, default=None):
+    ws = _cached_worksheet("Config")
+    values = _with_retry(ws.get_all_values)
+    for row in values:
+        if row and row[0] == key:
+            try:
+                return json.loads(row[1])
+            except Exception:
+                return default
+    return default
+
+
+# ---------------- Calibration ----------------
+
+def save_calibration(calibration_dict):
+    set_config_value("calibration", calibration_dict)
+
+
+def load_calibration():
+    return get_config_value("calibration", default=None)
+
+
+# ---------------- Mentor Password ----------------
+
+def get_mentor_password():
+    saved = get_config_value("mentor_password", default=None)
+    if saved:
+        return saved
+    return st.secrets.get("MENTOR_PASSWORD", "")
+
+
+def set_mentor_password(new_password):
+    set_config_value("mentor_password", new_password)
+
+
+# ---------------- Results ----------------
+
+def append_result(student, key_id, result):
+    """
+    result: the dict returned by omr_scanner.score_answers(), containing
+    total, answered, skipped, correct, wrong_count, wrong, accuracy, marks.
+    """
+    ws = _cached_worksheet("Results")
+    timestamp = now_bd().strftime("%Y-%m-%d %H:%M:%S")
+    wrong_str = ",".join(str(q) for q in result["wrong"])
+    _with_retry(
+        ws.append_row,
+        [
+            timestamp, student, key_id,
+            result["correct"], result["total"], wrong_str,
+            result["answered"], result["skipped"], result["correct"],
+            result["wrong_count"], result["accuracy"], result["marks"],
+        ],
     )
 
-    if page == "🎓 Student - Submit OMR":
-        page_student()
-    elif page == "🏆 Leaderboard":
-        page_leaderboard()
-    elif page == "👨‍🏫 Mentor Panel":
-        page_mentor()
+
+def get_all_results_df():
+    ws = _cached_worksheet("Results")
+    records = _with_retry(ws.get_all_records)
+    df = pd.DataFrame(records)
+    if df.empty:
+        return df
+
+    df["score"] = pd.to_numeric(df.get("score"), errors="coerce").fillna(0)
+    df["total"] = pd.to_numeric(df.get("total"), errors="coerce").fillna(0)
+
+    for col in ["answered", "skipped", "correct", "wrong_count", "accuracy", "marks"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+        else:
+            df[col] = np.nan
+
+    # Fill in sensible defaults for older rows saved before these columns existed.
+    df["correct"] = df["correct"].fillna(df["score"])
+    df["answered"] = df["answered"].fillna(df["total"])
+    df["skipped"] = df["skipped"].fillna((df["total"] - df["answered"]).clip(lower=0))
+    df["wrong_count"] = df["wrong_count"].fillna((df["answered"] - df["correct"]).clip(lower=0))
+    safe_answered = df["answered"].replace(0, np.nan)
+    df["accuracy"] = df["accuracy"].fillna(((df["correct"] / safe_answered) * 100).round(2)).fillna(0)
+    df["marks"] = df["marks"].fillna(df["score"])
+    return df
 
 
-if __name__ == "__main__":
-    main()
+def get_leaderboard_by_key(key_id):
+    df = get_all_results_df()
+    if df.empty:
+        return df
+    df = df[df["key_id"] == key_id]
+    if df.empty:
+        return df
+    best = df.sort_values("marks", ascending=False).drop_duplicates("student")
+    best = best.sort_values("marks", ascending=False).reset_index(drop=True)
+    best.insert(0, "rank", range(1, len(best) + 1))
+    return best
+
+
+def get_overall_leaderboard():
+    df = get_all_results_df()
+    if df.empty:
+        return df
+    grouped = df.groupby("student").agg(
+        total_marks=("marks", "sum"),
+        total_possible=("total", "sum"),
+        exams_taken=("key_id", "nunique"),
+    ).reset_index()
+    grouped["avg_percent"] = (grouped["total_marks"] / grouped["total_possible"] * 100).round(2)
+    grouped = grouped.sort_values("avg_percent", ascending=False).reset_index(drop=True)
+    grouped.insert(0, "rank", range(1, len(grouped) + 1))
+    return grouped
