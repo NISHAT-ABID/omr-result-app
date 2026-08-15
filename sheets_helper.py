@@ -4,14 +4,16 @@ sheets_helper.py
 All functions for using Google Sheets as the app's database.
 3 worksheets (tabs) are needed inside one Google Sheet:
   1. AnswerKeys  -> key_id, exam_name, date, start_time, end_time,
-                    total_questions, answer_string, question_pdf_url
+                    total_questions, answer_string,
+                    negative_marking, negative_marks_value
   2. Config      -> calibration_json, mentor_password (key-value store)
-  3. Results     -> timestamp, student, key_id, score, total, wrong_questions
+  3. Results     -> timestamp, student, key_id, total, answered, skipped,
+                    correct, wrong_count, wrong, marks, accuracy,
+                    negative_marking, negative_value
 
 The Sheet name/ID is stored as SHEET_ID in .streamlit/secrets.toml.
 """
 
-import io
 import json
 import time
 from datetime import datetime
@@ -29,9 +31,13 @@ SCOPES = [
 
 ANSWERKEYS_HEADER = [
     "key_id", "exam_name", "date", "start_time", "end_time",
-    "total_questions", "answer_string", "question_pdf_url",
+    "total_questions", "answer_string", "negative_marking", "negative_marks_value",
 ]
-RESULTS_HEADER = ["timestamp", "student", "key_id", "score", "total", "wrong_questions"]
+RESULTS_HEADER = [
+    "timestamp", "student", "key_id", "total", "answered", "skipped",
+    "correct", "wrong_count", "wrong", "marks", "accuracy",
+    "negative_marking", "negative_value",
+]
 CONFIG_HEADER = ["config_key", "config_value"]
 
 BD_TZ = ZoneInfo("Asia/Dhaka")
@@ -60,6 +66,24 @@ def _with_retry(func, *args, **kwargs):
     return func(*args, **kwargs) if last_err is None else (_ for _ in ()).throw(last_err)
 
 
+def _to_bool(val):
+    return str(val).strip().upper() in ("TRUE", "1", "YES")
+
+
+def _to_float(val, default=0.0):
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return default
+
+
+def _to_int(val, default=0):
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        return default
+
+
 @st.cache_resource(show_spinner=False)
 def get_client():
     creds_dict = dict(st.secrets["gcp_service_account"])
@@ -84,7 +108,6 @@ def _get_or_create_worksheet(sh, title, header):
     if not values:
         _with_retry(ws.append_row, header)
     else:
-        # update header if an older sheet is missing newer columns
         existing_header = values[0]
         if existing_header != header and len(header) > len(existing_header):
             _with_retry(ws.update, "A1", [header])
@@ -112,14 +135,15 @@ def init_sheets():
 # ---------------- Answer Keys ----------------
 
 def add_answer_key(exam_name, date_str, start_time_str, end_time_str,
-                    total_questions, answer_string, question_pdf_url=""):
+                    total_questions, answer_string,
+                    negative_marking=False, negative_marks_value=0.0):
     ws = _cached_worksheet("AnswerKeys")
     existing = _with_retry(ws.get_all_records)
     key_id = f"K{len(existing) + 1:04d}"
     _with_retry(
         ws.append_row,
         [key_id, exam_name, date_str, start_time_str, end_time_str,
-         total_questions, answer_string, question_pdf_url],
+         total_questions, answer_string, negative_marking, negative_marks_value],
     )
     return key_id
 
@@ -134,7 +158,8 @@ def get_active_answer_key(now=None):
     """
     Finds which answer key is active right now.
     Returns: dict {key_id, exam_name, answer_string, total_questions,
-                   end_dt, question_pdf_url}  or None.
+                   start_dt, end_dt, negative_marking, negative_marks_value}
+    or None.
     """
     if now is None:
         now = now_bd()
@@ -153,10 +178,11 @@ def get_active_answer_key(now=None):
                 "key_id": row["key_id"],
                 "exam_name": row.get("exam_name", ""),
                 "answer_string": row["answer_string"],
-                "total_questions": int(row.get("total_questions") or len(row["answer_string"])),
-                "end_dt": end_dt,
+                "total_questions": _to_int(row.get("total_questions"), len(str(row["answer_string"]))),
                 "start_dt": start_dt,
-                "question_pdf_url": row.get("question_pdf_url", ""),
+                "end_dt": end_dt,
+                "negative_marking": _to_bool(row.get("negative_marking", False)),
+                "negative_marks_value": _to_float(row.get("negative_marks_value"), 0.0),
             }
     return None
 
@@ -184,7 +210,6 @@ def get_upcoming_answer_key(now=None):
         "key_id": best_row["key_id"],
         "exam_name": best_row.get("exam_name", ""),
         "start_dt": best_dt,
-        "question_pdf_url": best_row.get("question_pdf_url", ""),
     }
 
 
@@ -242,39 +267,25 @@ def set_mentor_password(new_password):
     set_config_value("mentor_password", new_password)
 
 
-# ---------------- Google Drive (question PDF upload, optional) ----------------
-
-@st.cache_resource(show_spinner=False)
-def get_drive_service():
-    from googleapiclient.discovery import build
-    creds_dict = dict(st.secrets["gcp_service_account"])
-    creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
-    return build("drive", "v3", credentials=creds)
-
-
-def upload_pdf_to_drive(file_bytes, filename):
-    """
-    Uploads the question PDF to Google Drive (the service account's own
-    Drive), makes it viewable by anyone with the link, and returns that link.
-    """
-    from googleapiclient.http import MediaIoBaseUpload
-
-    service = get_drive_service()
-    file_metadata = {"name": filename}
-    media = MediaIoBaseUpload(io.BytesIO(file_bytes), mimetype="application/pdf", resumable=False)
-    created = service.files().create(body=file_metadata, media_body=media, fields="id").execute()
-    file_id = created["id"]
-    service.permissions().create(fileId=file_id, body={"type": "anyone", "role": "reader"}).execute()
-    return f"https://drive.google.com/file/d/{file_id}/view?usp=sharing"
-
-
 # ---------------- Results ----------------
 
-def append_result(student, key_id, score, total, wrong_questions):
+def append_result(student, key_id, result):
+    """
+    result is the dict returned by omr_scanner.score_answers():
+      total, answered, skipped, correct, wrong_count, wrong,
+      wrong_details, accuracy, marks, negative_marking, negative_value
+    """
     ws = _cached_worksheet("Results")
     timestamp = now_bd().strftime("%Y-%m-%d %H:%M:%S")
-    wrong_str = ",".join(str(q) for q in wrong_questions)
-    _with_retry(ws.append_row, [timestamp, student, key_id, score, total, wrong_str])
+    wrong_str = ",".join(str(q) for q in result.get("wrong", []))
+    row = [
+        timestamp, student, key_id,
+        result.get("total", 0), result.get("answered", 0), result.get("skipped", 0),
+        result.get("correct", 0), result.get("wrong_count", 0), wrong_str,
+        result.get("marks", 0), result.get("accuracy", 0),
+        result.get("negative_marking", False), result.get("negative_value", 0.0),
+    ]
+    _with_retry(ws.append_row, row)
 
 
 def get_all_results_df():
@@ -282,34 +293,37 @@ def get_all_results_df():
     records = _with_retry(ws.get_all_records)
     df = pd.DataFrame(records)
     if not df.empty:
-        df["score"] = pd.to_numeric(df["score"], errors="coerce")
-        df["total"] = pd.to_numeric(df["total"], errors="coerce")
+        for col in ["total", "answered", "skipped", "correct", "wrong_count", "marks", "accuracy"]:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
     return df
 
 
 def get_leaderboard_by_key(key_id):
+    """Leaderboard for one specific exam - best marks per student."""
     df = get_all_results_df()
     if df.empty:
         return df
     df = df[df["key_id"] == key_id]
     if df.empty:
         return df
-    best = df.sort_values("score", ascending=False).drop_duplicates("student")
-    best = best.sort_values("score", ascending=False).reset_index(drop=True)
+    best = df.sort_values("marks", ascending=False).drop_duplicates("student")
+    best = best.sort_values("marks", ascending=False).reset_index(drop=True)
     best.insert(0, "rank", range(1, len(best) + 1))
     return best
 
 
 def get_overall_leaderboard():
+    """Ranking by average percentage (total marks / total possible) across all exams."""
     df = get_all_results_df()
     if df.empty:
         return df
     grouped = df.groupby("student").agg(
-        total_score=("score", "sum"),
+        total_marks=("marks", "sum"),
         total_possible=("total", "sum"),
         exams_taken=("key_id", "nunique"),
     ).reset_index()
-    grouped["avg_percent"] = (grouped["total_score"] / grouped["total_possible"] * 100).round(2)
+    grouped["avg_percent"] = (grouped["total_marks"] / grouped["total_possible"] * 100).round(2)
     grouped = grouped.sort_values("avg_percent", ascending=False).reset_index(drop=True)
     grouped.insert(0, "rank", range(1, len(grouped) + 1))
     return grouped
