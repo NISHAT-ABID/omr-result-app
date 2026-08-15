@@ -4,11 +4,11 @@ app.py
 OMR Result App - main Streamlit application.
 
 Pages:
-  - Login (shared password to keep the app private)
-  - Mentor: Set answer key (visual click) + exam time (12hr AM/PM),
-            optional negative marking, calibration, password change
-  - Student: Enter your name and upload an OMR sheet to see your result
-  - Leaderboard: Daily + Overall analysis - open to everyone
+- Login (shared password to keep the app private)
+- Mentor: Set answer key (visual click) + exam time (12hr AM/PM),
+  optional negative marking, calibration, password change
+- Student: Enter your name and upload an OMR sheet to see your result
+- Leaderboard: Daily + Overall analysis - open to everyone
 
 Run with: streamlit run app.py
 """
@@ -131,35 +131,73 @@ def _render_bubble_block(q_start, q_end):
             )
 
 
-def _time_input_12h(key_prefix, default_hour_24=9, default_minute=0):
+# ---------------- Minimal 12-hour time picker (HH : MM  AM/PM) ----------------
+
+def _inject_time_picker_css():
+    st.markdown(
+        """
+        <style>
+        .time-picker-block div[data-testid="stSelectbox"] {
+            margin-bottom: 0px;
+        }
+        .time-picker-block div[data-baseweb="select"] > div {
+            border-radius: 8px;
+            min-height: 42px;
+        }
+        .time-picker-colon {
+            text-align: center;
+            font-size: 1.5rem;
+            font-weight: 700;
+            padding-top: 8px;
+            opacity: 0.55;
+        }
+        .time-picker-label {
+            font-size: 0.85rem;
+            font-weight: 600;
+            opacity: 0.8;
+            margin-bottom: 4px;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _time_input_12h(key_prefix, default_hour_24=9, default_minute=0, label=None):
     """
-    A 12-hour Hour / Minute / AM-PM picker (Streamlit's built-in time_input
-    doesn't give control over 12h vs 24h display). Returns a datetime.time.
+    A minimal 12-hour time picker styled like a normal app's time field:
+    [ HH ] : [ MM ]  [ AM/PM ]
+    Returns a datetime.time.
     """
+    _inject_time_picker_css()
+
     default_period = "PM" if default_hour_24 >= 12 else "AM"
     default_hour_12 = default_hour_24 % 12
     if default_hour_12 == 0:
         default_hour_12 = 12
 
-    c1, c2, c3 = st.columns([1, 1, 1])
-    with c1:
-        st.caption("ঘন্টা (Hour)")
-        hour = st.selectbox(
-            "Hour", list(range(1, 13)), index=default_hour_12 - 1,
-            key=f"{key_prefix}_hour", label_visibility="collapsed",
-        )
-    with c2:
-        st.caption("মিনিট (Min)")
-        minute = st.selectbox(
-            "Minute", [f"{m:02d}" for m in range(60)], index=default_minute,
-            key=f"{key_prefix}_min", label_visibility="collapsed",
-        )
-    with c3:
-        st.caption("AM/PM")
-        period = st.selectbox(
-            "AM/PM", ["AM", "PM"], index=0 if default_period == "AM" else 1,
-            key=f"{key_prefix}_period", label_visibility="collapsed",
-        )
+    if label:
+        st.markdown(f"<div class='time-picker-label'>{label}</div>", unsafe_allow_html=True)
+
+    with st.container(key=f"{key_prefix}_block"):
+        c1, c2, c3, c4 = st.columns([1, 0.25, 1, 1.15], gap="small")
+        with c1:
+            hour = st.selectbox(
+                "Hour", list(range(1, 13)), index=default_hour_12 - 1,
+                key=f"{key_prefix}_hour", label_visibility="collapsed",
+            )
+        with c2:
+            st.markdown("<div class='time-picker-colon'>:</div>", unsafe_allow_html=True)
+        with c3:
+            minute = st.selectbox(
+                "Minute", [f"{m:02d}" for m in range(60)], index=default_minute,
+                key=f"{key_prefix}_min", label_visibility="collapsed",
+            )
+        with c4:
+            period = st.selectbox(
+                "AM/PM", ["AM", "PM"], index=0 if default_period == "AM" else 1,
+                key=f"{key_prefix}_period", label_visibility="collapsed",
+            )
 
     hour_24 = hour % 12
     if period == "PM":
@@ -192,13 +230,13 @@ def render_answer_key_tab():
     # ---- Step 2: exam details ----
     st.markdown("#### ② Exam Details")
     exam_name = st.text_input("Exam name", placeholder="e.g. Physics Model Test - 3")
-
     d = st.date_input("Exam date", value=date.today())
 
-    st.markdown("**Start time**")
-    start_t = _time_input_12h("mentor_start_t", default_hour_24=9, default_minute=0)
-    st.markdown("**End time**")
-    end_t = _time_input_12h("mentor_end_t", default_hour_24=9, default_minute=30)
+    t1, t2 = st.columns(2, gap="large")
+    with t1:
+        start_t = _time_input_12h("mentor_start_t", default_hour_24=9, default_minute=0, label="Start time")
+    with t2:
+        end_t = _time_input_12h("mentor_end_t", default_hour_24=9, default_minute=30, label="End time")
 
     st.divider()
 
@@ -264,7 +302,6 @@ def render_answer_key_tab():
             st.error(f"You must answer all {total_q} questions (currently {answered} answered).")
         else:
             answer_string = _build_answer_string(total_q)
-
             start_str = f"{d.strftime('%Y-%m-%d')} {start_t.strftime('%H:%M')}"
             end_str = f"{d.strftime('%Y-%m-%d')} {end_t.strftime('%H:%M')}"
             key_id = sh.add_answer_key(exam_name.strip(), d.strftime("%Y-%m-%d"), start_str, end_str,
@@ -274,7 +311,6 @@ def render_answer_key_tab():
             for q in range(1, total_q + 1):
                 st.session_state.pop(_answer_key(q), None)
             st.success(f"✅ Answer key for '{exam_name}' saved! Key ID: {key_id}")
-
 
 
 # ---------------- Mentor Panel ----------------
@@ -293,7 +329,6 @@ def page_mentor():
 
     with tab2:
         existing_calibration = sh.load_calibration()
-
         if existing_calibration and not st.session_state.get("force_recalibrate"):
             st.success("✅ Calibration is already saved - no need to redo it.")
             with st.expander("View the currently active calibration"):
@@ -320,10 +355,9 @@ on the image below in this order:
 2. Question **1** - center of bubble **D**
 3. Question **25** - center of bubble **A**
 4. Question **26** - center of bubble **A**
-                """
+"""
             )
             uploaded = st.file_uploader("Upload blank OMR sheet", type=["png", "jpg", "jpeg"], key="calib_upload")
-
             if uploaded:
                 image = Image.open(uploaded).convert("RGB")
                 img_bgr = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
@@ -396,11 +430,9 @@ on the image below in this order:
     with tab4:
         st.subheader("🔑 Change Mentor Password")
         st.caption("This password is for you (the mentor) only - no coding needed, you can change it right here.")
-
         current_pw = st.text_input("Current password", type="password", key="cur_pw")
         new_pw1 = st.text_input("New password", type="password", key="new_pw1")
         new_pw2 = st.text_input("Re-enter new password", type="password", key="new_pw2")
-
         if st.button("✅ Update Password", type="primary"):
             if current_pw != sh.get_mentor_password():
                 st.error("Current password is incorrect.")
@@ -428,7 +460,6 @@ def page_student():
     name = st.text_input("Enter your name", placeholder="e.g. Rahim Ahmed")
 
     active = sh.get_active_answer_key()
-
     if active:
         remaining = active["end_dt"] - sh.now_bd()
         mins_left = max(0, int(remaining.total_seconds() // 60))
@@ -484,48 +515,59 @@ def page_student():
                     negative_value=active_now.get("negative_marks_value", 0.0),
                 )
                 sh.append_result(name.strip(), key_id, result)
-
                 st.success("✅ Result saved!")
 
-                # ---- Result summary ----
-                st.markdown("### 📊 Result Summary")
-                r1c1, r1c2, r1c3 = st.columns(3)
-                r1c1.metric("Total Questions", result["total"])
-                r1c2.metric("Answered", result["answered"])
-                r1c3.metric("Skipped", result["skipped"])
+            # ---- Result summary ----
+            render_result_summary(result, end_dt)
 
-                r2c1, r2c2, r2c3 = st.columns(3)
-                r2c1.metric("Correct ✅", result["correct"])
-                r2c2.metric("Wrong ❌", result["wrong_count"])
-                r2c3.metric("Accuracy", f"{result['accuracy']}%")
 
-                st.metric("🏆 Marks", result["marks"])
-                if result["negative_marking"]:
-                    st.caption(
-                        f"Negative marking was ON: -{result['negative_value']} per wrong answer "
-                        f"(skipped questions were not penalized)."
-                    )
+def render_result_summary(result, end_dt):
+    """
+    Polished, easy-to-scan result card:
+    total / answered / skipped / correct / wrong / accuracy / marks,
+    plus a clear "wrong answers" box with the correct answer once the
+    exam window has closed.
+    """
+    st.markdown("### 📊 Result Summary")
 
-                # ---- Wrong-answers box ----
-                if result["wrong"]:
-                    window_closed = end_dt is not None and sh.now_bd() > end_dt
-                    with st.container(border=True):
-                        st.markdown("#### ❌ Wrong Answers")
-                        if window_closed:
-                            rows = [
-                                {
-                                    "Question": f"Q{q}",
-                                    "Your Answer": result["wrong_details"][q]["given"],
-                                    "Correct Answer": result["wrong_details"][q]["correct"],
-                                }
-                                for q in result["wrong"]
-                            ]
-                            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-                        else:
-                            st.write("Question numbers you got wrong:", ", ".join(str(w) for w in result["wrong"]))
-                            st.caption("Correct answers will be shown once the exam time window closes.")
-                elif result["answered"] > 0:
-                    st.success("🎉 No wrong answers!")
+    with st.container(border=True):
+        r1c1, r1c2, r1c3, r1c4 = st.columns(4)
+        r1c1.metric("Total", result["total"])
+        r1c2.metric("Answered", result["answered"])
+        r1c3.metric("Skipped", result["skipped"])
+        r1c4.metric("Accuracy", f"{result['accuracy']}%")
+
+        r2c1, r2c2, r2c3 = st.columns(3)
+        r2c1.metric("Correct ✅", result["correct"])
+        r2c2.metric("Wrong ❌", result["wrong_count"])
+        r2c3.metric("🏆 Marks", result["marks"])
+
+        if result["negative_marking"]:
+            st.caption(
+                f"⚠️ Negative marking was ON: -{result['negative_value']} per wrong answer "
+                f"(skipped questions were not penalized)."
+            )
+
+    # ---- Wrong-answers box ----
+    if result["wrong"]:
+        window_closed = end_dt is not None and sh.now_bd() > end_dt
+        with st.container(border=True):
+            st.markdown("#### ❌ Wrong Answers")
+            if window_closed:
+                rows = [
+                    {
+                        "Question": f"Q{q}",
+                        "Your Answer": result["wrong_details"][q]["given"],
+                        "Correct Answer": result["wrong_details"][q]["correct"],
+                    }
+                    for q in result["wrong"]
+                ]
+                st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+            else:
+                st.write("Question numbers you got wrong:", ", ".join(str(w) for w in result["wrong"]))
+                st.caption("Correct answers will be shown once the exam time window closes.")
+    elif result["answered"] > 0:
+        st.success("🎉 No wrong answers!")
 
 
 # ---------------- Leaderboard Panel ----------------
@@ -556,9 +598,9 @@ def page_leaderboard():
                 st.info("No results have been submitted for this exam yet.")
             else:
                 show_df = df[["rank", "student", "marks", "correct", "wrong_count",
-                               "skipped", "accuracy", "total", "timestamp"]].copy()
+                              "skipped", "accuracy", "total", "timestamp"]].copy()
                 show_df.columns = ["Rank", "Student", "Marks", "Correct", "Wrong",
-                                    "Skipped", "Accuracy %", "Total", "Timestamp"]
+                                   "Skipped", "Accuracy %", "Total", "Timestamp"]
                 st.dataframe(show_df, use_container_width=True, hide_index=True)
 
     with tab2:
