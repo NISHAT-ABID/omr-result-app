@@ -6,7 +6,7 @@ OMR Result App - main Streamlit application.
 Pages:
   - Login (shared password to keep the app private)
   - Mentor: Set answer key (visual click) + exam time, calibration,
-            question PDF upload, password change
+            password change
   - Student: Enter your name and upload an OMR sheet to see your result
   - Leaderboard: Daily + Overall analysis - open to everyone
 
@@ -163,12 +163,6 @@ def render_answer_key_tab():
     with col2:
         end_t = st.time_input("End time", value=dtime(9, 30))
 
-    pdf_file = st.file_uploader(
-        "Question PDF (optional - if provided, students can view it in the app)",
-        type=["pdf"],
-        key="question_pdf",
-    )
-
     st.divider()
 
     # ---- Step 3: fill answers (native bubble grid) ----
@@ -216,18 +210,11 @@ def render_answer_key_tab():
             st.error(f"You must answer all {total_q} questions (currently {answered} answered).")
         else:
             answer_string = _build_answer_string(total_q)
-            pdf_url = ""
-            if pdf_file is not None:
-                with st.spinner("Uploading question PDF..."):
-                    try:
-                        pdf_url = sh.upload_pdf_to_drive(pdf_file.getvalue(), pdf_file.name)
-                    except Exception as e:
-                        st.warning(f"Could not upload the PDF (answer key was still saved): {e}")
 
             start_str = f"{d.strftime('%Y-%m-%d')} {start_t.strftime('%H:%M')}"
             end_str = f"{d.strftime('%Y-%m-%d')} {end_t.strftime('%H:%M')}"
             key_id = sh.add_answer_key(exam_name.strip(), d.strftime("%Y-%m-%d"), start_str, end_str,
-                                        total_q, answer_string, pdf_url)
+                                        total_q, answer_string)
             for q in range(1, total_q + 1):
                 st.session_state.pop(_answer_key(q), None)
             st.success(f"✅ Answer key for '{exam_name}' saved! Key ID: {key_id}")
@@ -339,13 +326,6 @@ on the image below in this order:
             display_df = df[show_cols].iloc[::-1].reset_index(drop=True)
             st.dataframe(display_df, use_container_width=True, hide_index=True)
 
-            if "question_pdf_url" in df.columns:
-                pdfs = df[df["question_pdf_url"].astype(str).str.strip() != ""]
-                if not pdfs.empty:
-                    st.caption("Question PDFs:")
-                    for _, row in pdfs.iloc[::-1].iterrows():
-                        st.markdown(f"- **{row.get('exam_name', row['key_id'])}**: [View PDF]({row['question_pdf_url']})")
-
     with tab4:
         st.subheader("🔑 Change Mentor Password")
         st.caption("This password is for you (the mentor) only - no coding needed, you can change it right here.")
@@ -390,8 +370,6 @@ def page_student():
             c1, c2 = st.columns(2)
             c1.metric("Total Questions/Marks", active["total_questions"])
             c2.metric("Time Remaining", f"{mins_left} min")
-            if active.get("question_pdf_url"):
-                st.markdown(f"📄 [View Question PDF]({active['question_pdf_url']})")
     else:
         upcoming = sh.get_upcoming_answer_key()
         if upcoming:
