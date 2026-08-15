@@ -137,14 +137,38 @@ def init_sheets():
     return get_spreadsheet()
 
 
+def _rows_to_records(values, expected_header):
+    """
+    Converts raw sheet values (list of lists, from get_all_values) into a
+    list of dicts - keyed by OUR OWN known header, positionally.
+
+    We deliberately do NOT use gspread's get_all_records(): it reads the
+    header directly from row 1 and raises GSpreadException the moment
+    that row has any duplicate or blank cell (e.g. a stray empty column,
+    or a leftover header from manual editing in Google Sheets). Since we
+    always know what the header is supposed to be, mapping by position
+    instead is both simpler and immune to that class of error.
+    """
+    if not values or len(values) < 2:
+        return []
+    records = []
+    for row in values[1:]:
+        if not any(str(cell).strip() for cell in row):
+            continue  # skip fully blank rows
+        record = {col: (row[i] if i < len(row) else "") for i, col in enumerate(expected_header)}
+        records.append(record)
+    return records
+
+
 # ---------------- Answer Keys ----------------
 
 def add_answer_key(exam_name, date_str, start_time_str, end_time_str,
                     total_questions, answer_string,
                     negative_marking=False, negative_marks_value=0.0):
     ws = _cached_worksheet("AnswerKeys")
-    existing = _with_retry(ws.get_all_records)
-    key_id = f"K{len(existing) + 1:04d}"
+    values = _with_retry(ws.get_all_values)
+    existing_count = max(0, len(values) - 1)  # minus header row
+    key_id = f"K{existing_count + 1:04d}"
     _with_retry(
         ws.append_row,
         [key_id, exam_name, date_str, start_time_str, end_time_str,
@@ -155,7 +179,8 @@ def add_answer_key(exam_name, date_str, start_time_str, end_time_str,
 
 def get_all_answer_keys():
     ws = _cached_worksheet("AnswerKeys")
-    records = _with_retry(ws.get_all_records)
+    values = _with_retry(ws.get_all_values)
+    records = _rows_to_records(values, ANSWERKEYS_HEADER)
     return pd.DataFrame(records)
 
 
@@ -301,7 +326,8 @@ def append_result(student, key_id, result):
 
 def get_all_results_df():
     ws = _cached_worksheet("Results")
-    records = _with_retry(ws.get_all_records)
+    values = _with_retry(ws.get_all_values)
+    records = _rows_to_records(values, RESULTS_HEADER)
     df = pd.DataFrame(records)
     if not df.empty:
         for col in ["total", "answered", "skipped", "correct", "wrong_count", "marks", "accuracy"]:
