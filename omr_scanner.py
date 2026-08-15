@@ -157,23 +157,63 @@ def read_answers(warped_bgr, grid, dark_threshold=150, min_gap=15):
     return answers
 
 
-def score_answers(student_answers, key_string):
+def score_answers(student_answers, key_string, negative_marking=False, negative_value=0.0):
     """
     key_string: a string like 'ABCD...' (index 0 = Q1)
-    Returns: (score, total, wrong_question_numbers_list)
+    negative_marking: if True, `negative_value` marks are deducted for every
+                       WRONG (attempted-but-incorrect) answer. Skipped/blank
+                       questions are never penalized.
+
+    Returns a dict:
+      total           - total number of questions
+      answered        - how many the student attempted (non-blank)
+      skipped         - how many were left blank
+      correct         - how many were correct
+      wrong_count     - how many were attempted but wrong
+      wrong           - list of question numbers that were wrong
+      wrong_details   - {question_no: {"given": "B", "correct": "C"}}
+      accuracy        - correct / answered * 100 (0 if nothing answered)
+      marks           - correct - (wrong_count * negative_value), if enabled
+      negative_marking / negative_value - echoed back for display purposes
     """
     total = len(key_string)
-    score = 0
+    correct = 0
+    answered = 0
     wrong = []
+    wrong_details = {}
+
     for i in range(total):
         q_no = i + 1
-        correct = key_string[i].upper()
+        correct_ans = key_string[i].upper()
         given = student_answers.get(q_no)
-        if given == correct:
-            score += 1
+        if given is None:
+            continue
+        answered += 1
+        if given == correct_ans:
+            correct += 1
         else:
             wrong.append(q_no)
-    return score, total, wrong
+            wrong_details[q_no] = {"given": given, "correct": correct_ans}
+
+    skipped = total - answered
+    wrong_count = len(wrong)
+    penalty = (wrong_count * negative_value) if negative_marking else 0
+    marks = round(correct - penalty, 2)
+    accuracy = round((correct / answered) * 100, 2) if answered else 0.0
+
+    return {
+        "total": total,
+        "answered": answered,
+        "skipped": skipped,
+        "correct": correct,
+        "wrong_count": wrong_count,
+        "wrong": wrong,
+        "wrong_details": wrong_details,
+        "accuracy": accuracy,
+        "marks": marks,
+        "negative_marking": negative_marking,
+        "negative_value": negative_value,
+    }
 
 
 # ---------------- Visual answer-key input (clickable sheet for the mentor) ----------------
