@@ -13,6 +13,7 @@ Sheet er নাম/ID .streamlit/secrets.toml e SHEET_ID hisebe rakha thakbe.
 import json
 import time
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import gspread
 import pandas as pd
@@ -27,6 +28,18 @@ SCOPES = [
 ANSWERKEYS_HEADER = ["key_id", "date", "start_time", "end_time", "answer_string"]
 RESULTS_HEADER = ["timestamp", "student", "key_id", "score", "total", "wrong_questions"]
 CONFIG_HEADER = ["config_key", "config_value"]
+
+BD_TZ = ZoneInfo("Asia/Dhaka")
+
+
+def now_bd():
+    """
+    Streamlit Cloud er server UTC time e chole, kintu mentor Bangladesh
+    shomoy onujayi exam time set kore. Tai "ekhon koyta baje" check
+    korar shomoy shobshomoy ei function use korte hobe - server jekhanei
+    thakuk na keno, eta shothik Bangladesh shomoy e ferot dey.
+    """
+    return datetime.now(BD_TZ).replace(tzinfo=None)
 
 
 def _with_retry(func, *args, **kwargs):
@@ -67,7 +80,6 @@ def _get_or_create_worksheet(sh, title, header):
         ws = _with_retry(sh.add_worksheet, title=title, rows=1000, cols=len(header) + 2)
         _with_retry(ws.append_row, header)
         return ws
-    # ensure header exists
     values = _with_retry(ws.get_all_values)
     if not values:
         _with_retry(ws.append_row, header)
@@ -76,11 +88,6 @@ def _get_or_create_worksheet(sh, title, header):
 
 @st.cache_resource(show_spinner=False)
 def _cached_worksheet(title):
-    """
-    Worksheet object ekbar khuje pele seta cache kore rakha hoy, tai
-    baar baar "eta ache kina" check korar jonno notun API call lage na.
-    Eita e main fix jeta APIError (rate limit) thamiye dey.
-    """
     header_map = {
         "AnswerKeys": ANSWERKEYS_HEADER,
         "Config": CONFIG_HEADER,
@@ -91,7 +98,6 @@ def _cached_worksheet(title):
 
 
 def init_sheets():
-    """First time run hole shob worksheet toiri kore dey."""
     _cached_worksheet("AnswerKeys")
     _cached_worksheet("Config")
     _cached_worksheet("Results")
@@ -115,13 +121,8 @@ def get_all_answer_keys():
 
 
 def get_active_answer_key(now=None):
-    """
-    Ekhon (now) shomoy onujayi kon answer key active ache seta ber kore.
-    start_time / end_time format: 'YYYY-MM-DD HH:MM' (24 hour)
-    Return: (key_id, answer_string) othoba (None, None) jodi kono active key na thake.
-    """
     if now is None:
-        now = datetime.now()
+        now = now_bd()
     df = get_all_answer_keys()
     if df.empty:
         return None, None
@@ -140,7 +141,6 @@ def get_active_answer_key(now=None):
 # ---------------- Config (generic key-value store) ----------------
 
 def set_config_value(key, value):
-    """Config sheet e je kono key-value save/update kore (JSON string hisebe)."""
     ws = _cached_worksheet("Config")
     values = _with_retry(ws.get_all_values)
     json_str = json.dumps(value)
@@ -148,7 +148,7 @@ def set_config_value(key, value):
     row_idx = None
     for i, row in enumerate(values):
         if row and row[0] == key:
-            row_idx = i + 1  # gspread 1-indexed
+            row_idx = i + 1
             break
 
     if row_idx:
@@ -179,14 +179,9 @@ def load_calibration():
     return get_config_value("calibration", default=None)
 
 
-# ---------------- Mentor Password (mentor nijei UI theke change korte parbe) ----------------
+# ---------------- Mentor Password ----------------
 
 def get_mentor_password():
-    """
-    Sheet e save kora password thakle seta use hobe.
-    Prothom bar (Sheet e kichu save kora na thakle) Streamlit Secrets
-    er MENTOR_PASSWORD ke "starting password" hisebe use kora hobe.
-    """
     saved = get_config_value("mentor_password", default=None)
     if saved:
         return saved
@@ -201,7 +196,7 @@ def set_mentor_password(new_password):
 
 def append_result(student, key_id, score, total, wrong_questions):
     ws = _cached_worksheet("Results")
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    timestamp = now_bd().strftime("%Y-%m-%d %H:%M:%S")
     wrong_str = ",".join(str(q) for q in wrong_questions)
     _with_retry(ws.append_row, [timestamp, student, key_id, score, total, wrong_str])
 
@@ -213,7 +208,6 @@ def get_leaderboard():
     if df.empty:
         return df
     df["score"] = pd.to_numeric(df["score"], errors="coerce")
-    # protir student er best/latest score dekhano hocche best score
     best = df.sort_values("score", ascending=False).drop_duplicates("student")
     best = best.sort_values("score", ascending=False).reset_index(drop=True)
     best.insert(0, "rank", range(1, len(best) + 1))
