@@ -4,37 +4,29 @@ omr_scanner.py
 All logic for extracting answers from an OMR sheet photo lives here.
 
 There are 2 main steps:
-  1. detect_and_warp() -> finds the sheet's 4 corners in the photo and
-     straightens it ("perspective warp") onto a fixed-size canvas.
-  2. read_answers()    -> using the calibration data, checks the pixel
-     darkness at each question's 4 bubble positions (A/B/C/D) to find
-     which one(s) are filled in.
+1. detect_and_warp() -> finds the sheet's 4 corners in the photo and
+   straightens it ("perspective warp") onto a fixed-size canvas.
+2. read_answers() -> using the calibration data, checks the pixel
+   darkness at each question's 4 bubble positions (A/B/C/D) to find
+   which one is filled in.
 
-Calibration = the mentor uploads a blank OMR sheet once (per sheet type:
-100Q or 40Q - since the two layouts are printed differently) and clicks
-4 points:
-  1) Question 1              - center of option A
-  2) Question 1               - center of option D
-  3) Last question of block 1 - center of option A  (Q25 for 100Q, Q20 for 40Q)
-  4) First question of block 2 - center of option A (Q26 for 100Q, Q21 for 40Q)
+Two physical sheet layouts are supported, since the 100Q and 40Q printed
+sheets are laid out differently:
+  - 100 questions -> 4 columns x 25 rows each
+  - 40  questions -> 2 columns x 20 rows each
 
-From these 4 points + the sheet's layout meta (questions_per_block,
-num_blocks), every question's bubble positions are computed, since a
-printed sheet always has a uniform grid.
+Calibration = the mentor uploads a blank OMR sheet once (per layout, on
+the "Calibration" page) and clicks 4 points:
+  1) Question 1                    - center of option A
+  2) Question 1                    - center of option D
+  3) Last question of 1st column   - center of option A
+  4) First question of 2nd column  - center of option A
 
-Each calibration dict now carries its own layout meta so build_grid()
-works for ANY layout (100Q: 4 blocks of 25, 40Q: 2 blocks of 20, or
-anything else) without hardcoding assumptions:
-
-    {
-        "q1_a":  (x, y),
-        "q1_d":  (x, y),
-        "qlast_a": (x, y),   # last question of block 1, option A
-        "qnext_a": (x, y),   # first question of block 2, option A
-        "total_questions": 100,
-        "questions_per_block": 25,
-        "num_blocks": 4,
-    }
+From these 4 points, every question's bubble positions in that layout
+are computed, since a printed sheet always has a uniform grid. The same
+4 calibration point *names* are used for both layouts - only the actual
+pixel positions (and therefore which question number is "last of column
+1") differ, since the sheets are physically different.
 """
 
 import cv2
@@ -42,18 +34,21 @@ import numpy as np
 
 WARP_WIDTH = 1200
 WARP_HEIGHT = 1600
-
 OPTIONS = ["A", "B", "C", "D"]
 BUBBLE_SAMPLE_RADIUS = 12  # pixels; may need adjusting depending on the warped image
 
-# Layout presets used by the Mentor Calibration UI.
-# key = total_questions the mentor selected in the Answer Key / Calibration step
+# Physical sheet layouts, keyed by total question count.
 LAYOUTS = {
-    100: {"questions_per_block": 25, "num_blocks": 4,
-          "block_labels": ["Q1-A", "Q1-D", "Q25-A", "Q26-A"]},
-    40: {"questions_per_block": 20, "num_blocks": 2,
-         "block_labels": ["Q1-A", "Q1-D", "Q20-A", "Q21-A"]},
+    100: {"num_blocks": 4, "per_block": 25},
+    40: {"num_blocks": 2, "per_block": 20},
 }
+
+
+def layout_for(total_questions):
+    """Returns the {num_blocks, per_block} layout for a given question count,
+    falling back to the 100Q layout if an unknown count is passed."""
+    return LAYOUTS.get(total_questions, LAYOUTS[100])
+
 
 
 def _order_points(pts):
@@ -109,36 +104,35 @@ def detect_and_warp(image_bgr):
     return warped, True
 
 
-def build_grid(calibration):
+def build_grid(calibration, total_questions=100):
     """
-    calibration dict must contain:
-        q1_a, q1_d, qlast_a, qnext_a  (clicked points)
-        questions_per_block, num_blocks  (layout meta - set at save time)
+    calibration dict contains 4 clicked points (x, y), using layout-neutral
+    names so the same structure works for both the 100Q and 40Q sheets:
+      q1_a, q1_d, block1_last_a, block2_first_a
 
-    From these, computes every question's (1..total) 4 bubble centers and
-    returns a dict: { question_no: {"A": (x,y), "B": (x,y), ...} }
+    total_questions: 100 or 40 - selects which physical layout (columns x
+    rows) to compute the grid for. See LAYOUTS above.
 
-    Works for ANY layout (100Q / 4x25, 40Q / 2x20, or others) since the
-    block/row geometry is derived purely from the calibration points and
-    meta - nothing is hardcoded here anymore.
+    Returns a dict: { question_no: {"A": (x,y), "B": (x,y), ...} }
     """
+    layout = layout_for(total_questions)
+    num_blocks = layout["num_blocks"]
+    per_block = layout["per_block"]
+
     q1_a = np.array(calibration["q1_a"], dtype=float)
     q1_d = np.array(calibration["q1_d"], dtype=float)
-    qlast_a = np.array(calibration["qlast_a"], dtype=float)
-    qnext_a = np.array(calibration["qnext_a"], dtype=float)
+    block1_last_a = np.array(calibration["block1_last_a"], dtype=float)
+    block2_first_a = np.array(calibration["block2_first_a"], dtype=float)
 
-    questions_per_block = int(calibration["questions_per_block"])
-    num_blocks = int(calibration["num_blocks"])
-
-    option_step = (q1_d - q1_a) / (len(OPTIONS) - 1)          # A -> D, split into 3
-    row_step = (qlast_a - q1_a) / (questions_per_block - 1)    # row to row
-    block_step = qnext_a - q1_a                                 # block to block
+    option_step = (q1_d - q1_a) / (len(OPTIONS) - 1)          # distance A->D, split into 3
+    row_step = (block1_last_a - q1_a) / (per_block - 1)        # distance row to row
+    block_step = block2_first_a - q1_a                          # x/y shift from one column to the next
 
     grid = {}
     q_no = 1
     for block in range(num_blocks):
         block_origin = q1_a + block * block_step
-        for row in range(questions_per_block):
+        for row in range(per_block):
             row_origin = block_origin + row * row_step
             options = {}
             for i, opt in enumerate(OPTIONS):
@@ -163,108 +157,75 @@ def _bubble_darkness(gray_img, center, radius=BUBBLE_SAMPLE_RADIUS):
 def read_answers(warped_bgr, grid, dark_threshold=150, min_gap=15):
     """
     For each question, compares the darkness of its 4 bubbles to find
-    which one is marked - and also detects "double touch" (more than one
-    bubble filled in for the same question).
+    which one is marked.
 
-    dark_threshold: below this, a bubble is considered filled (dark)
+    dark_threshold: below this, the bubble is considered filled (dark)
     min_gap: if the darkest and second-darkest bubbles are too close in
-             darkness, it's treated as an unclear double-touch too
-             (a light smudge on a 2nd bubble often reads this way)
+             darkness, it's treated as "unclear / multiple marked"
 
-    Returns a tuple (answers, marks_detail):
-        answers:      {question_no: 'A'/'B'/'C'/'D'/None}
-                       None means blank OR double-touch (ambiguous/invalid)
-        marks_detail: {question_no: [list of option letters that were
-                       actually marked/filled]}
-                       - []              -> genuinely blank (skipped)
-                       - ['B']           -> single clean mark
-                       - ['A', 'C']      -> double touch (2+ bubbles filled)
+    Returns: dict {question_no: 'A'/'B'/'C'/'D'/None}
+             None means blank or unclear
     """
     gray = cv2.cvtColor(warped_bgr, cv2.COLOR_BGR2GRAY)
     gray = cv2.GaussianBlur(gray, (3, 3), 0)
 
     answers = {}
-    marks_detail = {}
-
     for q_no, options in grid.items():
         darkness = {opt: _bubble_darkness(gray, center) for opt, center in options.items()}
         sorted_opts = sorted(darkness.items(), key=lambda kv: kv[1])
         darkest_opt, darkest_val = sorted_opts[0]
-        second_opt, second_val = sorted_opts[1]
-
-        filled = [opt for opt, val in darkness.items() if val <= dark_threshold]
+        second_val = sorted_opts[1][1]
 
         if darkest_val > dark_threshold:
-            # nothing dark enough at all -> blank / skipped
-            answers[q_no] = None
-            marks_detail[q_no] = []
-        elif len(filled) >= 2:
-            # 2+ bubbles clearly filled -> double touch, invalid
-            answers[q_no] = None
-            marks_detail[q_no] = filled
+            answers[q_no] = None  # no bubble marked (blank)
         elif (second_val - darkest_val) < min_gap:
-            # top 2 bubbles too close in darkness to call confidently ->
-            # treat conservatively as a double touch between those two
-            answers[q_no] = None
-            marks_detail[q_no] = [darkest_opt, second_opt]
+            answers[q_no] = None  # two bubbles nearly equally dark -> unclear/multi-mark
         else:
             answers[q_no] = darkest_opt
-            marks_detail[q_no] = [darkest_opt]
 
-    return answers, marks_detail
+    return answers
 
 
-def score_answers(student_answers, key_string, marks_detail=None,
-                   negative_marking=False, negative_value=0.0):
+def score_answers(student_answers, key_string, negative_marking=False, negative_value=0.0):
     """
     key_string: a string like 'ABCD...' (index 0 = Q1)
-    marks_detail: output from read_answers() - used to tell a genuine
-        blank apart from a double-touch, and to know exactly which
-        option(s) the student marked (for the Solution view).
-
-    Rules:
-      - blank (nothing marked)         -> counted as SKIPPED, never penalized
-      - single clean mark, correct     -> counted as CORRECT
-      - single clean mark, wrong       -> counted as WRONG
-      - double touch (2+ bubbles)      -> counted as WRONG (an attempt was
-                                           made, it's just invalid), and both
-                                           the negative-marking penalty (if on)
-                                           applies to it like any other wrong answer
+    negative_marking: if True, `negative_value` marks are deducted for every
+                       WRONG (attempted-but-incorrect) answer. Skipped/blank
+                       questions are never penalized.
 
     Returns a dict:
-        total, answered, skipped, correct, wrong_count
-        wrong        - list of wrongly-answered question numbers
-                       (includes double-touch questions)
-        wrong_details   - {q_no: {"given": [opts marked], "correct": "C"}}
-        skipped_list - list of genuinely blank question numbers
-        skipped_details - {q_no: {"given": [], "correct": "C"}}
-        accuracy, marks, negative_marking, negative_value
+      total           - total number of questions
+      answered        - how many the student attempted (non-blank)
+      skipped         - how many were left blank
+      correct         - how many were correct
+      wrong_count     - how many were attempted but wrong
+      wrong           - list of question numbers that were wrong
+      wrong_details   - {question_no: {"given": "B", "correct": "C"}}
+      skipped_list    - list of question numbers left blank
+      review_details  - {question_no: {"given": "B"/None, "correct": "C"}}
+                         for EVERY question that wasn't correct (wrong OR
+                         skipped), in question order. Used to render the
+                         digital "Solution" bubble sheet.
+      accuracy        - correct / answered * 100 (0 if nothing answered)
+      marks           - correct - (wrong_count * negative_value), if enabled
+      negative_marking / negative_value - echoed back for display purposes
     """
-    marks_detail = marks_detail or {}
     total = len(key_string)
     correct = 0
     answered = 0
     wrong = []
     wrong_details = {}
     skipped_list = []
-    skipped_details = {}
+    review_details = {}
 
     for i in range(total):
         q_no = i + 1
         correct_ans = key_string[i].upper()
         given = student_answers.get(q_no)
-        marked = marks_detail.get(q_no, [] if given is None else [given])
 
         if given is None:
-            if len(marked) >= 2:
-                # double touch -> treated as an attempted wrong answer
-                answered += 1
-                wrong.append(q_no)
-                wrong_details[q_no] = {"given": marked, "correct": correct_ans}
-            else:
-                # genuinely blank -> skipped, never penalized
-                skipped_list.append(q_no)
-                skipped_details[q_no] = {"given": [], "correct": correct_ans}
+            skipped_list.append(q_no)
+            review_details[q_no] = {"given": None, "correct": correct_ans}
             continue
 
         answered += 1
@@ -272,9 +233,10 @@ def score_answers(student_answers, key_string, marks_detail=None,
             correct += 1
         else:
             wrong.append(q_no)
-            wrong_details[q_no] = {"given": marked, "correct": correct_ans}
+            wrong_details[q_no] = {"given": given, "correct": correct_ans}
+            review_details[q_no] = {"given": given, "correct": correct_ans}
 
-    skipped = len(skipped_list)
+    skipped = total - answered
     wrong_count = len(wrong)
     penalty = (wrong_count * negative_value) if negative_marking else 0
     marks = round(correct - penalty, 2)
@@ -289,7 +251,7 @@ def score_answers(student_answers, key_string, marks_detail=None,
         "wrong": wrong,
         "wrong_details": wrong_details,
         "skipped_list": skipped_list,
-        "skipped_details": skipped_details,
+        "review_details": review_details,
         "accuracy": accuracy,
         "marks": marks,
         "negative_marking": negative_marking,
@@ -298,22 +260,22 @@ def score_answers(student_answers, key_string, marks_detail=None,
 
 
 # ---------------- Visual answer-key input (clickable sheet for the mentor) ----------------
-# NOTE: kept for backwards-compatibility / optional future use - the current
-# Mentor "Answer Key" tab uses a native bubble-grid (st.radio) instead of this
-# image-clicking approach, so these two helpers aren't on the main app flow.
 
 def render_sheet_image(grid, total_questions=100, answers=None):
     """
-    Uses a calibration grid to draw a blank/filled bubble-sheet image
-    (a PIL Image) - filled bubbles are shown solid black.
+    Uses the calibration grid to draw a blank/filled bubble-sheet image
+    (a PIL Image) that can be shown in the Mentor Panel and clicked on -
+    just like a real OMR sheet, for selecting answers.
+
+    answers: {question_no: 'A'/'B'/'C'/'D'} - filled bubbles are shown solid black.
     """
     from PIL import Image as PILImage, ImageDraw
 
     answers = answers or {}
     img = PILImage.new("RGB", (WARP_WIDTH, WARP_HEIGHT), "white")
     draw = ImageDraw.Draw(img)
-    r = BUBBLE_SAMPLE_RADIUS + 6
 
+    r = BUBBLE_SAMPLE_RADIUS + 6
     for q in range(1, total_questions + 1):
         opts = grid.get(q)
         if not opts:
@@ -341,6 +303,7 @@ def find_clicked_bubble(grid, total_questions, x, y, radius=None):
     """
     if radius is None:
         radius = BUBBLE_SAMPLE_RADIUS + 10
+
     best = None
     best_d = radius
     for q in range(1, total_questions + 1):
