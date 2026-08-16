@@ -6,5 +6,4 @@ gspread
 google-auth
 streamlit-image-coordinates
 streamlit-cookies-controller
-extra-streamlit-components
 Pillow
