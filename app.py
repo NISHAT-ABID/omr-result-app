@@ -19,6 +19,7 @@ import cv2
 import numpy as np
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 from PIL import Image
 from streamlit_image_coordinates import streamlit_image_coordinates
 
@@ -149,12 +150,22 @@ def _inject_time_picker_css():
     st.markdown(
         """
         <style>
-        .time-picker-block div[data-testid="stSelectbox"] {
+        .time-picker-block div[data-testid="stSelectbox"],
+        .time-picker-block div[data-testid="stNumberInput"] {
             margin-bottom: 0px;
         }
         .time-picker-block div[data-baseweb="select"] > div {
             border-radius: 8px;
             min-height: 42px;
+        }
+        .time-picker-block div[data-testid="stNumberInput"] input {
+            border-radius: 8px;
+            min-height: 42px;
+            text-align: center;
+            font-weight: 600;
+        }
+        .time-picker-block div[data-testid="stNumberInput"] button {
+            display: none;
         }
         .time-picker-colon {
             text-align: center;
@@ -179,6 +190,11 @@ def _time_input_12h(key_prefix, default_hour_24=9, default_minute=0, label=None)
     """
     A minimal 12-hour time picker styled like a normal app's time field:
     [ HH ] : [ MM ]  [ AM/PM ]
+
+    Hour and Minute are typeable number boxes: type the number and press
+    Enter, and focus auto-advances to the next box (Hour -> Minute ->
+    AM/PM), so the mentor never has to click each box manually.
+
     Returns a datetime.time.
     """
     _inject_time_picker_css()
@@ -191,18 +207,19 @@ def _time_input_12h(key_prefix, default_hour_24=9, default_minute=0, label=None)
     if label:
         st.markdown(f"<div class='time-picker-label'>{label}</div>", unsafe_allow_html=True)
 
-    with st.container(key=f"{key_prefix}_block"):
+    block_key = f"{key_prefix}_block"
+    with st.container(key=block_key):
         c1, c2, c3, c4 = st.columns([1, 0.25, 1, 1.15], gap="small")
         with c1:
-            hour = st.selectbox(
-                "Hour", list(range(1, 13)), index=default_hour_12 - 1,
+            hour = st.number_input(
+                "Hour", min_value=1, max_value=12, value=default_hour_12, step=1,
                 key=f"{key_prefix}_hour", label_visibility="collapsed",
             )
         with c2:
             st.markdown("<div class='time-picker-colon'>:</div>", unsafe_allow_html=True)
         with c3:
-            minute = st.selectbox(
-                "Minute", [f"{m:02d}" for m in range(60)], index=default_minute,
+            minute = st.number_input(
+                "Minute", min_value=0, max_value=59, value=default_minute, step=1,
                 key=f"{key_prefix}_min", label_visibility="collapsed",
             )
         with c4:
@@ -211,7 +228,48 @@ def _time_input_12h(key_prefix, default_hour_24=9, default_minute=0, label=None)
                 key=f"{key_prefix}_period", label_visibility="collapsed",
             )
 
-    hour_24 = hour % 12
+    # Auto-advance focus: Hour [Enter] -> Minute [Enter] -> AM/PM.
+    # This works by reaching into the parent Streamlit page's DOM (a common
+    # technique for small UX touches Streamlit doesn't support natively) -
+    # it's best-effort: browsers/Streamlit versions can vary, so if it ever
+    # stops working the time picker still works fine with manual clicks.
+    components.html(
+        f"""
+        <script>
+        (function() {{
+            function setup() {{
+                const doc = window.parent.document;
+                const box = doc.querySelector('.st-key-{block_key}');
+                if (!box) {{ setTimeout(setup, 300); return; }}
+                const numberInputs = box.querySelectorAll('input[type="number"]');
+                const hourInput = numberInputs[0];
+                const minuteInput = numberInputs[1];
+                const periodBox = box.querySelector('[data-baseweb="select"]');
+
+                function bind(el, nextFocusFn) {{
+                    if (!el || el.dataset.autoAdvanceBound) return;
+                    el.dataset.autoAdvanceBound = "1";
+                    el.addEventListener('keydown', function(e) {{
+                        if (e.key === 'Enter') {{
+                            setTimeout(nextFocusFn, 60);
+                        }}
+                    }});
+                }}
+                bind(hourInput, function() {{
+                    if (minuteInput) {{ minuteInput.focus(); minuteInput.select(); }}
+                }});
+                bind(minuteInput, function() {{
+                    if (periodBox) {{ periodBox.focus(); }}
+                }});
+            }}
+            setup();
+        }})();
+        </script>
+        """,
+        height=0,
+    )
+
+    hour_24 = int(hour) % 12
     if period == "PM":
         hour_24 += 12
     return dtime(hour_24, int(minute))
