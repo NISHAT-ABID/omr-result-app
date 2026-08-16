@@ -5,4 +5,5 @@ pandas
 gspread
 google-auth
 streamlit-image-coordinates
+streamlit-cookies-controller
 Pillow
