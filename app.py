@@ -28,12 +28,12 @@ from datetime import time as dtime
 from datetime import timedelta
 
 import cv2
-import extra_streamlit_components as stx
 import numpy as np
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 from PIL import Image
+from streamlit_cookies_controller import CookieController
 from streamlit_image_coordinates import streamlit_image_coordinates
 
 import omr_scanner
@@ -59,9 +59,12 @@ def make_token():
     return uuid.uuid4().hex
 
 
-@st.cache_resource(show_spinner=False)
 def get_cookie_manager():
-    return stx.CookieManager(key="omr_cookie_manager")
+    # NOTE: intentionally NOT cached with st.cache_resource - this component
+    # keeps per-run state, and caching it as a shared resource has been
+    # reported to leak cookie/session data between different users' browsers.
+    # It's cheap to construct, so we just create a fresh one every rerun.
+    return CookieController()
 
 
 def inject_global_css():
@@ -135,7 +138,7 @@ def render_countdown(end_dt, label="Time Remaining"):
 def try_auto_login(cookie_manager):
     if "user" in st.session_state:
         return
-    token = cookie_manager.get(cookie=COOKIE_NAME)
+    token = cookie_manager.get(COOKIE_NAME)
     if not token:
         return
     session = sh.get_session(token)
@@ -159,13 +162,9 @@ def do_login(roll, password, remember, cookie_manager):
     st.session_state["user"] = user
     if remember:
         token = make_token()
-        expires_str = (sh.now_bd() + timedelta(days=REMEMBER_DAYS)).strftime("%Y-%m-%d %H:%M:%S")
-        sh.create_session(token, user["user_id"], expires_str)
-        cookie_manager.set(
-            COOKIE_NAME, token,
-            expires_at=sh.now_bd() + timedelta(days=REMEMBER_DAYS),
-            key="set_omr_cookie",
-        )
+        expiry_dt = sh.now_bd() + timedelta(days=REMEMBER_DAYS)
+        sh.create_session(token, user["user_id"], expiry_dt.strftime("%Y-%m-%d %H:%M:%S"))
+        cookie_manager.set(COOKIE_NAME, token, expires=expiry_dt, max_age=REMEMBER_DAYS * 86400)
         st.session_state["session_token"] = token
     return True
 
@@ -196,7 +195,7 @@ def do_logout(cookie_manager):
     if token:
         sh.delete_session(token)
     try:
-        cookie_manager.delete(COOKIE_NAME, key="delete_omr_cookie")
+        cookie_manager.remove(COOKIE_NAME)
     except KeyError:
         pass
     for k in ["user", "session_token", "page", "analysis_row", "mentor_authed"]:
@@ -233,13 +232,9 @@ def render_auth_page(cookie_manager):
             if st.button("Create Account", use_container_width=True, type="primary"):
                 if do_register(r_roll, r_name, r_pw1, r_pw2):
                     token = make_token()
-                    expires_str = (sh.now_bd() + timedelta(days=REMEMBER_DAYS)).strftime("%Y-%m-%d %H:%M:%S")
-                    sh.create_session(token, r_roll.strip(), expires_str)
-                    cookie_manager.set(
-                        COOKIE_NAME, token,
-                        expires_at=sh.now_bd() + timedelta(days=REMEMBER_DAYS),
-                        key="set_omr_cookie_reg",
-                    )
+                    expiry_dt = sh.now_bd() + timedelta(days=REMEMBER_DAYS)
+                    sh.create_session(token, r_roll.strip(), expiry_dt.strftime("%Y-%m-%d %H:%M:%S"))
+                    cookie_manager.set(COOKIE_NAME, token, expires=expiry_dt, max_age=REMEMBER_DAYS * 86400)
                     st.session_state["session_token"] = token
                     st.success("Account created! You're logged in.")
                     st.rerun()
