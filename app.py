@@ -35,7 +35,7 @@ st.set_page_config(page_title="OMR Result App", page_icon="📝", layout="center
 def render_login_page():
     st.markdown(
         "<h1 style='text-align:center;'>📝 OMR Result App</h1>"
-        "<p style='text-align:center; color:gray;'>Login করে শুরু করো</p>",
+        "<p style='text-align:center; color:gray;'>Login to get started</p>",
         unsafe_allow_html=True,
     )
 
@@ -47,7 +47,7 @@ def render_login_page():
         with st.form("login_form"):
             uid = st.text_input("User ID")
             pw = st.text_input("Password", type="password")
-            remember = st.checkbox("এই ডিভাইসে মনে রাখো", value=True)
+            remember = st.checkbox("Remember this device", value=True)
             submitted = st.form_submit_button("Login", use_container_width=True, type="primary")
         if submitted:
             user = auth.login(uid, pw)
@@ -55,44 +55,44 @@ def render_login_page():
                 auth.start_session(user, remember=remember)
                 st.rerun()
             else:
-                st.error("ID অথবা Password ভুল।")
+                st.error("Incorrect ID or Password.")
 
     with tab_student:
-        st.caption("একবার Account বানালেই পরে শুধু Login করলেই চলবে - নাম আর বার বার লিখতে হবে না।")
+        st.caption("Create an account once - after that you just log in, no need to type your name every time.")
         with st.form("student_signup_form"):
             s_id = st.text_input("Unique ID / Roll Number")
-            s_name = st.text_input("তোমার নাম")
+            s_name = st.text_input("Your Name")
             s_pw = st.text_input("Password", type="password", key="s_pw")
-            s_pw2 = st.text_input("Password আবার লিখো", type="password", key="s_pw2")
-            s_submit = st.form_submit_button("Account তৈরি করো", use_container_width=True)
+            s_pw2 = st.text_input("Re-enter Password", type="password", key="s_pw2")
+            s_submit = st.form_submit_button("Create Account", use_container_width=True)
         if s_submit:
             if s_pw != s_pw2:
-                st.error("দুইটা Password মিলছে না।")
+                st.error("The two passwords don't match.")
             else:
                 ok, msg = auth.create_account(s_id, s_name, s_pw, role="student")
                 if ok:
-                    st.success("✅ Account তৈরি হয়েছে! এখন 'Login' ট্যাব থেকে Login করো।")
+                    st.success("✅ Account created! Now log in from the 'Login' tab.")
                 else:
                     st.error(msg)
 
     with tab_mentor:
-        st.caption("Mentor Account খুলতে একটা Invite Code লাগবে (এটা তোমার admin/আগের mentor দিতে পারবে)।")
+        st.caption("You need an Invite Code to create a Mentor account (get this from your admin/an existing mentor).")
         with st.form("mentor_signup_form"):
             m_id = st.text_input("Unique ID")
-            m_name = st.text_input("নাম")
+            m_name = st.text_input("Name")
             m_pw = st.text_input("Password", type="password", key="m_pw")
-            m_pw2 = st.text_input("Password আবার লিখো", type="password", key="m_pw2")
+            m_pw2 = st.text_input("Re-enter Password", type="password", key="m_pw2")
             m_invite = st.text_input("Mentor Invite Code", type="password")
-            m_submit = st.form_submit_button("Mentor Account তৈরি করো", use_container_width=True)
+            m_submit = st.form_submit_button("Create Mentor Account", use_container_width=True)
         if m_submit:
             if m_pw != m_pw2:
-                st.error("দুইটা Password মিলছে না।")
+                st.error("The two passwords don't match.")
             elif not m_invite or m_invite != sh.get_mentor_password():
-                st.error("Invite Code ভুল।")
+                st.error("Incorrect Invite Code.")
             else:
                 ok, msg = auth.create_account(m_id, m_name, m_pw, role="mentor")
                 if ok:
-                    st.success("✅ Mentor Account তৈরি হয়েছে! এখন 'Login' ট্যাব থেকে Login করো।")
+                    st.success("✅ Mentor account created! Now log in from the 'Login' tab.")
                 else:
                     st.error(msg)
 
@@ -156,11 +156,11 @@ def _time_input_12h(key_prefix, default_hour_24=9, default_minute=0):
 
     c1, c2, c3 = st.columns([1, 1, 1])
     with c1:
-        st.caption("ঘন্টা (Hour)")
+        st.caption("Hour")
         hour = st.selectbox("Hour", list(range(1, 13)), index=default_hour_12 - 1,
                              key=f"{key_prefix}_hour", label_visibility="collapsed")
     with c2:
-        st.caption("মিনিট (Min)")
+        st.caption("Minute")
         minute = st.selectbox("Minute", [f"{m:02d}" for m in range(60)], index=default_minute,
                                key=f"{key_prefix}_min", label_visibility="collapsed")
     with c3:
@@ -177,7 +177,7 @@ def _time_input_12h(key_prefix, default_hour_24=9, default_minute=0):
 def render_answer_key_tab():
     st.subheader("🗓️ Set Today's Answer Key & Exam Time")
 
-    st.markdown("#### ① কতগুলো MCQ থাকবে? (Exam Style)")
+    st.markdown("#### ① How many MCQs? (Exam Style)")
     exam_style = st.radio(
         "Exam Style", ["📄 100 Questions (Q1-100)", "📄 40 Questions (Q1-40)"],
         horizontal=True, label_visibility="collapsed", key="mentor_exam_style_choice",
@@ -201,17 +201,17 @@ def render_answer_key_tab():
     st.divider()
     st.markdown("#### ➖ Negative Marking (Optional)")
     negative_marking = st.checkbox(
-        "এই exam এ negative marking রাখবেন? (ভুল উত্তরে মার্ক কাটা যাবে, blank/skip এ কাটা যাবে না)",
+        "Enable negative marking for this exam? (marks are deducted for wrong answers, skipped questions are not penalized)",
         key="mentor_neg_marking",
     )
     negative_value = 0.0
     if negative_marking:
         negative_value = st.number_input(
-            "প্রতিটি ভুল উত্তরে কত মার্ক কাটা হবে?",
+            "How many marks to deduct per wrong answer?",
             min_value=0.0, max_value=1.0, value=0.25, step=0.05, format="%.2f",
             key="mentor_neg_value",
         )
-        st.caption(f"উদাহরণ: {total_q} এর মধ্যে ৪টা ভুল হলে মার্ক কাটা যাবে {4 * negative_value:.2f}")
+        st.caption(f"Example: out of {total_q}, 4 wrong answers would deduct {4 * negative_value:.2f} marks")
 
     st.divider()
     answered = _count_answered(total_q)
@@ -281,7 +281,7 @@ def page_mentor():
     with tab2:
         st.subheader("🎯 OMR Sheet Calibration (only needed once per sheet size)")
         calib_style = st.radio(
-            "কোন সাইজের শিট ক্যালিব্রেট করবে?", ["100 Questions", "40 Questions"],
+            "Which sheet size are you calibrating?", ["100 Questions", "40 Questions"],
             horizontal=True, key="calib_style_choice",
         )
         total_q_calib = 100 if "100" in calib_style else 40
@@ -290,7 +290,7 @@ def page_mentor():
         force_key = f"force_recalibrate_{total_q_calib}"
 
         if existing_calibration and not st.session_state.get(force_key):
-            st.success(f"✅ {total_q_calib}-question শিটের Calibration আগে থেকেই সেভ করা আছে।")
+            st.success(f"✅ Calibration for the {total_q_calib}-question sheet is already saved.")
             with st.expander("View the currently active calibration"):
                 st.json(existing_calibration)
             st.caption("Students can submit OMR sheets normally. You don't need to visit this page again unless the sheet design changes.")
@@ -383,7 +383,7 @@ def page_mentor():
     with tab4:
         st.subheader("⚙️ Settings")
 
-        st.markdown("##### 🔑 আমার Password পরিবর্তন করো")
+        st.markdown("##### 🔑 Change My Password")
         with st.form("mentor_change_own_pw"):
             cur_pw = st.text_input("Current password", type="password")
             new_pw1 = st.text_input("New password", type="password")
@@ -403,16 +403,16 @@ def page_mentor():
 
         st.divider()
         st.markdown("##### ✉️ Mentor Invite Code")
-        st.caption("নতুন Mentor Account খুলতে যে Code লাগবে, সেটা এখান থেকে বদলাতে পারো।")
+        st.caption("This is the code needed to create a new Mentor account - you can change it here.")
         with st.form("mentor_invite_code_form"):
-            new_invite = st.text_input("নতুন Invite Code", type="password")
+            new_invite = st.text_input("New Invite Code", type="password")
             submit_invite = st.form_submit_button("✅ Update Invite Code", type="primary")
         if submit_invite:
             if not new_invite:
-                st.error("Invite code খালি রাখা যাবে না।")
+                st.error("Invite code cannot be empty.")
             else:
                 sh.set_mentor_password(new_invite)
-                st.success("Invite code পরিবর্তন হয়েছে!")
+                st.success("Invite code updated!")
 
 
 # =====================================================================
@@ -449,7 +449,7 @@ def page_student_live_exam():
     if active:
         calibration = sh.load_calibration(active["total_questions"])
         if not calibration:
-            st.error(f"মেন্টর এখনো {active['total_questions']}-প্রশ্নের শিট calibrate করেননি। মেন্টরকে জানাও।")
+            st.error(f"The mentor hasn't calibrated the {active['total_questions']}-question sheet yet. Please let the mentor know.")
 
     uploaded = st.file_uploader("Upload a photo of your filled OMR sheet", type=["png", "jpg", "jpeg"])
     if uploaded:
@@ -525,11 +525,11 @@ def page_student_live_exam():
 
 def page_result_analysis():
     name = st.session_state["name"]
-    st.header("📊 আমার Result Analysis")
+    st.header("📊 My Result Analysis")
 
     mine = sh.get_results_for_student(name)
     if mine.empty:
-        st.info("তুমি এখনো কোনো exam জমা দাওনি। Live Exam থেকে OMR শিট জমা দিলে এখানে report দেখতে পাবে।")
+        st.info("You haven't submitted any exam yet. Submit an OMR sheet from Live Exam to see your report here.")
         return
 
     keys_df = sh.get_all_answer_keys()
@@ -538,14 +538,14 @@ def page_result_analysis():
     total_possible = mine["total"].sum()
     avg_pct = round((total_marks / total_possible) * 100, 2) if total_possible else 0.0
 
-    st.markdown("#### 📈 সার্বিক ফলাফল (Overall)")
+    st.markdown("#### 📈 Overall Performance")
     c1, c2, c3 = st.columns(3)
-    c1.metric("মোট Exam দিয়েছো", mine["key_id"].nunique())
+    c1.metric("Exams Taken", mine["key_id"].nunique())
     c2.metric("Average %", f"{avg_pct}%")
-    c3.metric("মোট Marks", round(total_marks, 2))
+    c3.metric("Total Marks", round(total_marks, 2))
 
     st.divider()
-    st.markdown("#### 🗂️ প্রতিটি Exam এর রিপোর্ট")
+    st.markdown("#### 🗂️ Report Per Exam")
 
     for _, row in mine.iterrows():
         key_row = keys_df[keys_df["key_id"] == row["key_id"]] if not keys_df.empty else pd.DataFrame()
@@ -564,7 +564,7 @@ def page_result_analysis():
 
             if not wrong_q:
                 if row["answered"] > 0:
-                    st.success("🎉 এই exam এ কোনো ভুল হয়নি!")
+                    st.success("🎉 No wrong answers in this exam!")
                 continue
 
             window_closed = True
@@ -577,11 +577,11 @@ def page_result_analysis():
                     window_closed = True
 
             if not window_closed:
-                st.caption("⏳ এই exam এর সময় এখনো শেষ হয়নি, তাই সঠিক উত্তর এখন দেখানো যাচ্ছে না।")
-                st.write("ভুল হওয়া প্রশ্ন:", ", ".join(str(q) for q in wrong_q))
+                st.caption("⏳ This exam's time window hasn't closed yet, so the correct answers can't be shown yet.")
+                st.write("Questions you got wrong:", ", ".join(str(q) for q in wrong_q))
                 continue
 
-            st.markdown("**❌ ভুল প্রশ্ন ও সঠিক উত্তর (Solution):**")
+            st.markdown("**❌ Wrong Questions & Correct Answers (Solution):**")
             details = {}
             raw_details = row.get("wrong_details", "")
             if raw_details:
@@ -592,15 +592,15 @@ def page_result_analysis():
 
             if details:
                 rows = [
-                    {"Question": f"Q{q}", "তোমার উত্তর": details.get(q, {}).get("given", "-"),
-                     "সঠিক উত্তর": details.get(q, {}).get("correct", "-")}
+                    {"Question": f"Q{q}", "Your Answer": details.get(q, {}).get("given", "-"),
+                     "Correct Answer": details.get(q, {}).get("correct", "-")}
                     for q in wrong_q
                 ]
                 st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
             elif not key_row.empty:
                 ans_str = str(key_row["answer_string"].values[0])
                 rows = [
-                    {"Question": f"Q{q}", "সঠিক উত্তর": ans_str[q - 1] if q - 1 < len(ans_str) else "-"}
+                    {"Question": f"Q{q}", "Correct Answer": ans_str[q - 1] if q - 1 < len(ans_str) else "-"}
                     for q in wrong_q
                 ]
                 st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
@@ -673,7 +673,7 @@ def main():
     name = st.session_state["name"]
 
     st.sidebar.markdown("## 📝 OMR Result App")
-    st.sidebar.success(f"👋 স্বাগতম, **{name}**")
+    st.sidebar.success(f"👋 Welcome, **{name}**")
     st.sidebar.caption("🎓 Student" if role == "student" else "👨‍🏫 Mentor")
     st.sidebar.divider()
 
