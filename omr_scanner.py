@@ -10,23 +10,20 @@ There are 2 main steps:
    darkness at each question's 4 bubble positions (A/B/C/D) to find
    which one is filled in.
 
-Two physical sheet layouts are supported, since the 100Q and 40Q printed
-sheets are laid out differently:
-  - 100 questions -> 4 columns x 25 rows each
-  - 40  questions -> 2 columns x 20 rows each
+validate_omr_image() runs BEFORE any of that - it rejects photos that are
+too small, too blurry, too dark/bright, or otherwise unlikely to score
+correctly, so the student gets a clear message instead of a silently wrong
+result.
 
-Calibration = the mentor uploads a blank OMR sheet once (per layout, on
-the "Calibration" page) and clicks 4 points:
-  1) Question 1                    - center of option A
-  2) Question 1                    - center of option D
-  3) Last question of 1st column   - center of option A
-  4) First question of 2nd column  - center of option A
+Calibration = the mentor uploads a blank OMR sheet once on the
+"Calibration" page and clicks 4 points:
+  1) Question 1  - center of option A
+  2) Question 1  - center of option D
+  3) Question 25 - center of option A (same block, last row)
+  4) Question 26 - center of option A (next block, first row)
 
-From these 4 points, every question's bubble positions in that layout
-are computed, since a printed sheet always has a uniform grid. The same
-4 calibration point *names* are used for both layouts - only the actual
-pixel positions (and therefore which question number is "last of column
-1") differ, since the sheets are physically different.
+From these 4 points, all 100 questions' bubble positions are computed,
+since a printed sheet always has a uniform grid.
 """
 
 import cv2
@@ -34,21 +31,55 @@ import numpy as np
 
 WARP_WIDTH = 1200
 WARP_HEIGHT = 1600
+TOTAL_QUESTIONS = 100
+QUESTIONS_PER_BLOCK = 25
+NUM_BLOCKS = 4
 OPTIONS = ["A", "B", "C", "D"]
 BUBBLE_SAMPLE_RADIUS = 12  # pixels; may need adjusting depending on the warped image
 
-# Physical sheet layouts, keyed by total question count.
-LAYOUTS = {
-    100: {"num_blocks": 4, "per_block": 25},
-    40: {"num_blocks": 2, "per_block": 20},
-}
+# ---- image-quality thresholds (tune if real-world photos misbehave) ----
+MIN_WIDTH = 500
+MIN_HEIGHT = 700
+BLUR_VARIANCE_THRESHOLD = 60.0   # below this = too blurry (Laplacian variance)
+DARK_MEAN_THRESHOLD = 40.0       # below this = too dark
+BRIGHT_MEAN_THRESHOLD = 240.0    # above this = too bright / overexposed / blown out
 
 
-def layout_for(total_questions):
-    """Returns the {num_blocks, per_block} layout for a given question count,
-    falling back to the 100Q layout if an unknown count is passed."""
-    return LAYOUTS.get(total_questions, LAYOUTS[100])
+def validate_omr_image(image_bgr):
+    """
+    Runs quick, cheap checks on an uploaded photo before we try to score it.
 
+    Returns: (ok: bool, errors: list[str], warnings: list[str])
+      - errors   -> blocking problems; the submission should be refused
+      - warnings -> non-blocking issues; submission can proceed but the
+                    student should be told the result might be inaccurate
+    """
+    errors = []
+    warnings = []
+
+    if image_bgr is None or image_bgr.size == 0:
+        return False, ["The uploaded file could not be read as an image."], []
+
+    h, w = image_bgr.shape[:2]
+    if w < MIN_WIDTH or h < MIN_HEIGHT:
+        errors.append(
+            f"Image resolution is too low ({w}x{h}). Please retake the photo with a "
+            f"higher resolution camera, at least {MIN_WIDTH}x{MIN_HEIGHT}."
+        )
+
+    gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
+
+    mean_brightness = float(np.mean(gray))
+    if mean_brightness < DARK_MEAN_THRESHOLD:
+        errors.append("The photo is too dark to read. Please retake it in better lighting.")
+    elif mean_brightness > BRIGHT_MEAN_THRESHOLD:
+        warnings.append("The photo looks overexposed / very bright - results may be inaccurate.")
+
+    blur_variance = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+    if blur_variance < BLUR_VARIANCE_THRESHOLD:
+        errors.append("The photo looks blurry. Please hold the camera steady and retake it.")
+
+    return (len(errors) == 0), errors, warnings
 
 
 def _order_points(pts):
@@ -104,35 +135,28 @@ def detect_and_warp(image_bgr):
     return warped, True
 
 
-def build_grid(calibration, total_questions=100):
+def build_grid(calibration):
     """
-    calibration dict contains 4 clicked points (x, y), using layout-neutral
-    names so the same structure works for both the 100Q and 40Q sheets:
-      q1_a, q1_d, block1_last_a, block2_first_a
+    calibration dict contains 4 clicked points (x, y):
+    q1_a, q1_d, q25_a, q26_a
 
-    total_questions: 100 or 40 - selects which physical layout (columns x
-    rows) to compute the grid for. See LAYOUTS above.
-
-    Returns a dict: { question_no: {"A": (x,y), "B": (x,y), ...} }
+    From these, computes each question's (1-100) 4 bubble centers and
+    returns a dict: { question_no: {"A": (x,y), "B": (x,y), ...} }
     """
-    layout = layout_for(total_questions)
-    num_blocks = layout["num_blocks"]
-    per_block = layout["per_block"]
-
     q1_a = np.array(calibration["q1_a"], dtype=float)
     q1_d = np.array(calibration["q1_d"], dtype=float)
-    block1_last_a = np.array(calibration["block1_last_a"], dtype=float)
-    block2_first_a = np.array(calibration["block2_first_a"], dtype=float)
+    q25_a = np.array(calibration["q25_a"], dtype=float)
+    q26_a = np.array(calibration["q26_a"], dtype=float)
 
-    option_step = (q1_d - q1_a) / (len(OPTIONS) - 1)          # distance A->D, split into 3
-    row_step = (block1_last_a - q1_a) / (per_block - 1)        # distance row to row
-    block_step = block2_first_a - q1_a                          # x/y shift from one column to the next
+    option_step = (q1_d - q1_a) / (len(OPTIONS) - 1)   # distance A->D, split into 3
+    row_step = (q25_a - q1_a) / (QUESTIONS_PER_BLOCK - 1)  # distance row to row
+    block_step = q26_a - q1_a                           # x/y shift from one block to the next
 
     grid = {}
     q_no = 1
-    for block in range(num_blocks):
+    for block in range(NUM_BLOCKS):
         block_origin = q1_a + block * block_step
-        for row in range(per_block):
+        for row in range(QUESTIONS_PER_BLOCK):
             row_origin = block_origin + row * row_step
             options = {}
             for i, opt in enumerate(OPTIONS):
@@ -164,7 +188,7 @@ def read_answers(warped_bgr, grid, dark_threshold=150, min_gap=15):
              darkness, it's treated as "unclear / multiple marked"
 
     Returns: dict {question_no: 'A'/'B'/'C'/'D'/None}
-             None means blank or unclear
+    None means blank or unclear
     """
     gray = cv2.cvtColor(warped_bgr, cv2.COLOR_BGR2GRAY)
     gray = cv2.GaussianBlur(gray, (3, 3), 0)
@@ -182,7 +206,6 @@ def read_answers(warped_bgr, grid, dark_threshold=150, min_gap=15):
             answers[q_no] = None  # two bubbles nearly equally dark -> unclear/multi-mark
         else:
             answers[q_no] = darkest_opt
-
     return answers
 
 
@@ -194,20 +217,15 @@ def score_answers(student_answers, key_string, negative_marking=False, negative_
                        questions are never penalized.
 
     Returns a dict:
-      total           - total number of questions
-      answered        - how many the student attempted (non-blank)
-      skipped         - how many were left blank
-      correct         - how many were correct
-      wrong_count     - how many were attempted but wrong
-      wrong           - list of question numbers that were wrong
-      wrong_details   - {question_no: {"given": "B", "correct": "C"}}
-      skipped_list    - list of question numbers left blank
-      review_details  - {question_no: {"given": "B"/None, "correct": "C"}}
-                         for EVERY question that wasn't correct (wrong OR
-                         skipped), in question order. Used to render the
-                         digital "Solution" bubble sheet.
-      accuracy        - correct / answered * 100 (0 if nothing answered)
-      marks           - correct - (wrong_count * negative_value), if enabled
+      total          - total number of questions
+      answered       - how many the student attempted (non-blank)
+      skipped        - how many were left blank
+      correct        - how many were correct
+      wrong_count    - how many were attempted but wrong
+      wrong          - list of question numbers that were wrong
+      wrong_details  - {question_no: {"given": "B", "correct": "C"}}
+      accuracy       - correct / answered * 100 (0 if nothing answered)
+      marks          - correct - (wrong_count * negative_value), if enabled
       negative_marking / negative_value - echoed back for display purposes
     """
     total = len(key_string)
@@ -215,26 +233,21 @@ def score_answers(student_answers, key_string, negative_marking=False, negative_
     answered = 0
     wrong = []
     wrong_details = {}
-    skipped_list = []
-    review_details = {}
+    skipped_questions = []
 
     for i in range(total):
         q_no = i + 1
         correct_ans = key_string[i].upper()
         given = student_answers.get(q_no)
-
         if given is None:
-            skipped_list.append(q_no)
-            review_details[q_no] = {"given": None, "correct": correct_ans}
+            skipped_questions.append(q_no)
             continue
-
         answered += 1
         if given == correct_ans:
             correct += 1
         else:
             wrong.append(q_no)
             wrong_details[q_no] = {"given": given, "correct": correct_ans}
-            review_details[q_no] = {"given": given, "correct": correct_ans}
 
     skipped = total - answered
     wrong_count = len(wrong)
@@ -250,13 +263,34 @@ def score_answers(student_answers, key_string, negative_marking=False, negative_
         "wrong_count": wrong_count,
         "wrong": wrong,
         "wrong_details": wrong_details,
-        "skipped_list": skipped_list,
-        "review_details": review_details,
+        "skipped_questions": skipped_questions,
         "accuracy": accuracy,
         "marks": marks,
         "negative_marking": negative_marking,
         "negative_value": negative_value,
     }
+
+
+def build_review_rows(student_answers, key_string):
+    """
+    Builds a per-question review list for the OMR-style result view:
+    [{"q": 1, "given": "B", "correct": "A", "status": "wrong"}, ...]
+    status is one of "correct", "wrong", "skipped". Only wrong/skipped
+    rows are typically shown in the review UI.
+    """
+    rows = []
+    for i, correct_ans in enumerate(key_string):
+        q_no = i + 1
+        given = student_answers.get(q_no)
+        correct_ans = correct_ans.upper()
+        if given is None:
+            status = "skipped"
+        elif given == correct_ans:
+            status = "correct"
+        else:
+            status = "wrong"
+        rows.append({"q": q_no, "given": given, "correct": correct_ans, "status": status})
+    return rows
 
 
 # ---------------- Visual answer-key input (clickable sheet for the mentor) ----------------
@@ -274,8 +308,8 @@ def render_sheet_image(grid, total_questions=100, answers=None):
     answers = answers or {}
     img = PILImage.new("RGB", (WARP_WIDTH, WARP_HEIGHT), "white")
     draw = ImageDraw.Draw(img)
-
     r = BUBBLE_SAMPLE_RADIUS + 6
+
     for q in range(1, total_questions + 1):
         opts = grid.get(q)
         if not opts:
@@ -292,7 +326,6 @@ def render_sheet_image(grid, total_questions=100, answers=None):
             draw.text((x - 4, y - 6), opt, fill=(255, 255, 255) if filled else (30, 30, 30))
         ax, ay = opts["A"]
         draw.text((ax - 44, ay - 7), str(q), fill=(0, 0, 0))
-
     return img
 
 
@@ -303,7 +336,6 @@ def find_clicked_bubble(grid, total_questions, x, y, radius=None):
     """
     if radius is None:
         radius = BUBBLE_SAMPLE_RADIUS + 10
-
     best = None
     best_d = radius
     for q in range(1, total_questions + 1):
