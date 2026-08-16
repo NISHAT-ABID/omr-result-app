@@ -91,15 +91,15 @@ def _remove_cookie(name):
 # ---------------- Sign up ----------------
 
 def create_account(user_id, name, password, role):
-    """Returns (True, "") on success or (False, "error message in Bangla")."""
+    """Returns (True, "") on success or (False, "error message")."""
     user_id = (user_id or "").strip()
     name = (name or "").strip()
     if not user_id or not name or not password:
-        return False, "সব ঘর পূরণ করো।"
+        return False, "Please fill in every field."
     if len(password) < 4:
-        return False, "Password কমপক্ষে ৪ অক্ষরের হতে হবে।"
+        return False, "Password must be at least 4 characters long."
     if sh.user_exists(user_id):
-        return False, "এই ID আগে থেকেই ব্যবহার হয়েছে, অন্য একটা ID দাও।"
+        return False, "This ID is already taken - please choose a different one."
     sh.create_user(user_id, name, hash_password(password), role)
     return True, ""
 
