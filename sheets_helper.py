@@ -9,11 +9,11 @@ All functions for using Google Sheets as the app's database.
                  total_questions, answer_string,
                  negative_marking, negative_marks_value
 2. Config     -> calibration_json, mentor_password (key-value store)
-3. Results    -> timestamp, student, student_id, key_id, total, answered,
-                 skipped, correct, wrong_count, wrong, marks, accuracy,
+3. Results    -> timestamp, student, key_id, total, answered, skipped,
+                 correct, wrong_count, wrong, marks, accuracy,
                  negative_marking, negative_value
-4. Users      -> (see auth_helper.py) student accounts: name, email,
-                 password hash, unique student_id, etc.
+4. Students   -> student_id, name, password, created_at
+                 (no email / OTP - signup instantly creates an account)
 
 The Sheet name/ID is stored as SHEET_ID in .streamlit/secrets.toml.
 """
@@ -39,12 +39,14 @@ ANSWERKEYS_HEADER = [
 ]
 
 RESULTS_HEADER = [
-    "timestamp", "student", "student_id", "key_id", "total", "answered", "skipped",
+    "timestamp", "student", "key_id", "total", "answered", "skipped",
     "correct", "wrong_count", "wrong", "marks", "accuracy",
     "negative_marking", "negative_value",
 ]
 
 CONFIG_HEADER = ["config_key", "config_value"]
+
+STUDENTS_HEADER = ["student_id", "name", "password", "created_at"]
 
 BD_TZ = ZoneInfo("Asia/Dhaka")
 
@@ -103,11 +105,11 @@ def get_spreadsheet():
     return _with_retry(client.open_by_key, st.secrets["SHEET_ID"])
 
 
-def _get_or_create_worksheet(sh_obj, title, header):
+def _get_or_create_worksheet(sh, title, header):
     try:
-        ws = _with_retry(sh_obj.worksheet, title)
+        ws = _with_retry(sh.worksheet, title)
     except gspread.WorksheetNotFound:
-        ws = _with_retry(sh_obj.add_worksheet, title=title, rows=1000, cols=len(header) + 2)
+        ws = _with_retry(sh.add_worksheet, title=title, rows=1000, cols=len(header) + 2)
         _with_retry(ws.append_row, header)
         return ws
 
@@ -127,15 +129,17 @@ def _cached_worksheet(title):
         "AnswerKeys": ANSWERKEYS_HEADER,
         "Config": CONFIG_HEADER,
         "Results": RESULTS_HEADER,
+        "Students": STUDENTS_HEADER,
     }
-    sh_obj = get_spreadsheet()
-    return _get_or_create_worksheet(sh_obj, title, header_map[title])
+    sh = get_spreadsheet()
+    return _get_or_create_worksheet(sh, title, header_map[title])
 
 
 def init_sheets():
     _cached_worksheet("AnswerKeys")
     _cached_worksheet("Config")
     _cached_worksheet("Results")
+    _cached_worksheet("Students")
     return get_spreadsheet()
 
 
@@ -166,7 +170,7 @@ def get_active_answer_key(now=None):
     Finds which answer key is active right now.
     Returns: dict {key_id, exam_name, answer_string, total_questions,
                    start_dt, end_dt, negative_marking, negative_marks_value}
-    or None.
+             or None.
     """
     if now is None:
         now = now_bd()
@@ -271,9 +275,94 @@ def set_mentor_password(new_password):
     set_config_value("mentor_password", new_password)
 
 
+# ---------------- Students (name + password signup, no email/OTP) ----------------
+#
+# Sign up = give a name + a password -> account is created immediately and
+# a unique ID (STU0001, STU0002, ...) is handed back. To log back in later,
+# the student needs that ID + their password. If they forget the password,
+# only the mentor can reset it, from the Mentor Panel -> Students tab.
+
+def get_all_students():
+    ws = _cached_worksheet("Students")
+    records = _with_retry(ws.get_all_records)
+    return pd.DataFrame(records)
+
+
+def _next_student_id():
+    df = get_all_students()
+    if df.empty:
+        return "STU0001"
+    nums = []
+    for sid in df["student_id"]:
+        try:
+            nums.append(int(str(sid).strip().upper().replace("STU", "")))
+        except (TypeError, ValueError):
+            continue
+    next_n = (max(nums) + 1) if nums else (len(df) + 1)
+    return f"STU{next_n:04d}"
+
+
+def create_student(name, password):
+    """Creates a new student account instantly (no OTP/email needed).
+    Returns the new unique student_id, e.g. 'STU0001'."""
+    ws = _cached_worksheet("Students")
+    student_id = _next_student_id()
+    created_at = now_bd().strftime("%Y-%m-%d %H:%M:%S")
+    _with_retry(ws.append_row, [student_id, name.strip(), password, created_at])
+    return student_id
+
+
+def authenticate_student(student_id, password):
+    """Returns {student_id, name} if the ID + password match, else None."""
+    df = get_all_students()
+    if df.empty:
+        return None
+    df["student_id"] = df["student_id"].astype(str)
+    df["password"] = df["password"].astype(str)
+    match = df[
+        (df["student_id"].str.strip().str.upper() == student_id.strip().upper())
+        & (df["password"] == password)
+    ]
+    if match.empty:
+        return None
+    row = match.iloc[0]
+    return {"student_id": row["student_id"], "name": row["name"]}
+
+
+def get_student_by_id(student_id):
+    df = get_all_students()
+    if df.empty:
+        return None
+    df["student_id"] = df["student_id"].astype(str)
+    match = df[df["student_id"].str.strip().str.upper() == student_id.strip().upper()]
+    if match.empty:
+        return None
+    row = match.iloc[0]
+    return {"student_id": row["student_id"], "name": row["name"]}
+
+
+def reset_student_password(student_id, new_password):
+    """Mentor-only action: forcibly set a student's password when they forget it."""
+    ws = _cached_worksheet("Students")
+    values = _with_retry(ws.get_all_values)
+    if not values:
+        return False
+    header = values[0]
+    try:
+        id_col = header.index("student_id")
+        pw_col = header.index("password")
+    except ValueError:
+        return False
+    for i, row in enumerate(values[1:], start=2):
+        if len(row) > id_col and row[id_col].strip().upper() == student_id.strip().upper():
+            _with_retry(ws.update_cell, i, pw_col + 1, new_password)
+            return True
+    return False
+
+
 # ---------------- Results ----------------
 
-def append_result(student, student_id, key_id, result):
+def append_result(student, key_id, result):
     """
     result is the dict returned by omr_scanner.score_answers():
     total, answered, skipped, correct, wrong_count, wrong,
@@ -283,7 +372,7 @@ def append_result(student, student_id, key_id, result):
     timestamp = now_bd().strftime("%Y-%m-%d %H:%M:%S")
     wrong_str = ",".join(str(q) for q in result.get("wrong", []))
     row = [
-        timestamp, student, student_id, key_id,
+        timestamp, student, key_id,
         result.get("total", 0), result.get("answered", 0), result.get("skipped", 0),
         result.get("correct", 0), result.get("wrong_count", 0), wrong_str,
         result.get("marks", 0), result.get("accuracy", 0),
@@ -304,15 +393,14 @@ def get_all_results_df():
 
 
 def get_leaderboard_by_key(key_id):
-    """Leaderboard for one specific exam - best marks per student (deduped by unique student_id)."""
+    """Leaderboard for one specific exam - best marks per student."""
     df = get_all_results_df()
     if df.empty:
         return df
     df = df[df["key_id"] == key_id]
     if df.empty:
         return df
-    dedupe_col = "student_id" if "student_id" in df.columns else "student"
-    best = df.sort_values("marks", ascending=False).drop_duplicates(dedupe_col)
+    best = df.sort_values("marks", ascending=False).drop_duplicates("student")
     best = best.sort_values("marks", ascending=False).reset_index(drop=True)
     best.insert(0, "rank", range(1, len(best) + 1))
     return best
@@ -323,8 +411,7 @@ def get_overall_leaderboard():
     df = get_all_results_df()
     if df.empty:
         return df
-    group_cols = ["student_id", "student"] if "student_id" in df.columns else ["student"]
-    grouped = df.groupby(group_cols).agg(
+    grouped = df.groupby("student").agg(
         total_marks=("marks", "sum"),
         total_possible=("total", "sum"),
         exams_taken=("key_id", "nunique"),
