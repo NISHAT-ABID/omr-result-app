@@ -1,184 +1,205 @@
 """
-auth.py
--------
-Login / sign-up / "remember this device" logic for the OMR Result App.
+auth_helper.py
+---------------
+Student account system for the OMR Result App.
 
-- Passwords are never stored as plain text - only a salted SHA-256 hash
-  is saved in the Users sheet.
-- "Remember this device" works with a random session token: it's saved
-  both in the Sessions worksheet (Google Sheets) and in a browser cookie
-  (via streamlit-cookies-controller). On every fresh page load we check
-  the cookie -> look the token up in the sheet -> if it's valid and not
-  expired, the user is logged back in automatically, no password needed.
-  Logging out deletes both the cookie and the sheet row.
+Handles:
+- Sign up with name + email + password -> emails a 6-digit OTP -> account
+  is only activated after the OTP is verified.
+- On activation, a unique Student ID (e.g. STU0001) is generated. This ID
+  is what identifies the student everywhere in the app (results, exam
+  submissions, leaderboard - internally).
+- Login with email + password.
+- Forgot password: emails an OTP -> verify OTP -> set a new password.
+
+Storage: one more worksheet ("Users") in the same Google Sheet used by
+sheets_helper.py.
+
+Users worksheet columns:
+    user_id, name, email, password_hash, salt, verified,
+    otp_code, otp_expiry, otp_purpose, created_at
+
+Passwords are never stored in plain text - only a salted SHA-256 hash.
 """
 
 import hashlib
-import time
 import secrets as pysecrets
-from datetime import timedelta
+import string
+from datetime import datetime, timedelta
 
 import streamlit as st
 
 import sheets_helper as sh
+from sheets_helper import _with_retry, _to_bool
 
-try:
-    from streamlit_cookies_controller import CookieController
-    _COOKIES_AVAILABLE = True
-except Exception:
-    _COOKIES_AVAILABLE = False
+USERS_HEADER = [
+    "user_id", "name", "email", "password_hash", "salt", "verified",
+    "otp_code", "otp_expiry", "otp_purpose", "created_at",
+]
 
-REMEMBER_DAYS = 30
-COOKIE_NAME = "omr_remember_token"
-
-
-def _pepper():
-    # Extra secret mixed into every password hash. Works fine without it,
-    # but setting SESSION_SECRET in secrets.toml makes hashes harder to
-    # attack if the Google Sheet itself ever leaked.
-    return st.secrets.get("SESSION_SECRET", "omr-app-default-pepper")
+OTP_VALID_MINUTES = 10
 
 
-def hash_password(password: str) -> str:
-    salted = f"{password}{_pepper()}"
-    return hashlib.sha256(salted.encode("utf-8")).hexdigest()
-
-
-def verify_password(password: str, password_hash: str) -> bool:
-    return hash_password(password) == password_hash
-
+# ---------------- Worksheet plumbing ----------------
 
 @st.cache_resource(show_spinner=False)
-def _cookie_controller():
-    if not _COOKIES_AVAILABLE:
-        return None
-    try:
-        return CookieController()
-    except Exception:
-        return None
+def _users_ws():
+    spreadsheet = sh.get_spreadsheet()
+    return sh._get_or_create_worksheet(spreadsheet, "Users", USERS_HEADER)
 
 
-def _get_cookie(name):
-    ctrl = _cookie_controller()
-    if ctrl is None:
-        return None
-    try:
-        return ctrl.get(name)
-    except Exception:
-        return None
+def init_users_sheet():
+    _users_ws()
 
 
-def _set_cookie(name, value, days):
-    ctrl = _cookie_controller()
-    if ctrl is None:
-        return
-    try:
-        ctrl.set(name, value, max_age=days * 24 * 60 * 60)
-    except Exception:
-        pass
+def _get_all_users():
+    ws = _users_ws()
+    records = _with_retry(ws.get_all_records)
+    return records, ws
 
 
-def _remove_cookie(name):
-    ctrl = _cookie_controller()
-    if ctrl is None:
-        return
-    try:
-        ctrl.remove(name)
-    except Exception:
-        pass
+def _find_user_row(email):
+    """Returns (sheet_row_number, record_dict) for the given email, or (None, None)."""
+    records, _ = _get_all_users()
+    email = email.strip().lower()
+    for i, row in enumerate(records):
+        if str(row.get("email", "")).strip().lower() == email:
+            return i + 2, row  # +2: header row is row 1, records are 0-indexed
+    return None, None
+
+
+# ---------------- Small helpers ----------------
+
+def _gen_salt():
+    return pysecrets.token_hex(8)
+
+
+def _hash_password(password, salt):
+    return hashlib.sha256((salt + password).encode("utf-8")).hexdigest()
+
+
+def _gen_otp():
+    return "".join(pysecrets.choice(string.digits) for _ in range(6))
+
+
+def _gen_student_id():
+    """Sequential, unique, human-readable student ID e.g. STU0001, STU0002 ..."""
+    records, _ = _get_all_users()
+    verified_count = sum(1 for r in records if _to_bool(r.get("verified")))
+    return f"STU{verified_count + 1:04d}"
+
+
+def email_exists(email):
+    _, row = _find_user_row(email)
+    return row is not None
 
 
 # ---------------- Sign up ----------------
 
-def create_account(user_id, name, password, role):
-    """Returns (True, "") on success or (False, "error message")."""
-    user_id = (user_id or "").strip()
-    name = (name or "").strip()
-    if not user_id or not name or not password:
-        return False, "Please fill in every field."
-    if len(password) < 4:
-        return False, "Password must be at least 4 characters long."
-    if sh.user_exists(user_id):
-        return False, "This ID is already taken - please choose a different one."
-    sh.create_user(user_id, name, hash_password(password), role)
-    return True, ""
+def start_signup(name, email, password):
+    """
+    Creates (or refreshes) a pending, unverified account row and returns the
+    OTP that the caller should email to the user.
+
+    Raises ValueError if the email already belongs to a *verified* account.
+    """
+    email = email.strip().lower()
+    row_idx, row = _find_user_row(email)
+    if row and _to_bool(row.get("verified")):
+        raise ValueError("This email is already registered. Please log in instead.")
+
+    salt = _gen_salt()
+    otp = _gen_otp()
+    otp_expiry = (datetime.utcnow() + timedelta(minutes=OTP_VALID_MINUTES)).strftime("%Y-%m-%d %H:%M:%S")
+    password_hash = _hash_password(password, salt)
+    ws = _users_ws()
+
+    new_row = ["", name.strip(), email, password_hash, salt, False,
+               otp, otp_expiry, "signup", datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")]
+
+    if row_idx:
+        _with_retry(ws.update, f"A{row_idx}:J{row_idx}", [new_row])
+    else:
+        _with_retry(ws.append_row, new_row)
+    return otp
+
+
+def verify_signup_otp(email, otp):
+    """
+    Verifies the signup OTP. On success, assigns a unique student_id and
+    activates the account. Returns (user_dict, error_message).
+    """
+    email = email.strip().lower()
+    row_idx, row = _find_user_row(email)
+    if not row:
+        return None, "No pending signup found for this email."
+    if _to_bool(row.get("verified")):
+        return None, "This account is already verified. Please log in."
+    if row.get("otp_purpose") != "signup":
+        return None, "No signup verification is pending for this email."
+    if str(row.get("otp_code", "")).strip() != str(otp).strip():
+        return None, "Incorrect OTP."
+    try:
+        expiry = datetime.strptime(row["otp_expiry"], "%Y-%m-%d %H:%M:%S")
+    except Exception:
+        expiry = datetime.min
+    if datetime.utcnow() > expiry:
+        return None, "This OTP has expired. Please sign up again to get a new one."
+
+    user_id = _gen_student_id()
+    ws = _users_ws()
+    _with_retry(ws.update, f"A{row_idx}", [[user_id]])
+    _with_retry(ws.update, f"F{row_idx}:I{row_idx}", [[True, "", "", ""]])
+    return {"user_id": user_id, "name": row["name"], "email": email}, None
 
 
 # ---------------- Login ----------------
 
-def login(user_id, password):
-    """Returns the user record (dict) on success, or None."""
-    user = sh.get_user((user_id or "").strip())
-    if not user:
-        return None
-    if not verify_password(password or "", user.get("password_hash", "")):
-        return None
-    return user
+def login(email, password):
+    email = email.strip().lower()
+    _, row = _find_user_row(email)
+    if not row:
+        return None, "No account found with this email."
+    if not _to_bool(row.get("verified")):
+        return None, "This account is not verified yet. Please verify with OTP on the Sign Up tab."
+    if _hash_password(password, row.get("salt", "")) != row.get("password_hash"):
+        return None, "Incorrect password."
+    return {"user_id": row["user_id"], "name": row["name"], "email": email}, None
 
 
-def start_session(user, remember=True):
-    """Logs the user into st.session_state and optionally remembers the device."""
-    st.session_state["authed"] = True
-    st.session_state["user_id"] = user["user_id"]
-    st.session_state["name"] = user["name"]
-    st.session_state["role"] = user["role"]
+# ---------------- Forgot password ----------------
 
-    if remember:
-        token = pysecrets.token_hex(24)
-        expires = sh.now_bd() + timedelta(days=REMEMBER_DAYS)
-        sh.create_session(token, user["user_id"], expires.strftime("%Y-%m-%d %H:%M:%S"))
-        st.session_state["_session_token"] = token
-        _set_cookie(COOKIE_NAME, token, REMEMBER_DAYS)
-
-
-def try_auto_login():
-    """
-    Call once near the top of the app, before showing the login page.
-    If a valid "remember me" cookie exists, logs the user back in
-    silently. Returns True if the user is (now) logged in.
-    """
-    if st.session_state.get("authed"):
-        return True
-    if st.session_state.get("_auto_login_checked"):
-        return False
-
-    token = _get_cookie(COOKIE_NAME)
-
-    # streamlit-cookies-controller reads cookies via a browser component,
-    # which isn't ready on the very first script run. Give it a couple of
-    # quick reruns before giving up and showing the login page.
-    if token is None:
-        retries = st.session_state.get("_auto_login_retries", 0)
-        if retries < 2:
-            st.session_state["_auto_login_retries"] = retries + 1
-            time.sleep(0.2)
-            st.rerun()
-        st.session_state["_auto_login_checked"] = True
-        return False
-
-    st.session_state["_auto_login_checked"] = True
-
-    session = sh.get_session(token)
-    if not session:
-        return False
-
-    user = sh.get_user(session["user_id"])
-    if not user:
-        return False
-
-    st.session_state["authed"] = True
-    st.session_state["user_id"] = user["user_id"]
-    st.session_state["name"] = user["name"]
-    st.session_state["role"] = user["role"]
-    st.session_state["_session_token"] = token
-    return True
+def start_password_reset(email):
+    email = email.strip().lower()
+    row_idx, row = _find_user_row(email)
+    if not row or not _to_bool(row.get("verified")):
+        raise ValueError("No verified account found with this email.")
+    otp = _gen_otp()
+    otp_expiry = (datetime.utcnow() + timedelta(minutes=OTP_VALID_MINUTES)).strftime("%Y-%m-%d %H:%M:%S")
+    ws = _users_ws()
+    _with_retry(ws.update, f"G{row_idx}:I{row_idx}", [[otp, otp_expiry, "reset"]])
+    return otp
 
 
-def logout():
-    token = st.session_state.get("_session_token") or _get_cookie(COOKIE_NAME)
-    if token:
-        sh.delete_session(token)
-    _remove_cookie(COOKIE_NAME)
-    for key in ["authed", "user_id", "name", "role", "_session_token",
-                "_auto_login_checked", "_auto_login_retries"]:
-        st.session_state.pop(key, None)
+def reset_password(email, otp, new_password):
+    email = email.strip().lower()
+    row_idx, row = _find_user_row(email)
+    if not row:
+        return False, "No account found with this email."
+    if row.get("otp_purpose") != "reset":
+        return False, "No password reset is pending for this email."
+    if str(row.get("otp_code", "")).strip() != str(otp).strip():
+        return False, "Incorrect OTP."
+    try:
+        expiry = datetime.strptime(row["otp_expiry"], "%Y-%m-%d %H:%M:%S")
+    except Exception:
+        expiry = datetime.min
+    if datetime.utcnow() > expiry:
+        return False, "This OTP has expired. Please request a new one."
+
+    salt = _gen_salt()
+    password_hash = _hash_password(new_password, salt)
+    ws = _users_ws()
+    _with_retry(ws.update, f"D{row_idx}:E{row_idx}", [[password_hash, salt]])
+    _with_retry(ws.update, f"G{row_idx}:I{row_idx}", [["", "", ""]])
+    return True, None
