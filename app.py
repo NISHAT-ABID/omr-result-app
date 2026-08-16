@@ -297,30 +297,26 @@ def render_answer_key_tab():
     with st.container(key="answer_bubble_grid"):
         if total_q == 100:
             # 100 questions is too long for one screen with a comfortable
-            # single-row A/B/C/D layout, so paginate: 50 at a time, with a
-            # Next/Previous button to flip between Q1-50 and Q51-100.
+            # single-row A/B/C/D layout, so paginate: 50 at a time. The
+            # Next/Previous buttons are placed BELOW the grid, since that's
+            # where the mentor's hand naturally ends up after filling in
+            # all 50 answers on the page.
             page = st.session_state.get("answer_key_page", 1)
-
-            nav1, nav2, nav3 = st.columns([1, 2, 1])
-            with nav1:
-                if page == 2 and st.button("⬅️ Previous 50"):
-                    st.session_state["answer_key_page"] = 1
-                    st.rerun()
-            with nav2:
-                st.markdown(
-                    f"<p style='text-align:center; opacity:0.7; padding-top:6px;'>"
-                    f"Showing Q{'1-50' if page == 1 else '51-100'} of 100</p>",
-                    unsafe_allow_html=True,
-                )
-            with nav3:
-                if page == 1 and st.button("Next 50 ➡️"):
-                    st.session_state["answer_key_page"] = 2
-                    st.rerun()
 
             if page == 1:
                 blocks = [(1, 25), (26, 50)]
+                st.markdown(
+                    "<p style='opacity:0.7;'>📄 <b>Page 1 of 2</b> - Questions 1-50 "
+                    "<span style='opacity:0.6;'>(the next 50 questions, 51-100, are on the next page)</span></p>",
+                    unsafe_allow_html=True,
+                )
             else:
                 blocks = [(51, 75), (76, 100)]
+                st.markdown(
+                    "<p style='opacity:0.7;'>📄 <b>Page 2 of 2</b> - Questions 51-100 "
+                    "<span style='opacity:0.6;'>(questions 1-50 are on the previous page)</span></p>",
+                    unsafe_allow_html=True,
+                )
         else:
             blocks = [(1, 20), (21, 40)]
 
@@ -328,6 +324,17 @@ def render_answer_key_tab():
         for col, (b_start, b_end) in zip(grid_cols, blocks):
             with col:
                 _render_bubble_block(b_start, b_end)
+
+        if total_q == 100:
+            nav1, nav2, nav3 = st.columns([1, 2, 1])
+            with nav1:
+                if page == 2 and st.button("⬅️ Previous 50 (Q1-50)", use_container_width=True):
+                    st.session_state["answer_key_page"] = 1
+                    st.rerun()
+            with nav3:
+                if page == 1 and st.button("Next 50 (Q51-100) ➡️", use_container_width=True):
+                    st.session_state["answer_key_page"] = 2
+                    st.rerun()
 
     st.divider()
 
