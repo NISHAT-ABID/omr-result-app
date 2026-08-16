@@ -4,14 +4,14 @@ sheets_helper.py
 All functions for using Google Sheets as the app's database.
 
 3 worksheets (tabs) are needed inside one Google Sheet:
-  1. AnswerKeys -> key_id, exam_name, date, start_time, end_time,
-                   total_questions, answer_string,
-                   negative_marking, negative_marks_value
-  2. Config     -> config_key, config_value (generic key-value store -
-                   used for calibration_100 / calibration_40 / mentor_password)
-  3. Results    -> timestamp, student, key_id, total, answered, skipped,
-                   correct, wrong_count, wrong, marks, accuracy,
-                   negative_marking, negative_value
+
+1. AnswerKeys -> key_id, exam_name, date, start_time, end_time,
+                 total_questions, answer_string,
+                 negative_marking, negative_marks_value
+2. Config     -> calibration_json, mentor_password (key-value store)
+3. Results    -> timestamp, student, key_id, total, answered, skipped,
+                 correct, wrong_count, wrong, marks, accuracy,
+                 negative_marking, negative_value
 
 The Sheet name/ID is stored as SHEET_ID in .streamlit/secrets.toml.
 """
@@ -88,6 +88,34 @@ def _to_int(val, default=0):
         return default
 
 
+def _get_all_records_safe(ws, expected_header):
+    """
+    A drop-in replacement for gspread's ws.get_all_records().
+
+    gspread's own get_all_records() raises GSpreadException if the sheet's
+    actual header row (row 1) has duplicate or blank column names - which
+    can easily happen after manual edits to the Google Sheet. That crashes
+    the whole page.
+
+    This version ignores whatever text is actually in row 1 and instead
+    maps every data row (row 2 onwards) POSITIONALLY onto our own known
+    `expected_header` column list. Extra/missing cells are padded with "".
+    This can never raise a duplicate/blank-header error.
+    """
+    values = _with_retry(ws.get_all_values)
+    if len(values) <= 1:
+        return []
+
+    records = []
+    width = len(expected_header)
+    for row in values[1:]:
+        if not any(str(c).strip() for c in row):
+            continue  # skip fully blank rows
+        row = (row + [""] * width)[:width]  # pad/truncate to expected width
+        records.append(dict(zip(expected_header, row)))
+    return records
+
+
 @st.cache_resource(show_spinner=False)
 def get_client():
     creds_dict = dict(st.secrets["gcp_service_account"])
@@ -137,38 +165,14 @@ def init_sheets():
     return get_spreadsheet()
 
 
-def _rows_to_records(values, expected_header):
-    """
-    Converts raw sheet values (list of lists, from get_all_values) into a
-    list of dicts - keyed by OUR OWN known header, positionally.
-
-    We deliberately do NOT use gspread's get_all_records(): it reads the
-    header directly from row 1 and raises GSpreadException the moment
-    that row has any duplicate or blank cell (e.g. a stray empty column,
-    or a leftover header from manual editing in Google Sheets). Since we
-    always know what the header is supposed to be, mapping by position
-    instead is both simpler and immune to that class of error.
-    """
-    if not values or len(values) < 2:
-        return []
-    records = []
-    for row in values[1:]:
-        if not any(str(cell).strip() for cell in row):
-            continue  # skip fully blank rows
-        record = {col: (row[i] if i < len(row) else "") for i, col in enumerate(expected_header)}
-        records.append(record)
-    return records
-
-
 # ---------------- Answer Keys ----------------
 
 def add_answer_key(exam_name, date_str, start_time_str, end_time_str,
                     total_questions, answer_string,
                     negative_marking=False, negative_marks_value=0.0):
     ws = _cached_worksheet("AnswerKeys")
-    values = _with_retry(ws.get_all_values)
-    existing_count = max(0, len(values) - 1)  # minus header row
-    key_id = f"K{existing_count + 1:04d}"
+    existing = _get_all_records_safe(ws, ANSWERKEYS_HEADER)
+    key_id = f"K{len(existing) + 1:04d}"
     _with_retry(
         ws.append_row,
         [key_id, exam_name, date_str, start_time_str, end_time_str,
@@ -179,8 +183,7 @@ def add_answer_key(exam_name, date_str, start_time_str, end_time_str,
 
 def get_all_answer_keys():
     ws = _cached_worksheet("AnswerKeys")
-    values = _with_retry(ws.get_all_values)
-    records = _rows_to_records(values, ANSWERKEYS_HEADER)
+    records = _get_all_records_safe(ws, ANSWERKEYS_HEADER)
     return pd.DataFrame(records)
 
 
@@ -193,6 +196,7 @@ def get_active_answer_key(now=None):
     """
     if now is None:
         now = now_bd()
+
     df = get_all_answer_keys()
     if df.empty:
         return None
@@ -203,6 +207,7 @@ def get_active_answer_key(now=None):
             end_dt = datetime.strptime(str(row["end_time"]), "%Y-%m-%d %H:%M")
         except Exception:
             continue
+
         if start_dt <= now <= end_dt:
             return {
                 "key_id": row["key_id"],
@@ -221,6 +226,7 @@ def get_upcoming_answer_key(now=None):
     """Finds the nearest upcoming exam (start time in the future), or None."""
     if now is None:
         now = now_bd()
+
     df = get_all_answer_keys()
     if df.empty:
         return None
@@ -238,6 +244,7 @@ def get_upcoming_answer_key(now=None):
 
     if best_row is None:
         return None
+
     return {
         "key_id": best_row["key_id"],
         "exam_name": best_row.get("exam_name", ""),
@@ -251,11 +258,13 @@ def set_config_value(key, value):
     ws = _cached_worksheet("Config")
     values = _with_retry(ws.get_all_values)
     json_str = json.dumps(value)
+
     row_idx = None
     for i, row in enumerate(values):
         if row and row[0] == key:
             row_idx = i + 1
             break
+
     if row_idx:
         _with_retry(ws.update, f"A{row_idx}:B{row_idx}", [[key, json_str]])
     else:
@@ -275,11 +284,9 @@ def get_config_value(key, default=None):
 
 
 # ---------------- Calibration ----------------
-# Each sheet layout (100Q / 40Q) is calibrated and stored SEPARATELY, keyed
-# by total_questions, e.g. config_key "calibration_100" / "calibration_40".
-# This is what makes the calibration auto-switch: whichever total_questions
-# the mentor picked for an exam decides which saved calibration is used -
-# no manual re-selection needed on the Calibration tab at scan time.
+# Calibration is stored SEPARATELY per sheet layout (100Q vs 40Q), since
+# those are physically different printed sheets. Config key is namespaced
+# by the question count, e.g. "calibration_100" / "calibration_40".
 
 def save_calibration(calibration_dict, total_questions):
     set_config_value(f"calibration_{total_questions}", calibration_dict)
@@ -306,10 +313,11 @@ def set_mentor_password(new_password):
 
 def append_result(student, key_id, result):
     """
-    result is the dict returned by omr_scanner.score_answers():
-      total, answered, skipped, correct, wrong_count, wrong,
-      wrong_details, skipped_list, skipped_details, accuracy, marks,
-      negative_marking, negative_value
+    result is the dict returned by omr_scanner.score_answers(). Only the
+    summary fields are written to the sheet (total, answered, skipped,
+    correct, wrong_count, wrong, marks, accuracy, ...) - the detailed
+    per-question review_details/skipped_list stay in-memory just long
+    enough to render the "Solution" bubble sheet right after submission.
     """
     ws = _cached_worksheet("Results")
     timestamp = now_bd().strftime("%Y-%m-%d %H:%M:%S")
@@ -325,25 +333,40 @@ def append_result(student, key_id, result):
 
 
 def get_all_results_df():
+    """
+    Reads the Results sheet into a DataFrame.
+
+    Uses _get_all_records_safe() (positional mapping onto RESULTS_HEADER)
+    instead of gspread's get_all_records(), so a duplicate/blank/edited
+    header row in the actual Google Sheet can never crash this. Every
+    caller must still NOT assume all columns are non-empty - always check
+    first (see get_leaderboard_by_key / get_overall_leaderboard below).
+    """
     ws = _cached_worksheet("Results")
-    values = _with_retry(ws.get_all_values)
-    records = _rows_to_records(values, RESULTS_HEADER)
+    records = _get_all_records_safe(ws, RESULTS_HEADER)
     df = pd.DataFrame(records)
-    if not df.empty:
-        for col in ["total", "answered", "skipped", "correct", "wrong_count", "marks", "accuracy"]:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    if df.empty:
+        return df
+
+    for col in ["total", "answered", "skipped", "correct", "wrong_count", "marks", "accuracy"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
     return df
 
 
 def get_leaderboard_by_key(key_id):
     """Leaderboard for one specific exam - best marks per student."""
     df = get_all_results_df()
-    if df.empty:
-        return df
+    required_cols = {"key_id", "marks", "student"}
+    if df.empty or not required_cols.issubset(df.columns):
+        return pd.DataFrame()
+
     df = df[df["key_id"] == key_id]
     if df.empty:
         return df
+
     best = df.sort_values("marks", ascending=False).drop_duplicates("student")
     best = best.sort_values("marks", ascending=False).reset_index(drop=True)
     best.insert(0, "rank", range(1, len(best) + 1))
@@ -353,14 +376,21 @@ def get_leaderboard_by_key(key_id):
 def get_overall_leaderboard():
     """Ranking by average percentage (total marks / total possible) across all exams."""
     df = get_all_results_df()
-    if df.empty:
-        return df
+    required_cols = {"student", "marks", "total", "key_id"}
+    if df.empty or not required_cols.issubset(df.columns):
+        return pd.DataFrame()
+
     grouped = df.groupby("student").agg(
         total_marks=("marks", "sum"),
         total_possible=("total", "sum"),
         exams_taken=("key_id", "nunique"),
     ).reset_index()
-    grouped["avg_percent"] = (grouped["total_marks"] / grouped["total_possible"] * 100).round(2)
+
+    # avoid division-by-zero for students with total_possible == 0
+    grouped["avg_percent"] = grouped.apply(
+        lambda r: round((r["total_marks"] / r["total_possible"]) * 100, 2) if r["total_possible"] else 0.0,
+        axis=1,
+    )
     grouped = grouped.sort_values("avg_percent", ascending=False).reset_index(drop=True)
     grouped.insert(0, "rank", range(1, len(grouped) + 1))
     return grouped
