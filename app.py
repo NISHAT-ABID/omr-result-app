@@ -27,6 +27,18 @@ import sheets_helper as sh
 
 st.set_page_config(page_title="OMR Result App", page_icon="📝", layout="centered")
 
+# Local copy of the sheet-layout constants (independent of omr_scanner.py's
+# own copy) so the Mentor Panel never crashes even if an older omr_scanner.py
+# happens to be deployed. Keep these in sync with LAYOUTS in omr_scanner.py.
+_CALIB_LAYOUTS = {
+    100: {"num_blocks": 4, "per_block": 25},
+    40: {"num_blocks": 2, "per_block": 20},
+}
+
+
+def _layout_for(total_questions):
+    return _CALIB_LAYOUTS.get(total_questions, _CALIB_LAYOUTS[100])
+
 
 # ---------------- Auth ----------------
 
@@ -209,7 +221,7 @@ def render_answer_key_tab():
     st.subheader("🗓️ Set Today's Answer Key & Exam Time")
 
     # ---- Step 1: how many MCQs (always asked first) ----
-    st.markdown("#### ① কতগুলো MCQ থাকবে? (Exam Style)")
+    st.markdown("#### ① How Many MCQs? (Exam Style)")
     exam_style = st.radio(
         "Exam Style",
         ["📄 100 Questions (Q1-100)", "📄 40 Questions (Q1-40)"],
@@ -224,6 +236,7 @@ def render_answer_key_tab():
         for q in range(1, 101):
             st.session_state.pop(_answer_key(q), None)
         st.session_state["mentor_answer_total_q"] = total_q
+        st.session_state["answer_key_page"] = 1
 
     st.divider()
 
@@ -283,7 +296,31 @@ def render_answer_key_tab():
     _inject_bubble_grid_css()
     with st.container(key="answer_bubble_grid"):
         if total_q == 100:
-            blocks = [(1, 25), (26, 50), (51, 75), (76, 100)]
+            # 100 questions is too long for one screen with a comfortable
+            # single-row A/B/C/D layout, so paginate: 50 at a time, with a
+            # Next/Previous button to flip between Q1-50 and Q51-100.
+            page = st.session_state.get("answer_key_page", 1)
+
+            nav1, nav2, nav3 = st.columns([1, 2, 1])
+            with nav1:
+                if page == 2 and st.button("⬅️ Previous 50"):
+                    st.session_state["answer_key_page"] = 1
+                    st.rerun()
+            with nav2:
+                st.markdown(
+                    f"<p style='text-align:center; opacity:0.7; padding-top:6px;'>"
+                    f"Showing Q{'1-50' if page == 1 else '51-100'} of 100</p>",
+                    unsafe_allow_html=True,
+                )
+            with nav3:
+                if page == 1 and st.button("Next 50 ➡️"):
+                    st.session_state["answer_key_page"] = 2
+                    st.rerun()
+
+            if page == 1:
+                blocks = [(1, 25), (26, 50)]
+            else:
+                blocks = [(51, 75), (76, 100)]
         else:
             blocks = [(1, 20), (21, 40)]
 
@@ -329,20 +366,15 @@ def page_mentor():
 
     with tab2:
         st.subheader("🎯 OMR Sheet Calibration")
-        st.caption(
-            "100-question ও 40-question শীট ফিজিক্যালি আলাদা ডিজাইনের, তাই প্রতিটার জন্য "
-            "আলাদাভাবে একবার calibrate করতে হবে। এরপর exam চলাকালীন app নিজে থেকেই "
-            "সঠিক calibration বেছে নেবে (mentor-কে বারবার সিলেক্ট করতে হবে না)।"
-        )
 
         layout_choice = st.radio(
-            "কোন শীটের জন্য calibrate করবেন?",
+            "Which sheet do you want to calibrate?",
             ["📄 100 Question Sheet", "📄 40 Question Sheet"],
             horizontal=True,
             key="calib_layout_choice",
         )
         calib_total_q = 100 if "100" in layout_choice else 40
-        layout = omr_scanner.layout_for(calib_total_q)
+        layout = _layout_for(calib_total_q)
         block1_last_q = layout["per_block"]
         block2_first_q = layout["per_block"] + 1
 
@@ -352,7 +384,7 @@ def page_mentor():
         existing_calibration = sh.load_calibration(calib_total_q)
 
         if existing_calibration and not st.session_state.get(force_key):
-            st.success(f"✅ {calib_total_q}Q শীটের calibration সেভ করা আছে - আবার করার দরকার নেই।")
+            st.success(f"✅ {calib_total_q}Q sheet calibration is already saved - no need to redo it.")
             with st.expander("View the currently active calibration"):
                 st.json(existing_calibration)
             st.caption("Students can submit OMR sheets normally. You don't need to visit this page again unless the sheet design changes.")
@@ -392,6 +424,16 @@ then click 4 points on the image below in this order:
                 warped_rgb = cv2.cvtColor(warped, cv2.COLOR_BGR2RGB)
                 warped_pil = Image.fromarray(warped_rgb)
 
+                # Show a smaller preview so the ENTIRE sheet fits on screen
+                # without horizontal scrolling (important on mobile) - the
+                # click position is then scaled back up to the real
+                # (WARP_WIDTH x WARP_HEIGHT) coordinate space before saving,
+                # so calibration accuracy is unaffected.
+                PREVIEW_WIDTH = 420
+                scale = PREVIEW_WIDTH / omr_scanner.WARP_WIDTH
+                preview_height = int(omr_scanner.WARP_HEIGHT * scale)
+                preview_img = warped_pil.resize((PREVIEW_WIDTH, preview_height))
+
                 if points_key not in st.session_state:
                     st.session_state[points_key] = []
 
@@ -400,9 +442,10 @@ then click 4 points on the image below in this order:
 
                 if current_step < 4:
                     st.info(f"Now click: **{labels[current_step]}**")
-                    coords = streamlit_image_coordinates(warped_pil, key=f"calib_img_{calib_total_q}")
+                    st.caption("Tip: pinch-zoom your browser if you need to click more precisely.")
+                    coords = streamlit_image_coordinates(preview_img, key=f"calib_img_{calib_total_q}")
                     if coords is not None:
-                        pt = (coords["x"], coords["y"])
+                        pt = (int(round(coords["x"] / scale)), int(round(coords["y"] / scale)))
                         if not st.session_state[points_key] or st.session_state[points_key][-1] != pt:
                             st.session_state[points_key].append(pt)
                             st.rerun()
