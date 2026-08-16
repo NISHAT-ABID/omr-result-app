@@ -6,8 +6,7 @@ OMR Result App - main Streamlit application.
 Pages:
 - Login (shared password to keep the app private)
 - Mentor: Set answer key (visual click) + exam time (12hr AM/PM),
-  optional negative marking, calibration (per sheet type: 100Q/40Q),
-  password change
+  optional negative marking, calibration, password change
 - Student: Enter your name and upload an OMR sheet to see your result
 - Leaderboard: Daily + Overall analysis - open to everyone
 
@@ -70,8 +69,6 @@ def is_mentor():
 # This does NOT depend on any sheet image or calibration - it's a plain,
 # self-contained UI. Step 1 is always "how many MCQs" (40 or 100), then a
 # clean bubble grid (A/B/C/D radio per question) to fill the key.
-# Whatever total_q is chosen here is exactly what the Student page will
-# later use to auto-pick the matching saved calibration.
 
 def _inject_bubble_grid_css():
     st.markdown(
@@ -134,35 +131,73 @@ def _render_bubble_block(q_start, q_end):
             )
 
 
-def _time_input_12h(key_prefix, default_hour_24=9, default_minute=0):
+# ---------------- Minimal 12-hour time picker (HH : MM  AM/PM) ----------------
+
+def _inject_time_picker_css():
+    st.markdown(
+        """
+        <style>
+        .time-picker-block div[data-testid="stSelectbox"] {
+            margin-bottom: 0px;
+        }
+        .time-picker-block div[data-baseweb="select"] > div {
+            border-radius: 8px;
+            min-height: 42px;
+        }
+        .time-picker-colon {
+            text-align: center;
+            font-size: 1.5rem;
+            font-weight: 700;
+            padding-top: 8px;
+            opacity: 0.55;
+        }
+        .time-picker-label {
+            font-size: 0.85rem;
+            font-weight: 600;
+            opacity: 0.8;
+            margin-bottom: 4px;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _time_input_12h(key_prefix, default_hour_24=9, default_minute=0, label=None):
     """
-    A 12-hour Hour / Minute / AM-PM picker (Streamlit's built-in time_input
-    doesn't give control over 12h vs 24h display). Returns a datetime.time.
+    A minimal 12-hour time picker styled like a normal app's time field:
+    [ HH ] : [ MM ]  [ AM/PM ]
+    Returns a datetime.time.
     """
+    _inject_time_picker_css()
+
     default_period = "PM" if default_hour_24 >= 12 else "AM"
     default_hour_12 = default_hour_24 % 12
     if default_hour_12 == 0:
         default_hour_12 = 12
 
-    c1, c2, c3 = st.columns([1, 1, 1])
-    with c1:
-        st.caption("ঘন্টা (Hour)")
-        hour = st.selectbox(
-            "Hour", list(range(1, 13)), index=default_hour_12 - 1,
-            key=f"{key_prefix}_hour", label_visibility="collapsed",
-        )
-    with c2:
-        st.caption("মিনিট (Min)")
-        minute = st.selectbox(
-            "Minute", [f"{m:02d}" for m in range(60)], index=default_minute,
-            key=f"{key_prefix}_min", label_visibility="collapsed",
-        )
-    with c3:
-        st.caption("AM/PM")
-        period = st.selectbox(
-            "AM/PM", ["AM", "PM"], index=0 if default_period == "AM" else 1,
-            key=f"{key_prefix}_period", label_visibility="collapsed",
-        )
+    if label:
+        st.markdown(f"<div class='time-picker-label'>{label}</div>", unsafe_allow_html=True)
+
+    with st.container(key=f"{key_prefix}_block"):
+        c1, c2, c3, c4 = st.columns([1, 0.25, 1, 1.15], gap="small")
+        with c1:
+            hour = st.selectbox(
+                "Hour", list(range(1, 13)), index=default_hour_12 - 1,
+                key=f"{key_prefix}_hour", label_visibility="collapsed",
+            )
+        with c2:
+            st.markdown("<div class='time-picker-colon'>:</div>", unsafe_allow_html=True)
+        with c3:
+            minute = st.selectbox(
+                "Minute", [f"{m:02d}" for m in range(60)], index=default_minute,
+                key=f"{key_prefix}_min", label_visibility="collapsed",
+            )
+        with c4:
+            period = st.selectbox(
+                "AM/PM", ["AM", "PM"], index=0 if default_period == "AM" else 1,
+                key=f"{key_prefix}_period", label_visibility="collapsed",
+            )
 
     hour_24 = hour % 12
     if period == "PM":
@@ -183,10 +218,6 @@ def render_answer_key_tab():
         key="mentor_exam_style_choice",
     )
     total_q = 100 if "100" in exam_style else 40
-    st.caption(
-        f"ℹ️ এই এক্সামের OMR চেক হবে **{total_q}Q** ফরম্যাটের সেভ করা calibration দিয়ে - "
-        "স্টুডেন্ট সাবমিট করার সময় এটা অটোমেটিক বেছে নেওয়া হবে।"
-    )
 
     # reset the answer grid whenever the question-count changes
     if st.session_state.get("mentor_answer_total_q") != total_q:
@@ -201,10 +232,11 @@ def render_answer_key_tab():
     exam_name = st.text_input("Exam name", placeholder="e.g. Physics Model Test - 3")
     d = st.date_input("Exam date", value=date.today())
 
-    st.markdown("**Start time**")
-    start_t = _time_input_12h("mentor_start_t", default_hour_24=9, default_minute=0)
-    st.markdown("**End time**")
-    end_t = _time_input_12h("mentor_end_t", default_hour_24=9, default_minute=30)
+    t1, t2 = st.columns(2, gap="large")
+    with t1:
+        start_t = _time_input_12h("mentor_start_t", default_hour_24=9, default_minute=0, label="Start time")
+    with t2:
+        end_t = _time_input_12h("mentor_end_t", default_hour_24=9, default_minute=30, label="End time")
 
     st.divider()
 
@@ -281,125 +313,6 @@ def render_answer_key_tab():
             st.success(f"✅ Answer key for '{exam_name}' saved! Key ID: {key_id}")
 
 
-# ---------------- Mentor: Calibration tab (per sheet-type: 100Q / 40Q) ----------------
-#
-# 100Q and 40Q sheets are printed with different bubble layouts (100Q =
-# 4 blocks of 25, 40Q = 2 columns of 20), so each layout needs its OWN
-# calibration. Both are stored separately (calibration_100 / calibration_40)
-# and whichever one an exam needs is auto-picked later, based on the
-# total_questions that was chosen for that exam in the Answer Key tab.
-
-def render_calibration_tab():
-    st.subheader("🎯 OMR Sheet Calibration")
-    st.caption(
-        "100Q আর 40Q শীটের ডিজাইন আলাদা, তাই দুটো আলাদাভাবে ক্যালিব্রেট করে রাখতে হবে - "
-        "একবার করে রাখলেই হবে। এক্সাম সেট করার সময় যে ফরম্যাট বেছে নেবেন, স্টুডেন্ট সাবমিট করার "
-        "সময় অটোমেটিক সেই ক্যালিব্রেশনটাই ব্যবহার হবে - এখানে আবার বেছে দিতে হবে না।"
-    )
-
-    calib_choice = st.radio(
-        "কোন শীটের ক্যালিব্রেশন দেখবেন / করবেন?",
-        ["📄 100 Questions Sheet", "📄 40 Questions Sheet"],
-        horizontal=True,
-        key="calib_type_choice",
-    )
-    calib_total_q = 100 if "100" in calib_choice else 40
-    layout = omr_scanner.LAYOUTS[calib_total_q]
-
-    force_key = f"force_recalibrate_{calib_total_q}"
-    points_key = f"calib_points_{calib_total_q}"
-
-    existing_calibration = sh.load_calibration(calib_total_q)
-
-    if existing_calibration and not st.session_state.get(force_key):
-        st.success(f"✅ **{calib_total_q}Q** শীটের ক্যালিব্রেশন সেভ করা আছে - আবার করার দরকার নেই।")
-        with st.expander("বর্তমান ক্যালিব্রেশন দেখুন"):
-            st.json(existing_calibration)
-        st.caption("এই ফরম্যাটের এক্সামে স্টুডেন্টরা এখনই স্বাভাবিকভাবে OMR জমা দিতে পারবে।")
-        if st.button(f"🔄 Recalibrate {calib_total_q}Q", key=f"recal_btn_{calib_total_q}"):
-            st.session_state[force_key] = True
-            st.session_state[points_key] = []
-            st.rerun()
-        return
-
-    if existing_calibration:
-        st.info("আপনি নতুন ক্যালিব্রেশন করছেন - সেভ করলে আগেরটা রিপ্লেস হয়ে যাবে।")
-        if st.button("❌ আগের ক্যালিব্রেশনে ফিরে যান", key=f"cancel_recal_{calib_total_q}"):
-            st.session_state[force_key] = False
-            st.rerun()
-
-    st.markdown(
-        f"""
-        **{calib_total_q}Q শীট** — প্রতি ব্লকে **{layout['questions_per_block']}**টা প্রশ্ন, মোট **{layout['num_blocks']}**টা ব্লক/কলাম।
-
-        একটা **সোজা, স্পষ্ট ছবি** আপলোড করুন খালি OMR শীটের, তারপর নিচের ছবিতে এই ক্রমে ৪টা পয়েন্ট ক্লিক করুন:
-        1. Question **1** - বাবল **A** এর মাঝখানে
-        2. Question **1** - বাবল **D** এর মাঝখানে
-        3. Question **{layout['questions_per_block']}** - বাবল **A** এর মাঝখানে (প্রথম ব্লকের শেষ প্রশ্ন)
-        4. Question **{layout['questions_per_block'] + 1}** - বাবল **A** এর মাঝখানে (দ্বিতীয় ব্লকের প্রথম প্রশ্ন)
-        """
-    )
-
-    uploaded = st.file_uploader(
-        "খালি OMR শীট আপলোড করুন", type=["png", "jpg", "jpeg"], key=f"calib_upload_{calib_total_q}"
-    )
-
-    if not uploaded:
-        return
-
-    image = Image.open(uploaded).convert("RGB")
-    img_bgr = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-    warped, ok = omr_scanner.detect_and_warp(img_bgr)
-    if not ok:
-        st.warning("শীটের ৪ কোনা অটোমেটিক ডিটেক্ট করা যায়নি। নিচে ক্লিক করে ক্যালিব্রেট করা যাবে, তবে সোজা/ফ্ল্যাট ছবি তুললে আরও ভালো হবে।")
-
-    warped_rgb = cv2.cvtColor(warped, cv2.COLOR_BGR2RGB)
-    warped_pil = Image.fromarray(warped_rgb)
-
-    if points_key not in st.session_state:
-        st.session_state[points_key] = []
-
-    labels = layout["block_labels"]
-    current_step = len(st.session_state[points_key])
-
-    if current_step < 4:
-        st.info(f"এখন ক্লিক করুন: **{labels[current_step]}**")
-        coords = streamlit_image_coordinates(warped_pil, key=f"calib_img_{calib_total_q}")
-        if coords is not None:
-            pt = (coords["x"], coords["y"])
-            if not st.session_state[points_key] or st.session_state[points_key][-1] != pt:
-                st.session_state[points_key].append(pt)
-                st.rerun()
-        return
-
-    st.success("৪টা পয়েন্টই ক্লিক করা হয়ে গেছে!")
-    pts = st.session_state[points_key]
-    for lbl, pt in zip(labels, pts):
-        st.write(f"- {lbl}: {pt}")
-
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("🔄 আবার শুরু করুন", key=f"restart_{calib_total_q}"):
-            st.session_state[points_key] = []
-            st.rerun()
-    with col2:
-        if st.button("💾 Save Calibration", type="primary", key=f"save_calib_{calib_total_q}"):
-            calibration = {
-                "q1_a": pts[0],
-                "q1_d": pts[1],
-                "qlast_a": pts[2],
-                "qnext_a": pts[3],
-                "total_questions": calib_total_q,
-                "questions_per_block": layout["questions_per_block"],
-                "num_blocks": layout["num_blocks"],
-            }
-            sh.save_calibration(calibration, calib_total_q)
-            st.success(f"✅ {calib_total_q}Q শীটের ক্যালিব্রেশন সেভ হয়েছে! এখন স্টুডেন্টরা এই ফরম্যাটের OMR জমা দিতে পারবে।")
-            st.session_state[points_key] = []
-            st.session_state[force_key] = False
-            st.rerun()
-
-
 # ---------------- Mentor Panel ----------------
 
 def page_mentor():
@@ -415,7 +328,115 @@ def page_mentor():
         render_answer_key_tab()
 
     with tab2:
-        render_calibration_tab()
+        st.subheader("🎯 OMR Sheet Calibration")
+        st.caption(
+            "100-question ও 40-question শীট ফিজিক্যালি আলাদা ডিজাইনের, তাই প্রতিটার জন্য "
+            "আলাদাভাবে একবার calibrate করতে হবে। এরপর exam চলাকালীন app নিজে থেকেই "
+            "সঠিক calibration বেছে নেবে (mentor-কে বারবার সিলেক্ট করতে হবে না)।"
+        )
+
+        layout_choice = st.radio(
+            "কোন শীটের জন্য calibrate করবেন?",
+            ["📄 100 Question Sheet", "📄 40 Question Sheet"],
+            horizontal=True,
+            key="calib_layout_choice",
+        )
+        calib_total_q = 100 if "100" in layout_choice else 40
+        layout = omr_scanner.layout_for(calib_total_q)
+        block1_last_q = layout["per_block"]
+        block2_first_q = layout["per_block"] + 1
+
+        force_key = f"force_recalibrate_{calib_total_q}"
+        points_key = f"calib_points_{calib_total_q}"
+
+        existing_calibration = sh.load_calibration(calib_total_q)
+
+        if existing_calibration and not st.session_state.get(force_key):
+            st.success(f"✅ {calib_total_q}Q শীটের calibration সেভ করা আছে - আবার করার দরকার নেই।")
+            with st.expander("View the currently active calibration"):
+                st.json(existing_calibration)
+            st.caption("Students can submit OMR sheets normally. You don't need to visit this page again unless the sheet design changes.")
+            if st.button("🔄 Recalibrate", key=f"recal_btn_{calib_total_q}"):
+                st.session_state[force_key] = True
+                st.session_state[points_key] = []
+                st.rerun()
+        else:
+            if existing_calibration:
+                st.info("You're creating a new calibration - the old one will be replaced when you save.")
+                if st.button("❌ Go Back to the Previous Calibration", key=f"back_btn_{calib_total_q}"):
+                    st.session_state[force_key] = False
+                    st.rerun()
+
+            st.markdown(f"#### {calib_total_q}Q শীট Calibration (only needed once per layout)")
+            st.markdown(
+                f"""
+Upload a **straight, clear photo of a blank {calib_total_q}-question OMR sheet**,
+then click 4 points on the image below in this order:
+
+1. Question **1** - center of bubble **A**
+2. Question **1** - center of bubble **D**
+3. Question **{block1_last_q}** - center of bubble **A** (last row of the 1st column)
+4. Question **{block2_first_q}** - center of bubble **A** (first row of the 2nd column)
+"""
+            )
+            uploaded = st.file_uploader(
+                "Upload blank OMR sheet", type=["png", "jpg", "jpeg"], key=f"calib_upload_{calib_total_q}"
+            )
+            if uploaded:
+                image = Image.open(uploaded).convert("RGB")
+                img_bgr = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+                warped, ok = omr_scanner.detect_and_warp(img_bgr)
+                if not ok:
+                    st.warning("Couldn't automatically detect the sheet's 4 corners. You can still click below to calibrate, but retaking the photo straighter/flatter will help.")
+
+                warped_rgb = cv2.cvtColor(warped, cv2.COLOR_BGR2RGB)
+                warped_pil = Image.fromarray(warped_rgb)
+
+                if points_key not in st.session_state:
+                    st.session_state[points_key] = []
+
+                labels = ["Q1-A", "Q1-D", f"Q{block1_last_q}-A", f"Q{block2_first_q}-A"]
+                current_step = len(st.session_state[points_key])
+
+                if current_step < 4:
+                    st.info(f"Now click: **{labels[current_step]}**")
+                    coords = streamlit_image_coordinates(warped_pil, key=f"calib_img_{calib_total_q}")
+                    if coords is not None:
+                        pt = (coords["x"], coords["y"])
+                        if not st.session_state[points_key] or st.session_state[points_key][-1] != pt:
+                            st.session_state[points_key].append(pt)
+                            st.rerun()
+                else:
+                    st.success("All 4 points have been clicked!")
+                    pts = st.session_state[points_key]
+                    for lbl, pt in zip(labels, pts):
+                        st.write(f"- {lbl}: {pt}")
+
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button("🔄 Start Over", key=f"startover_{calib_total_q}"):
+                            st.session_state[points_key] = []
+                            st.rerun()
+                    with col2:
+                        if st.button("💾 Save Calibration", type="primary", key=f"savecal_{calib_total_q}"):
+                            calibration = {
+                                "q1_a": pts[0],
+                                "q1_d": pts[1],
+                                "block1_last_a": pts[2],
+                                "block2_first_a": pts[3],
+                            }
+                            sh.save_calibration(calibration, calib_total_q)
+                            st.success(f"{calib_total_q}Q calibration saved! Students can now upload {calib_total_q}Q OMR sheets.")
+                            st.session_state[points_key] = []
+                            st.session_state[force_key] = False
+
+        st.divider()
+        st.caption("Calibration status:")
+        cs1, cs2 = st.columns(2)
+        with cs1:
+            st.write("✅ 100Q — Ready" if sh.load_calibration(100) else "⚪ 100Q — Not calibrated yet")
+        with cs2:
+            st.write("✅ 40Q — Ready" if sh.load_calibration(40) else "⚪ 40Q — Not calibrated yet")
 
     with tab3:
         st.subheader("📋 All Answer Keys")
@@ -427,12 +448,10 @@ def page_mentor():
                          "total_questions", "negative_marking", "negative_marks_value"]
             show_cols = [c for c in show_cols if c in df.columns]
             display_df = df[show_cols].iloc[::-1].reset_index(drop=True)
-
             if "negative_marking" in display_df.columns:
                 display_df["negative_marking"] = display_df["negative_marking"].apply(
                     lambda v: "Yes" if str(v).strip() in ("1", "True", "TRUE") else "No"
                 )
-
             rename_map = {
                 "negative_marking": "Negative Marking",
                 "negative_marks_value": "Per Wrong",
@@ -460,48 +479,6 @@ def page_mentor():
                 st.rerun()
 
 
-# ---------------- Solution view helper (color-coded, per flagged question) ----------------
-
-def _render_solution_row(q_no, given_list, correct_ans):
-    """
-    Renders one row of the Solution box for a single flagged (wrong or
-    skipped) question - shows all 4 options with:
-      - the correct option always in GREEN
-      - the student's marked option(s) in RED, if wrong
-        (a genuine skip has an empty given_list -> nothing shows red,
-         only the correct answer shows green)
-      - a double-touch question shows ALL of the student's marked
-        bubbles in red, plus the single correct one in green
-    """
-    given_set = set(given_list or [])
-    cells = []
-    for opt in ["A", "B", "C", "D"]:
-        if opt == correct_ans:
-            bg, fg, border = "#22c55e", "white", "none"        # green
-        elif opt in given_set:
-            bg, fg, border = "#ef4444", "white", "none"        # red
-        else:
-            bg, fg, border = "transparent", "inherit", "1px solid rgba(128,128,128,0.35)"
-        cells.append(
-            "<span style='display:inline-flex;align-items:center;justify-content:center;"
-            "width:26px;height:26px;border-radius:50%;margin-right:6px;"
-            f"background:{bg};color:{fg};border:{border};font-size:13px;font-weight:600;'>{opt}</span>"
-        )
-
-    if len(given_set) >= 2:
-        tag = " <span style='font-size:11px;color:#ef4444;'>(double touch)</span>"
-    elif not given_set:
-        tag = " <span style='font-size:11px;color:gray;'>(skipped)</span>"
-    else:
-        tag = ""
-
-    return (
-        "<div style='display:flex;align-items:center;gap:10px;padding:4px 0;'>"
-        f"<span style='min-width:40px;font-weight:600;'>Q{q_no}</span>{''.join(cells)}{tag}"
-        "</div>"
-    )
-
-
 # ---------------- Student Panel ----------------
 
 def page_student():
@@ -510,8 +487,30 @@ def page_student():
     name = st.text_input("Enter your name", placeholder="e.g. Rahim Ahmed")
 
     active = sh.get_active_answer_key()
+    calibration = None
+    active_total_q = None
 
-    if not active:
+    if active:
+        active_total_q = active["total_questions"]
+        calibration = sh.load_calibration(active_total_q)
+
+        remaining = active["end_dt"] - sh.now_bd()
+        mins_left = max(0, int(remaining.total_seconds() // 60))
+        with st.container(border=True):
+            st.markdown(f"### 🟢 Active Exam: {active['exam_name'] or active['key_id']}")
+            c1, c2 = st.columns(2)
+            c1.metric("Total Questions/Marks", active["total_questions"])
+            c2.metric("Time Remaining", f"{mins_left} min")
+            if active.get("negative_marking"):
+                st.caption(f"⚠️ Negative marking is ON: -{active['negative_marks_value']} per wrong answer (skipped questions are not penalized).")
+
+        if not calibration:
+            st.error(
+                f"মেন্টর এখনো {active_total_q}-প্রশ্নের OMR শীট calibrate করেননি। "
+                "মেন্টরকে Calibration ট্যাবে গিয়ে এই শীটটা calibrate করতে বলুন।"
+            )
+            return
+    else:
         upcoming = sh.get_upcoming_answer_key()
         if upcoming:
             st.warning(
@@ -520,118 +519,146 @@ def page_student():
             )
         else:
             st.info("No exam is active or upcoming right now.")
-        return
-
-    remaining = active["end_dt"] - sh.now_bd()
-    mins_left = max(0, int(remaining.total_seconds() // 60))
-    with st.container(border=True):
-        st.markdown(f"### 🟢 Active Exam: {active['exam_name'] or active['key_id']}")
-        c1, c2 = st.columns(2)
-        c1.metric("Total Questions/Marks", active["total_questions"])
-        c2.metric("Time Remaining", f"{mins_left} min")
-        if active.get("negative_marking"):
-            st.caption(f"⚠️ Negative marking is ON: -{active['negative_marks_value']} per wrong answer (skipped questions are not penalized).")
-
-    # ---- Calibration is auto-picked to match THIS exam's question count ----
-    calibration = sh.load_calibration(active["total_questions"])
-    if not calibration:
-        st.error(
-            f"মেন্টর এখনো **{active['total_questions']}Q** ফরম্যাটের জন্য calibration করেননি। "
-            "মেন্টরকে Mentor Panel → Calibration ট্যাব থেকে এটা সেট করতে বলুন।"
-        )
-        return
 
     uploaded = st.file_uploader("Upload a photo of your filled OMR sheet", type=["png", "jpg", "jpeg"])
 
-    image = None
     if uploaded:
         image = Image.open(uploaded).convert("RGB")
         st.image(image, caption="Uploaded photo", use_container_width=True)
 
-    disabled = not uploaded or not name.strip()
-    if not name.strip():
-        st.caption("⚠️ Please enter your name first.")
+        disabled = not active or not calibration or not name.strip()
+        if not name.strip():
+            st.caption("⚠️ Please enter your name first.")
 
-    if st.button("📤 Submit & See Score", type="primary", disabled=disabled):
-        with st.spinner("Checking your answers..."):
-            img_bgr = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-            warped, ok = omr_scanner.detect_and_warp(img_bgr)
-            if not ok:
-                st.warning("Couldn't clearly detect the sheet's corners - still trying anyway. The result may be inaccurate; retake the photo straighter and try again if it looks wrong.")
+        if st.button("📤 Submit & See Score", type="primary", disabled=disabled):
+            with st.spinner("Checking your answers..."):
+                img_bgr = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+                warped, ok = omr_scanner.detect_and_warp(img_bgr)
+                if not ok:
+                    st.warning("Couldn't clearly detect the sheet's corners - still trying anyway. The result may be inaccurate; retake the photo straighter and try again if it looks wrong.")
 
-            grid = omr_scanner.build_grid(calibration)
-            student_answers, marks_detail = omr_scanner.read_answers(warped, grid)
+                # Re-check the active exam right before scoring (it may have
+                # just ended/changed while the student was uploading), and
+                # always use the calibration that matches ITS question count.
+                active_now = sh.get_active_answer_key()
+                if not active_now:
+                    st.error("No exam is active right now (outside the mentor's time window). The result cannot be recorded.")
+                    return
 
-            active_now = sh.get_active_answer_key()
-            if not active_now:
-                st.error("No exam is active right now (outside the mentor's time window). The result cannot be recorded.")
-                return
+                now_total_q = active_now["total_questions"]
+                now_calibration = sh.load_calibration(now_total_q)
+                if not now_calibration:
+                    st.error(f"মেন্টর এখনো {now_total_q}-প্রশ্নের OMR শীট calibrate করেননি। ফলাফল রেকর্ড করা যায়নি।")
+                    return
 
-            key_string = active_now["answer_string"]
-            key_id = active_now["key_id"]
-            end_dt = active_now["end_dt"]
+                grid = omr_scanner.build_grid(now_calibration, now_total_q)
+                student_answers = omr_scanner.read_answers(warped, grid)
 
-            result = omr_scanner.score_answers(
-                student_answers, key_string,
-                marks_detail=marks_detail,
-                negative_marking=active_now.get("negative_marking", False),
-                negative_value=active_now.get("negative_marks_value", 0.0),
-            )
+                key_string = active_now["answer_string"]
+                key_id = active_now["key_id"]
 
-            sh.append_result(name.strip(), key_id, result)
-            st.success("✅ Result saved!")
+                result = omr_scanner.score_answers(
+                    student_answers, key_string,
+                    negative_marking=active_now.get("negative_marking", False),
+                    negative_value=active_now.get("negative_marks_value", 0.0),
+                )
+                sh.append_result(name.strip(), key_id, result)
+                st.success("✅ Result saved!")
 
             # ---- Result summary ----
-            st.markdown("### 📊 Result Summary")
-            r1c1, r1c2, r1c3 = st.columns(3)
-            r1c1.metric("Total Questions", result["total"])
-            r1c2.metric("Answered", result["answered"])
-            r1c3.metric("Skipped", result["skipped"])
+            render_result_summary(result)
 
-            r2c1, r2c2, r2c3 = st.columns(3)
-            r2c1.metric("Correct ✅", result["correct"])
-            r2c2.metric("Wrong ❌", result["wrong_count"])
-            r2c3.metric("Accuracy", f"{result['accuracy']}%")
 
-            st.metric("🏆 Marks", result["marks"])
+# Colors used by the "Solution" digital bubble sheet below.
+_SOLUTION_CORRECT_COLOR = "#21c55e"   # green - the correct option
+_SOLUTION_WRONG_COLOR = "#ff4b4b"     # red - the student's incorrect pick
+_SOLUTION_NEUTRAL_BG = "rgba(128,128,128,0.12)"
+_SOLUTION_NEUTRAL_BORDER = "rgba(128,128,128,0.35)"
 
-            if result["negative_marking"]:
-                st.caption(
-                    f"Negative marking was ON: -{result['negative_value']} per wrong answer "
-                    f"(skipped questions were not penalized)."
-                )
 
-            # ---- Solution box: wrong + skipped, color-coded per question ----
-            flagged = sorted(result["wrong"] + result["skipped_list"])
-            if flagged:
-                window_closed = end_dt is not None and sh.now_bd() > end_dt
-                with st.container(border=True):
-                    st.markdown("#### 🧩 Solution")
-                    if window_closed:
-                        st.caption("🟢 সবুজ = সঠিক উত্তর  •  🔴 লাল = তোমার ভুল/একাধিক দাগ দেওয়া উত্তর")
-                        rows_html = [
-                            _render_solution_row(
-                                q,
-                                (result["wrong_details"].get(q) or result["skipped_details"].get(q))["given"],
-                                (result["wrong_details"].get(q) or result["skipped_details"].get(q))["correct"],
-                            )
-                            for q in flagged
-                        ]
-                        st.markdown(
-                            "<div style='display:flex;flex-direction:column;gap:2px;'>" + "".join(rows_html) + "</div>",
-                            unsafe_allow_html=True,
-                        )
-                    else:
-                        st.write("যেসব প্রশ্ন ভুল/স্কিপ হয়েছে:", ", ".join(f"Q{q}" for q in flagged))
-                        st.caption("পরীক্ষার সময় শেষ হলে এখানে সঠিক উত্তরসহ বিস্তারিত (Solution) দেখানো হবে।")
-            elif result["answered"] > 0:
-                st.success("🎉 No wrong answers!")
+def _render_solution_bubble_row(q_no, given, correct_ans):
+    """
+    Renders one row of the digital "Solution" sheet for a single wrong or
+    skipped question: Q{n} followed by 4 colored A/B/C/D bubbles.
+      - the correct option is always green
+      - if the student picked a wrong option, that pick is red
+      - if skipped (given is None), only the correct option is colored
+    """
+    bubbles_html = ""
+    for opt in ["A", "B", "C", "D"]:
+        if opt == correct_ans:
+            bg, border, fg = _SOLUTION_CORRECT_COLOR, _SOLUTION_CORRECT_COLOR, "#ffffff"
+        elif given is not None and opt == given:
+            bg, border, fg = _SOLUTION_WRONG_COLOR, _SOLUTION_WRONG_COLOR, "#ffffff"
+        else:
+            bg, border, fg = _SOLUTION_NEUTRAL_BG, _SOLUTION_NEUTRAL_BORDER, "inherit"
+        bubbles_html += (
+            f"<span style='display:inline-flex;align-items:center;justify-content:center;"
+            f"width:30px;height:30px;border-radius:50%;margin-right:6px;"
+            f"background:{bg};border:1.5px solid {border};color:{fg};"
+            f"font-weight:700;font-size:0.85rem;'>{opt}</span>"
+        )
+
+    tag_html = (
+        f"<span style='opacity:0.55;font-size:0.78rem;margin-left:10px;'>(skipped)</span>"
+        if given is None else ""
+    )
+
+    st.markdown(
+        f"<div style='display:flex;align-items:center;margin-bottom:10px;'>"
+        f"<span style='min-width:52px;font-weight:600;opacity:0.85;'>Q{q_no}</span>"
+        f"{bubbles_html}{tag_html}"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def render_result_summary(result):
+    """
+    Polished, easy-to-scan result card:
+    total / answered / skipped / correct / wrong / accuracy / marks,
+    plus a digital "Solution" bubble sheet (A/B/C/D colored) shown
+    immediately - ONLY for questions that were wrong or skipped
+    (correctly answered questions are not repeated here).
+    """
+    st.markdown("### 📊 Result Summary")
+
+    with st.container(border=True):
+        r1c1, r1c2, r1c3, r1c4 = st.columns(4)
+        r1c1.metric("Total", result["total"])
+        r1c2.metric("Answered", result["answered"])
+        r1c3.metric("Skipped", result["skipped"])
+        r1c4.metric("Accuracy", f"{result['accuracy']}%")
+
+        r2c1, r2c2, r2c3 = st.columns(3)
+        r2c1.metric("Correct ✅", result["correct"])
+        r2c2.metric("Wrong ❌", result["wrong_count"])
+        r2c3.metric("🏆 Marks", result["marks"])
+
+        if result["negative_marking"]:
+            st.caption(
+                f"⚠️ Negative marking was ON: -{result['negative_value']} per wrong answer "
+                f"(skipped questions were not penalized)."
+            )
+
+    # ---- Solution: digital bubble sheet for every wrong/skipped question ----
+    problem_qs = sorted(set(result["wrong"]) | set(result["skipped_list"]))
+    if problem_qs:
+        with st.container(border=True):
+            st.markdown("#### 🧩 Solution")
+            st.caption("🟢 Correct answer   🔴 Your wrong pick   ⚪ Not selected")
+            for q in problem_qs:
+                details = result["review_details"][q]
+                _render_solution_bubble_row(q, details["given"], details["correct"])
+    elif result["answered"] > 0:
+        st.success("🎉 No wrong answers!")
 
 
 # ---------------- Leaderboard Panel ----------------
 
 def page_leaderboard():
     st.header("🏆 Leaderboard")
+
     tab1, tab2 = st.tabs(["📅 Daily Exam Leaderboard", "📊 Overall Analysis"])
 
     with tab1:
