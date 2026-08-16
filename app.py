@@ -169,25 +169,34 @@ def do_login(roll, password, remember, cookie_manager):
     return True
 
 
-def do_register(roll, name, password, confirm):
-    roll = roll.strip()
+def generate_roll_number():
+    """App-assigned unique roll number so students never pick colliding IDs."""
+    try:
+        base = 1000 + len(sh.get_all_users_df()) + 1
+    except Exception:
+        base = 1001
+    candidate = str(base)
+    while sh.user_exists(candidate):
+        base += 1
+        candidate = str(base)
+    return candidate
+
+
+def do_register(name, password, confirm):
     name = name.strip()
-    if not roll or not name:
-        st.error("Please fill in both Roll number and Name.")
-        return False
-    if sh.user_exists(roll):
-        st.error("This Roll number is already registered. Please log in instead.")
-        return False
+    if not name:
+        st.error("Please enter your name.")
+        return None
     if len(password) < 4:
         st.error("Password must be at least 4 characters.")
-        return False
+        return None
     if password != confirm:
         st.error("Passwords do not match.")
-        return False
+        return None
 
+    roll = generate_roll_number()
     sh.create_user(roll, name, hash_password(password, roll), "student")
-    st.session_state["user"] = sh.get_user(roll)
-    return True
+    return roll
 
 
 def do_logout(cookie_manager):
@@ -198,12 +207,50 @@ def do_logout(cookie_manager):
         cookie_manager.remove(COOKIE_NAME)
     except KeyError:
         pass
-    for k in ["user", "session_token", "page", "analysis_row", "mentor_authed"]:
+    for k in ["user", "session_token", "page", "analysis_row", "mentor_authed", "just_registered_roll"]:
         st.session_state.pop(k, None)
     st.rerun()
 
 
+def render_registration_success(cookie_manager):
+    roll = st.session_state["just_registered_roll"]
+    st.markdown(
+        "<h1 style='text-align:center;'>📝 OMR Result App</h1>",
+        unsafe_allow_html=True,
+    )
+    _, mid, _ = st.columns([1, 2, 1])
+    with mid:
+        st.success("✅ Account created!")
+        st.markdown(
+            f"<div style='text-align:center; padding:14px; border:1px solid rgba(140,120,255,0.4);"
+            f"border-radius:12px; margin:10px 0;'>"
+            f"<div style='font-size:13px; opacity:.7;'>Your Roll Number</div>"
+            f"<div style='font-size:32px; font-weight:800; letter-spacing:1px;'>{roll}</div>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+        st.warning(
+            "⚠️ Please save or write down this Roll Number - you will need it "
+            "every time you log in, and it won't be shown again after you leave this page."
+        )
+        st.divider()
+        st.markdown("#### Login to Continue")
+        st.caption(f"Roll Number: **{roll}**")
+        pw = st.text_input("Password", type="password", key="confirm_login_pw")
+        remember = st.checkbox("Remember this device", value=True, key="confirm_login_remember")
+        if st.button("Login", type="primary", use_container_width=True):
+            if not pw:
+                st.error("Please enter your password.")
+            elif do_login(roll, pw, remember, cookie_manager):
+                st.session_state.pop("just_registered_roll", None)
+                st.rerun()
+
+
 def render_auth_page(cookie_manager):
+    if st.session_state.get("just_registered_roll"):
+        render_registration_success(cookie_manager)
+        return
+
     st.markdown(
         "<h1 style='text-align:center;'>📝 OMR Result App</h1>"
         "<p style='text-align:center; color:gray;'>Smart. Fast. Accurate.</p>",
@@ -225,21 +272,20 @@ def render_auth_page(cookie_manager):
                     st.rerun()
 
         with tab_register:
+            st.caption("Your Roll Number will be generated automatically after you register.")
             r_name = st.text_input("Full Name", key="reg_name")
-            r_roll = st.text_input("Roll Number", key="reg_roll")
             r_pw1 = st.text_input("Password", type="password", key="reg_pw1")
             r_pw2 = st.text_input("Confirm Password", type="password", key="reg_pw2")
             if st.button("Create Account", use_container_width=True, type="primary"):
-                if do_register(r_roll, r_name, r_pw1, r_pw2):
-                    token = make_token()
-                    expiry_dt = sh.now_bd() + timedelta(days=REMEMBER_DAYS)
-                    sh.create_session(token, r_roll.strip(), expiry_dt.strftime("%Y-%m-%d %H:%M:%S"))
-                    cookie_manager.set(COOKIE_NAME, token, expires=expiry_dt, max_age=REMEMBER_DAYS * 86400)
-                    st.session_state["session_token"] = token
-                    st.success("Account created! You're logged in.")
+                new_roll = do_register(r_name, r_pw1, r_pw2)
+                if new_roll:
+                    st.session_state["just_registered_roll"] = new_roll
                     st.rerun()
 
-        st.caption("Are you a mentor? [Go to Mentor Login](?page=mentor)")
+        st.divider()
+        if st.button("🔐 Are you a mentor? Mentor Login", use_container_width=True):
+            st.session_state["page"] = "mentor"
+            st.rerun()
 
 
 # =====================================================================
@@ -896,10 +942,6 @@ def main():
     inject_global_css()
     cookie_manager = get_cookie_manager()
     sh.init_sheets()
-
-    query_page = st.query_params.get("page")
-    if query_page == "mentor" and "page" not in st.session_state:
-        st.session_state["page"] = "mentor"
 
     try_auto_login(cookie_manager)
 
