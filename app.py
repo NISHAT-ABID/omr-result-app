@@ -62,8 +62,8 @@ def render_student_auth():
         with tab_signup:
             if st.session_state.get("signup_otp_stage"):
                 st.info(
-                    f"একটা OTP পাঠানো হয়েছে **{st.session_state['signup_pending_email']}** এ। "
-                    "নিচে দিয়ে account activate করো।"
+                    f"An OTP has been sent to **{st.session_state['signup_pending_email']}**. "
+                    "Enter it below to activate your account."
                 )
                 otp_in = st.text_input("Enter OTP", key="signup_otp_input", max_chars=6)
                 c1, c2 = st.columns(2)
@@ -79,7 +79,7 @@ def render_student_auth():
                             st.session_state["student_email"] = user["email"]
                             st.session_state.pop("signup_otp_stage", None)
                             st.session_state.pop("signup_pending_email", None)
-                            st.success(f"🎉 Account activated! তোমার unique Student ID: **{user['user_id']}**")
+                            st.success(f"🎉 Account activated! Your unique Student ID: **{user['user_id']}**")
                             st.rerun()
                 with c2:
                     if st.button("↩️ Cancel", use_container_width=True, key="cancel_signup"):
@@ -93,11 +93,11 @@ def render_student_auth():
                 pw2 = st.text_input("Re-enter password", type="password", key="signup_pw2")
                 if st.button("Send OTP & Create Account", type="primary", use_container_width=True):
                     if not name.strip() or not email_s.strip() or not pw1:
-                        st.error("সব ফিল্ড পূরণ করো।")
+                        st.error("Please fill in all fields.")
                     elif pw1 != pw2:
-                        st.error("Password দুটো মিলছে না।")
+                        st.error("Passwords don't match.")
                     elif len(pw1) < 6:
-                        st.error("Password কমপক্ষে ৬ ক্যারেক্টার হতে হবে।")
+                        st.error("Password should be at least 6 characters.")
                     else:
                         try:
                             otp = ah.start_signup(name, email_s, pw1)
@@ -108,12 +108,12 @@ def render_student_auth():
                         except ValueError as e:
                             st.error(str(e))
                         except Exception as e:
-                            st.error(f"OTP ইমেইল পাঠানো যায়নি: {e}")
+                            st.error(f"Couldn't send the OTP email: {e}")
 
         # ---- Forgot Password (2-step: request -> reset) ----
         with tab_forgot:
             if st.session_state.get("reset_otp_stage"):
-                st.info(f"একটা OTP পাঠানো হয়েছে **{st.session_state['reset_pending_email']}** এ।")
+                st.info(f"An OTP has been sent to **{st.session_state['reset_pending_email']}**.")
                 otp_in = st.text_input("Enter OTP", key="reset_otp_input", max_chars=6)
                 new_pw1 = st.text_input("New password", type="password", key="reset_pw1")
                 new_pw2 = st.text_input("Re-enter new password", type="password", key="reset_pw2")
@@ -121,13 +121,13 @@ def render_student_auth():
                 with c1:
                     if st.button("Reset Password", type="primary", use_container_width=True):
                         if not new_pw1 or new_pw1 != new_pw2:
-                            st.error("Password দুটো মিলছে না অথবা ফাঁকা।")
+                            st.error("Passwords don't match or are empty.")
                         else:
                             ok, err = ah.reset_password(st.session_state["reset_pending_email"], otp_in, new_pw1)
                             if err:
                                 st.error(err)
                             else:
-                                st.success("✅ Password reset হয়ে গেছে! এখন নতুন password দিয়ে Login করো।")
+                                st.success("✅ Password reset successful! Please log in with your new password.")
                                 st.session_state.pop("reset_otp_stage", None)
                                 st.session_state.pop("reset_pending_email", None)
                 with c2:
@@ -136,7 +136,7 @@ def render_student_auth():
                         st.session_state.pop("reset_pending_email", None)
                         st.rerun()
             else:
-                st.caption("Password ভুলে গেলে, তোমার registered email এ OTP পাঠানো হবে।")
+                st.caption("If you forgot your password, an OTP will be sent to your registered email.")
                 email_f = st.text_input("Registered email", key="forgot_email")
                 if st.button("Send Reset OTP", type="primary", use_container_width=True):
                     try:
@@ -148,7 +148,7 @@ def render_student_auth():
                     except ValueError as e:
                         st.error(str(e))
                     except Exception as e:
-                        st.error(f"OTP ইমেইল পাঠানো যায়নি: {e}")
+                        st.error(f"Couldn't send the OTP email: {e}")
 
     st.markdown(
         "<div style='text-align:center; margin-top:2rem;'>"
@@ -252,13 +252,13 @@ def _time_input_12h(key_prefix, default_hour_24=9, default_minute=0):
 
     c1, c2, c3 = st.columns([1, 1, 1])
     with c1:
-        st.caption("ঘন্টা (Hour)")
+        st.caption("Hour")
         hour = st.selectbox(
             "Hour", list(range(1, 13)), index=default_hour_12 - 1,
             key=f"{key_prefix}_hour", label_visibility="collapsed",
         )
     with c2:
-        st.caption("মিনিট (Min)")
+        st.caption("Minute")
         minute = st.selectbox(
             "Minute", [f"{m:02d}" for m in range(60)], index=default_minute,
             key=f"{key_prefix}_min", label_visibility="collapsed",
@@ -280,7 +280,7 @@ def render_answer_key_tab():
     st.subheader("🗓️ Set Today's Answer Key & Exam Time")
 
     # ---- Step 1: how many MCQs (always asked first) ----
-    st.markdown("#### ① কতগুলো MCQ থাকবে? (Exam Style)")
+    st.markdown("#### ① How many MCQs? (Exam Style)")
     exam_style = st.radio(
         "Exam Style",
         ["📄 100 Questions (Q1-100)", "📄 40 Questions (Q1-40)"],
@@ -313,17 +313,17 @@ def render_answer_key_tab():
     # ---- Negative marking (optional) ----
     st.markdown("#### ➖ Negative Marking (Optional)")
     negative_marking = st.checkbox(
-        "এই exam এ negative marking রাখবেন? (ভুল উত্তরে মার্ক কাটা যাবে, blank/skip এ কাটা যাবে না)",
+        "Enable negative marking for this exam? (Marks will be deducted for wrong answers; skipped/blank answers are not penalized)",
         key="mentor_neg_marking",
     )
     negative_value = 0.0
     if negative_marking:
         negative_value = st.number_input(
-            "প্রতিটি ভুল উত্তরে কত মার্ক কাটা হবে? (যেমন medical admission exam এ সাধারণত 0.25)",
+            "How many marks to deduct per wrong answer? (e.g. medical admission exams usually use 0.25)",
             min_value=0.0, max_value=1.0, value=0.25, step=0.05, format="%.2f",
             key="mentor_neg_value",
         )
-        st.caption(f"উদাহরণ: {total_q} এর মধ্যে ৪টা ভুল হলে মার্ক কাটা যাবে {4 * negative_value:.2f}")
+        st.caption(f"Example: out of {total_q}, 4 wrong answers would deduct {4 * negative_value:.2f} marks")
 
     st.divider()
 
