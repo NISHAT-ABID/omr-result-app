@@ -3,37 +3,23 @@ app.py
 ------
 OMR Result App - main Streamlit application.
 
-Pages (all reachable from the top navbar):
-- Home            -> submit an OMR sheet for the currently active exam
-- My Tests        -> table of the logged-in student's past attempts
-- Leaderboard     -> daily + overall rankings
-- Profile         -> name, roll, best/lowest score, change password, logout
-
-Login is per-student (Roll number + Password), stored in the "Users" sheet.
-"Remember this device" is implemented with a browser cookie (extra-streamlit-
-components) + a row in the "Sessions" sheet, so returning students don't have
-to log in every time.
-
-The Mentor Panel is still reached the same way as before (a small link, not
-part of the main navbar), guarded by the shared mentor password/invite code.
+Roles:
+- Student: sign up / log in with phone + password, submit OMR sheets,
+  see results, test history, leaderboard, profile.
+- Mentor: set answer keys, calibrate the sheet, manage students,
+  edit/override results, export data, view analytics.
 
 Run with: streamlit run app.py
 """
 
-import hashlib
-import json
-import uuid
-from datetime import date
-from datetime import time as dtime
-from datetime import timedelta
+import random
+from datetime import datetime, date, time as dtime
 
 import cv2
 import numpy as np
 import pandas as pd
 import streamlit as st
-import streamlit.components.v1 as components
 from PIL import Image
-from streamlit_cookies_controller import CookieController
 from streamlit_image_coordinates import streamlit_image_coordinates
 
 import omr_scanner
@@ -41,53 +27,92 @@ import sheets_helper as sh
 
 st.set_page_config(page_title="OMR Result App", page_icon="📝", layout="centered")
 
-REMEMBER_DAYS = 30
-COOKIE_NAME = "omr_session_token"
-
-
-# =====================================================================
-# Small helpers
-# =====================================================================
-
-def hash_password(password, roll):
-    """Simple salted hash (salt = the roll number itself)."""
-    salt = str(roll).strip().lower()
-    return hashlib.sha256(f"{salt}:{password}".encode("utf-8")).hexdigest()
-
-
-def make_token():
-    return uuid.uuid4().hex
-
-
-def get_cookie_manager():
-    # NOTE: intentionally NOT cached with st.cache_resource - this component
-    # keeps per-run state, and caching it as a shared resource has been
-    # reported to leak cookie/session data between different users' browsers.
-    # It's cheap to construct, so we just create a fresh one every rerun.
-    return CookieController()
-
+# =========================================================================
+# Global styling - one shared stylesheet for the whole app (mobile + desktop)
+# =========================================================================
 
 def inject_global_css():
     st.markdown(
         """
         <style>
-        .st-key-topnav {
-            background: linear-gradient(90deg, #14162b 0%, #1b1035 100%);
-            border-radius: 16px;
-            padding: 10px 16px;
-            margin-bottom: 18px;
-            border: 1px solid rgba(140,120,255,0.25);
+        .block-container {
+            padding-top: 1.1rem;
+            padding-bottom: 3.5rem;
+            max-width: 820px;
         }
-        .st-key-topnav button {
+        * { transition: background-color .15s ease, color .15s ease, opacity .15s ease; }
+
+        /* ---- Top nav ---- */
+        .st-key-top_nav div[data-testid="stHorizontalBlock"] { gap: 6px; }
+        .st-key-top_nav button {
+            width: 100%;
             border-radius: 999px !important;
+            border: 1px solid rgba(128,128,128,0.25) !important;
+            padding: 8px 4px !important;
+            font-size: 13px !important;
         }
-        .navbar-brand-title { font-weight: 700; font-size: 17px; margin: 0; }
-        .navbar-brand-sub { font-size: 11px; opacity: 0.6; margin: 0; }
-        .score-row {
-            border: 1px solid rgba(140,120,255,0.25);
+        .st-key-top_nav button[kind="primary"] {
+            border: none !important;
+        }
+
+        /* ---- Generic cards ---- */
+        .app-card {
+            border: 1px solid rgba(128,128,128,0.25);
+            border-radius: 14px;
+            padding: 16px 18px;
+            margin-bottom: 14px;
+            background: rgba(127,127,127,0.04);
+        }
+        .app-card h4 { margin-top: 0; }
+        .metric-row { display: flex; gap: 10px; flex-wrap: wrap; }
+        .metric-box {
+            flex: 1 1 120px;
             border-radius: 12px;
-            padding: 10px 14px;
-            margin-bottom: 10px;
+            padding: 12px 14px;
+            background: rgba(127,127,127,0.06);
+            border: 1px solid rgba(128,128,128,0.18);
+        }
+        .metric-box .label { font-size: 12px; opacity: .7; margin-bottom: 2px; }
+        .metric-box .value { font-size: 22px; font-weight: 700; }
+
+        .rank-badge {
+            display: inline-block; padding: 4px 12px; border-radius: 999px;
+            font-weight: 700; font-size: 13px;
+        }
+        .rank-gold { background:#fde68a; color:#78350f; }
+        .rank-silver { background:#e5e7eb; color:#374151; }
+        .rank-bronze { background:#fbcfe8; color:#831843; }
+        .rank-you { background:#bfdbfe; color:#1e3a8a; }
+
+        .lb-row {
+            display:flex; align-items:center; gap:10px; padding:8px 10px;
+            border-radius:10px; margin-bottom:4px; border:1px solid rgba(128,128,128,0.12);
+        }
+        .lb-row.me { background: rgba(59,130,246,0.12); border-color: rgba(59,130,246,0.4); }
+
+        /* ---- OMR review bubbles ---- */
+        .omr-row {
+            display:flex; align-items:center; gap:10px; padding:8px 4px;
+            border-bottom:1px solid rgba(128,128,128,0.15);
+        }
+        .omr-qnum { width:44px; font-weight:700; font-size:13px; opacity:.8; }
+        .omr-tag { font-size:11px; padding:2px 8px; border-radius:999px; margin-right:8px; font-weight:600; }
+        .omr-tag.wrong-tag { background:#fee2e2; color:#991b1b; }
+        .omr-tag.skip-tag { background:#e5e7eb; color:#374151; }
+        .omr-bubble {
+            width:26px; height:26px; border-radius:50%; border:2px solid rgba(128,128,128,0.35);
+            display:inline-flex; align-items:center; justify-content:center;
+            font-size:11px; font-weight:700; margin-right:6px; opacity:.85;
+        }
+        .omr-bubble.correct { background:#22c55e; border-color:#22c55e; color:#fff; opacity:1; }
+        .omr-bubble.wrong { background:#ef4444; border-color:#ef4444; color:#fff; opacity:1; }
+
+        .strength-bar { height:6px; border-radius:4px; background:rgba(128,128,128,0.2); overflow:hidden; margin-top:4px;}
+        .strength-fill { height:100%; border-radius:4px; }
+
+        @media (max-width: 480px) {
+            .st-key-top_nav button { font-size: 11px !important; padding: 8px 2px !important; }
+            .metric-box { flex: 1 1 45%; }
         }
         </style>
         """,
@@ -95,542 +120,624 @@ def inject_global_css():
     )
 
 
-def render_countdown(end_dt, label="Time Remaining"):
-    """Pure-JS live ticking countdown - no server round-trips."""
-    # end_dt is a naive datetime representing Bangladesh (UTC+6) wall-clock time.
-    end_iso = end_dt.strftime("%Y-%m-%dT%H:%M:%S") + "+06:00"
-    html = f"""
-    <div style="font-family: 'Source Sans Pro', sans-serif; text-align:center;
-                padding: 10px 0 4px 0;">
-      <div id="cd-time" style="font-size:30px; font-weight:800; letter-spacing:1px;
-                                color:#c9c3ff;">--:--</div>
-      <div style="font-size:12px; opacity:.65; margin-top:2px;">{label}</div>
-    </div>
-    <script>
-      const end = new Date("{end_iso}").getTime();
-      function tick() {{
-        const now = new Date().getTime();
-        let diff = end - now;
-        const box = document.getElementById('cd-time');
-        if (diff <= 0) {{
-          box.innerText = "00:00:00";
-          box.style.color = "#ff6b6b";
-          clearInterval(timer);
-          return;
-        }}
-        const h = Math.floor(diff / 3600000);
-        const m = Math.floor((diff % 3600000) / 60000);
-        const s = Math.floor((diff % 60000) / 1000);
-        const pad = (n) => String(n).padStart(2, '0');
-        box.innerText = (h > 0 ? pad(h) + ":" : "") + pad(m) + ":" + pad(s);
-      }}
-      tick();
-      const timer = setInterval(tick, 1000);
-    </script>
-    """
-    components.html(html, height=80)
-
-
-# =====================================================================
-# Auth: login / register / remember-device / logout
-# =====================================================================
-
-def try_auto_login(cookie_manager):
-    if "user" in st.session_state:
-        return
-    token = cookie_manager.get(COOKIE_NAME)
-    if not token:
-        return
-    session = sh.get_session(token)
-    if not session:
-        return
-    user = sh.get_user(session.get("user_id"))
-    if user:
-        st.session_state["user"] = user
-        st.session_state["session_token"] = token
-
-
-def do_login(roll, password, remember, cookie_manager):
-    user = sh.get_user(roll)
-    if not user:
-        st.error("No account found for that Roll number. Please register first.")
-        return False
-    if hash_password(password, roll) != str(user.get("password_hash", "")):
-        st.error("Incorrect password.")
-        return False
-
-    st.session_state["user"] = user
-    if remember:
-        token = make_token()
-        expiry_dt = sh.now_bd() + timedelta(days=REMEMBER_DAYS)
-        sh.create_session(token, user["user_id"], expiry_dt.strftime("%Y-%m-%d %H:%M:%S"))
-        cookie_manager.set(COOKIE_NAME, token, expires=expiry_dt, max_age=REMEMBER_DAYS * 86400)
-        st.session_state["session_token"] = token
-    return True
-
-
-def generate_roll_number():
-    """App-assigned unique roll number so students never pick colliding IDs."""
-    try:
-        base = 1000 + len(sh.get_all_users_df()) + 1
-    except Exception:
-        base = 1001
-    candidate = str(base)
-    while sh.user_exists(candidate):
-        base += 1
-        candidate = str(base)
-    return candidate
-
-
-def do_register(name, password, confirm):
-    name = name.strip()
-    if not name:
-        st.error("Please enter your name.")
-        return None
-    if len(password) < 4:
-        st.error("Password must be at least 4 characters.")
-        return None
-    if password != confirm:
-        st.error("Passwords do not match.")
-        return None
-
-    roll = generate_roll_number()
-    sh.create_user(roll, name, hash_password(password, roll), "student")
-    return roll
-
-
-def do_logout(cookie_manager):
-    token = st.session_state.get("session_token")
-    if token:
-        sh.delete_session(token)
-    try:
-        cookie_manager.remove(COOKIE_NAME)
-    except KeyError:
-        pass
-    for k in ["user", "session_token", "page", "analysis_row", "mentor_authed", "just_registered_roll"]:
-        st.session_state.pop(k, None)
-    st.rerun()
-
-
-def render_registration_success(cookie_manager):
-    roll = st.session_state["just_registered_roll"]
-    st.markdown(
-        "<h1 style='text-align:center;'>📝 OMR Result App</h1>",
-        unsafe_allow_html=True,
-    )
-    _, mid, _ = st.columns([1, 2, 1])
-    with mid:
-        st.success("✅ Account created!")
-        st.markdown(
-            f"<div style='text-align:center; padding:14px; border:1px solid rgba(140,120,255,0.4);"
-            f"border-radius:12px; margin:10px 0;'>"
-            f"<div style='font-size:13px; opacity:.7;'>Your Roll Number</div>"
-            f"<div style='font-size:32px; font-weight:800; letter-spacing:1px;'>{roll}</div>"
-            f"</div>",
-            unsafe_allow_html=True,
-        )
-        st.warning(
-            "⚠️ Please save or write down this Roll Number - you will need it "
-            "every time you log in, and it won't be shown again after you leave this page."
-        )
-        st.divider()
-        st.markdown("#### Login to Continue")
-        st.caption(f"Roll Number: **{roll}**")
-        pw = st.text_input("Password", type="password", key="confirm_login_pw")
-        remember = st.checkbox("Remember this device", value=True, key="confirm_login_remember")
-        if st.button("Login", type="primary", use_container_width=True):
-            if not pw:
-                st.error("Please enter your password.")
-            elif do_login(roll, pw, remember, cookie_manager):
-                st.session_state.pop("just_registered_roll", None)
-                st.rerun()
-
-
-def render_auth_page(cookie_manager):
-    if st.session_state.get("just_registered_roll"):
-        render_registration_success(cookie_manager)
-        return
-
-    st.markdown(
-        "<h1 style='text-align:center;'>📝 OMR Result App</h1>"
-        "<p style='text-align:center; color:gray;'>Smart. Fast. Accurate.</p>",
-        unsafe_allow_html=True,
-    )
-    _, mid, _ = st.columns([1, 2, 1])
-    with mid:
-        tab_login, tab_register = st.tabs(["Login", "Register"])
-
-        with tab_login:
-            roll = st.text_input("Roll Number", key="login_roll")
-            pw = st.text_input("Password", type="password", key="login_pw")
-            remember = st.checkbox("Remember this device", value=True, key="login_remember")
-            if st.button("Login", use_container_width=True, type="primary"):
-                if not roll.strip() or not pw:
-                    st.error("Please enter both Roll number and Password.")
-                elif do_login(roll.strip(), pw, remember, cookie_manager):
-                    st.success("Logged in!")
-                    st.rerun()
-
-        with tab_register:
-            st.caption("Your Roll Number will be generated automatically after you register.")
-            r_name = st.text_input("Full Name", key="reg_name")
-            r_pw1 = st.text_input("Password", type="password", key="reg_pw1")
-            r_pw2 = st.text_input("Confirm Password", type="password", key="reg_pw2")
-            if st.button("Create Account", use_container_width=True, type="primary"):
-                new_roll = do_register(r_name, r_pw1, r_pw2)
-                if new_roll:
-                    st.session_state["just_registered_roll"] = new_roll
-                    st.rerun()
-
-        st.divider()
-        if st.button("🔐 Are you a mentor? Mentor Login", use_container_width=True):
-            st.session_state["page"] = "mentor"
-            st.rerun()
-
-
-# =====================================================================
-# Top navbar
-# =====================================================================
-
-NAV_ITEMS = [
-    ("home", "🏠 Home"),
-    ("mytests", "📋 My Tests"),
-    ("leaderboard", "🏆 Leaderboard"),
-    ("profile", "👤 Profile"),
+MOTIVATIONS = [
+    "Small daily progress adds up to big results. Keep going!",
+    "Every test you take makes you sharper for the real one.",
+    "Mistakes today are lessons you won't repeat tomorrow.",
+    "Consistency beats intensity. Show up and practice.",
+    "Your best score is still ahead of you.",
+    "Review your wrong answers - that's where growth happens.",
+    "Discipline now, results later. You're on the right track.",
 ]
 
 
-def render_navbar():
-    current = st.session_state.get("page", "home")
-    with st.container(key="topnav"):
-        cols = st.columns([2.4, 1, 1, 1, 1])
-        with cols[0]:
-            st.markdown(
-                "<p class='navbar-brand-title'>📝 OMR Result App</p>"
-                "<p class='navbar-brand-sub'>Smart. Fast. Accurate.</p>",
-                unsafe_allow_html=True,
-            )
-        for i, (page_id, label) in enumerate(NAV_ITEMS):
-            with cols[i + 1]:
-                clicked = st.button(
-                    label,
-                    key=f"nav_{page_id}",
-                    type="primary" if current == page_id else "secondary",
-                    use_container_width=True,
-                )
-                if clicked:
-                    st.session_state["page"] = page_id
-                    st.session_state.pop("analysis_row", None)
-                    st.rerun()
+def motivation_for(student_id):
+    seed = f"{student_id}-{date.today().isoformat()}"
+    rnd = random.Random(seed)
+    return rnd.choice(MOTIVATIONS)
 
 
-# =====================================================================
-# Home page (submit OMR)
-# =====================================================================
+# =========================================================================
+# Cached reads (keeps the app snappy - avoids hitting Google Sheets on
+# every single rerun/click, which is what causes "hang" in Streamlit apps)
+# =========================================================================
 
-def page_home():
-    user = st.session_state["user"]
-    name = user["name"]
-
-    calibration_100 = sh.load_calibration(100)
-    calibration_40 = sh.load_calibration(40)
-
-    active = sh.get_active_answer_key()
-
-    if active:
-        with st.container(border=True):
-            st.markdown(f"### 🟢 Active Exam: {active['exam_name'] or active['key_id']}")
-            c1, c2 = st.columns(2)
-            c1.metric("Total Questions/Marks", active["total_questions"])
-            if active.get("negative_marking"):
-                c2.metric("Negative Marking", f"-{active['negative_marks_value']} / wrong")
-            else:
-                c2.metric("Negative Marking", "Off")
-            render_countdown(active["end_dt"], label="Time Remaining")
-    else:
-        upcoming = sh.get_upcoming_answer_key()
-        if upcoming:
-            st.warning(
-                f"No exam is active right now. Next exam: **{upcoming['exam_name'] or upcoming['key_id']}** "
-                f"starts at **{upcoming['start_dt'].strftime('%Y-%m-%d %H:%M')}**."
-            )
-        else:
-            st.info("No exam is active or upcoming right now.")
-
-    calibration = None
-    if active:
-        calibration = calibration_100 if active["total_questions"] == 100 else calibration_40
-        if calibration is None:
-            calibration = sh.load_calibration(active["total_questions"])
-
-    if active and not calibration:
-        st.error("The mentor hasn't calibrated this sheet layout yet. Please ask the mentor to complete calibration first.")
-        return
-
-    st.markdown("#### Upload Your OMR Sheet")
-    uploaded = st.file_uploader("Upload a photo of your filled OMR sheet", type=["png", "jpg", "jpeg"])
-
-    if uploaded:
-        image = Image.open(uploaded).convert("RGB")
-        st.image(image, caption="Uploaded photo", use_container_width=True)
-
-    disabled = not active or not uploaded
-    if st.button("📤 Submit & See Score", type="primary", disabled=disabled, use_container_width=True):
-        with st.spinner("Checking your answers..."):
-            img_bgr = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-            warped, ok = omr_scanner.detect_and_warp(img_bgr)
-            if not ok:
-                st.warning("Couldn't clearly detect the sheet's corners - still trying anyway. Retake the photo straighter if the result looks wrong.")
-
-            active_now = sh.get_active_answer_key()
-            if not active_now:
-                st.error("No exam is active right now (outside the exam time window). The result cannot be recorded.")
-                return
-
-            calib_now = sh.load_calibration(active_now["total_questions"])
-            grid = omr_scanner.build_grid(calib_now)
-            student_answers = omr_scanner.read_answers(warped, grid)
-
-            key_string = active_now["answer_string"]
-            key_id = active_now["key_id"]
-            end_dt = active_now["end_dt"]
-
-            result = omr_scanner.score_answers(
-                student_answers, key_string,
-                negative_marking=active_now.get("negative_marking", False),
-                negative_value=active_now.get("negative_marks_value", 0.0),
-            )
-            sh.append_result(name, key_id, result)
-            st.success("✅ Result saved!")
-
-            st.markdown("### 📊 Result Summary")
-            r1c1, r1c2, r1c3 = st.columns(3)
-            r1c1.metric("Total Questions", result["total"])
-            r1c2.metric("Answered", result["answered"])
-            r1c3.metric("Skipped", result["skipped"])
-
-            r2c1, r2c2, r2c3 = st.columns(3)
-            r2c1.metric("Correct ✅", result["correct"])
-            r2c2.metric("Wrong ❌", result["wrong_count"])
-            r2c3.metric("Accuracy", f"{result['accuracy']}%")
-
-            st.metric("🏆 Marks", result["marks"])
-
-            if result["negative_marking"]:
-                st.caption(
-                    f"Negative marking was ON: -{result['negative_value']} per wrong answer "
-                    f"(skipped questions were not penalized)."
-                )
-
-            if result["wrong"]:
-                window_closed = end_dt is not None and sh.now_bd() > end_dt
-                with st.container(border=True):
-                    st.markdown("#### ❌ Wrong Answers")
-                    if window_closed:
-                        rows = [
-                            {
-                                "Question": f"Q{q}",
-                                "Your Answer": result["wrong_details"][q]["given"],
-                                "Correct Answer": result["wrong_details"][q]["correct"],
-                            }
-                            for q in result["wrong"]
-                        ]
-                        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-                    else:
-                        st.write("Question numbers you got wrong:", ", ".join(str(w) for w in result["wrong"]))
-                        st.caption("Correct answers will be shown once the exam time window closes.")
-            elif result["answered"] > 0:
-                st.success("🎉 No wrong answers!")
+@st.cache_data(ttl=15, show_spinner=False)
+def cached_answer_keys():
+    return sh.get_all_answer_keys()
 
 
-# =====================================================================
-# My Tests page
-# =====================================================================
-
-def page_my_tests():
-    st.markdown("### 📋 My Tests")
-    user = st.session_state["user"]
-    name = user["name"]
-
-    df = sh.get_results_for_student(name)
-    if df.empty:
-        st.info("You haven't submitted any test yet. Go to Home to submit your first OMR sheet.")
-        return
-
-    keys_df = sh.get_all_answer_keys()
-    key_name_map = {}
-    if not keys_df.empty:
-        for _, r in keys_df.iterrows():
-            key_name_map[r["key_id"]] = r.get("exam_name") or r["key_id"]
-
-    for _, row in df.iterrows():
-        key_id = row.get("key_id")
-        exam_name = key_name_map.get(key_id, key_id)
-        lb = sh.get_leaderboard_by_key(key_id)
-        highest = lb.iloc[0]["marks"] if not lb.empty else row.get("marks")
-
-        with st.container(border=True):
-            c1, c2, c3, c4 = st.columns([2.2, 1, 1, 1.2])
-            with c1:
-                st.markdown(f"**{exam_name}**")
-                st.caption(row.get("timestamp", ""))
-            c2.metric("Your Score", row.get("marks", 0))
-            c3.metric("Highest Score", highest)
-            with c4:
-                if st.button("View Analysis", key=f"analysis_{row.get('timestamp')}_{key_id}", use_container_width=True):
-                    st.session_state["analysis_row"] = row.to_dict()
-                    st.session_state["page"] = "analysis"
-                    st.rerun()
+@st.cache_data(ttl=10, show_spinner=False)
+def cached_results():
+    return sh.get_all_results_df()
 
 
-def page_analysis():
-    row = st.session_state.get("analysis_row")
-    if not row:
-        st.session_state["page"] = "mytests"
-        st.rerun()
-        return
-
-    if st.button("← Back to My Tests"):
-        st.session_state["page"] = "mytests"
-        st.session_state.pop("analysis_row", None)
-        st.rerun()
-
-    st.markdown("### 🔍 Result Analysis")
-    st.caption(row.get("timestamp", ""))
-
-    r1c1, r1c2, r1c3 = st.columns(3)
-    r1c1.metric("Total", row.get("total", 0))
-    r1c2.metric("Correct ✅", row.get("correct", 0))
-    r1c3.metric("Wrong ❌", row.get("wrong_count", 0))
-
-    r2c1, r2c2 = st.columns(2)
-    r2c1.metric("Marks", row.get("marks", 0))
-    r2c2.metric("Accuracy", f"{row.get('accuracy', 0)}%")
-
-    try:
-        wrong_details = json.loads(row.get("wrong_details") or "{}")
-    except Exception:
-        wrong_details = {}
-
-    if wrong_details:
-        rows = [
-            {"Question": f"Q{q}", "Your Answer": d.get("given", ""), "Correct Answer": d.get("correct", "")}
-            for q, d in wrong_details.items()
-        ]
-        st.markdown("#### ❌ Wrong Answers")
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-    else:
-        st.success("🎉 No wrong answers on this attempt!")
+@st.cache_data(ttl=15, show_spinner=False)
+def cached_students():
+    return sh.get_all_students_df()
 
 
-# =====================================================================
-# Leaderboard page
-# =====================================================================
-
-def page_leaderboard():
-    st.markdown("### 🏆 Leaderboard")
-    tab1, tab2 = st.tabs(["📅 Daily Exam Leaderboard", "📊 Overall Analysis"])
-
-    with tab1:
-        keys_df = sh.get_all_answer_keys()
-        if keys_df.empty:
-            st.info("No exam/answer key has been set yet.")
-        else:
-            keys_df = keys_df.iloc[::-1].reset_index(drop=True)
-            options = {}
-            for _, row in keys_df.iterrows():
-                label = f"{row.get('exam_name') or row['key_id']} | {row['date']} | {row['start_time'][-5:]}-{row['end_time'][-5:]}"
-                options[label] = row["key_id"]
-            choice = st.selectbox("Choose which exam's results to view", list(options.keys()))
-            if st.button("🔄 Refresh", key="refresh_daily"):
-                st.rerun()
-            selected_key = options[choice]
-            df = sh.get_leaderboard_by_key(selected_key)
-            if df.empty:
-                st.info("No results have been submitted for this exam yet.")
-            else:
-                show_df = df[["rank", "student", "marks", "correct", "wrong_count",
-                               "skipped", "accuracy", "total", "timestamp"]].copy()
-                show_df.columns = ["Rank", "Student", "Marks", "Correct", "Wrong",
-                                    "Skipped", "Accuracy %", "Total", "Timestamp"]
-                st.dataframe(show_df, use_container_width=True, hide_index=True)
-
-    with tab2:
-        st.caption("Ranking by average percentage across all exams combined.")
-        if st.button("🔄 Refresh", key="refresh_overall"):
-            st.rerun()
-        df = sh.get_overall_leaderboard()
-        if df.empty:
-            st.info("No results have been submitted yet.")
-        else:
-            show_df = df[["rank", "student", "avg_percent", "exams_taken", "total_marks", "total_possible"]].copy()
-            show_df.columns = ["Rank", "Student", "Average %", "Exams Taken", "Total Marks", "Total Possible"]
-            st.dataframe(show_df, use_container_width=True, hide_index=True)
+def clear_all_caches():
+    cached_answer_keys.clear()
+    cached_results.clear()
+    cached_students.clear()
+    sh.clear_data_caches()
 
 
-# =====================================================================
-# Profile page
-# =====================================================================
+# =========================================================================
+# Routing helpers
+# =========================================================================
 
-def page_profile(cookie_manager):
-    st.markdown("### 👤 Profile")
-    user = st.session_state["user"]
-    name = user["name"]
-
-    df = sh.get_results_for_student(name)
-    best = int(df["marks"].astype(float).max()) if not df.empty else "-"
-    lowest = int(df["marks"].astype(float).min()) if not df.empty else "-"
-    exams_taken = len(df)
-
-    with st.container(border=True):
-        c1, c2 = st.columns(2)
-        c1.markdown(f"**Name**  \n{user['name']}")
-        c2.markdown(f"**Roll**  \n{user['user_id']}")
-
-        c3, c4, c5 = st.columns(3)
-        c3.metric("Best Score", best)
-        c4.metric("Lowest Score", lowest)
-        c5.metric("Exams Taken", exams_taken)
-
-    st.markdown("#### 🔑 Change Password")
-    cur_pw = st.text_input("Current Password", type="password", key="profile_cur_pw")
-    new_pw1 = st.text_input("New Password", type="password", key="profile_new_pw1")
-    new_pw2 = st.text_input("Confirm New Password", type="password", key="profile_new_pw2")
-    if st.button("Update Password", type="primary"):
-        if hash_password(cur_pw, user["user_id"]) != str(user.get("password_hash", "")):
-            st.error("Current password is incorrect.")
-        elif len(new_pw1) < 4:
-            st.error("New password must be at least 4 characters.")
-        elif new_pw1 != new_pw2:
-            st.error("The two new password entries don't match.")
-        else:
-            new_hash = hash_password(new_pw1, user["user_id"])
-            sh.update_user_password(user["user_id"], new_hash)
-            user["password_hash"] = new_hash
-            st.session_state["user"] = user
-            st.success("Password updated!")
-
-    st.divider()
-    if st.button("🚪 Logout", use_container_width=True):
-        do_logout(cookie_manager)
+def go_to(page, **params):
+    st.session_state["page"] = page
+    for k, v in params.items():
+        st.session_state[k] = v
+    st.query_params["page"] = page
+    st.rerun()
 
 
-# =====================================================================
-# Mentor panel (unchanged features, English text, reached via a link)
-# =====================================================================
+def restore_page_from_url():
+    if "page" not in st.session_state:
+        st.session_state["page"] = st.query_params.get("page", "home")
 
-def is_mentor():
-    if st.session_state.get("mentor_authed"):
+
+# =========================================================================
+# App-level password gate (keeps the whole app private)
+# =========================================================================
+
+def check_app_password():
+    if st.session_state.get("authed"):
         return True
-    pw = st.text_input("Mentor password", type="password", key="mentor_pw")
-    if st.button("Mentor Login"):
-        if pw == sh.get_mentor_password():
-            st.session_state["mentor_authed"] = True
-            st.rerun()
-        else:
-            st.error("Incorrect mentor password.")
+
+    st.markdown(
+        "<h1 style='text-align:center;'>📝 OMR Result App</h1>"
+        "<p style='text-align:center; color:gray;'>Enter the access password to continue</p>",
+        unsafe_allow_html=True,
+    )
+    _, mid, _ = st.columns([1, 2, 1])
+    with mid:
+        pw = st.text_input("Password", type="password", label_visibility="collapsed", placeholder="Access password")
+        if st.button("Continue", use_container_width=True, type="primary"):
+            if pw == st.secrets.get("APP_PASSWORD", ""):
+                st.session_state["authed"] = True
+                st.rerun()
+            else:
+                st.error("Incorrect password.")
     return False
 
+
+# =========================================================================
+# Student auth: sign up / log in / forgot password
+# =========================================================================
+
+SECURITY_QUESTIONS = [
+    "What is your favorite subject?",
+    "What is your mother's first name?",
+    "What was the name of your first school?",
+    "What is your favorite color?",
+]
+
+
+def student_session_is_valid():
+    """Session security: if the password was changed (or account disabled)
+    elsewhere, session_version on the sheet will differ from what we
+    stored at login time - force logout."""
+    sid = st.session_state.get("student_id")
+    if not sid:
+        return False
+    live_version = sh.get_session_version(sid)
+    if live_version is None:
+        return False
+    return live_version == st.session_state.get("session_version")
+
+
+def page_student_auth():
+    st.markdown("<h2 style='text-align:center;'>🎓 Student Login</h2>", unsafe_allow_html=True)
+    tab_login, tab_signup, tab_forgot = st.tabs(["Log In", "Sign Up", "Forgot Password"])
+
+    with tab_login:
+        phone = st.text_input("Phone number", key="login_phone")
+        pw = st.text_input("Password", type="password", key="login_pw")
+        if st.button("Log In", type="primary", use_container_width=True, key="login_btn"):
+            if not phone or not pw:
+                st.error("Please enter both phone number and password.")
+            else:
+                with st.spinner("Logging in..."):
+                    try:
+                        student = sh.authenticate_student(phone.strip(), pw)
+                        st.session_state["student_id"] = student["student_id"]
+                        st.session_state["student_name"] = student["name"]
+                        st.session_state["session_version"] = sh._to_int(student.get("session_version"), 1)
+                        st.session_state["role"] = "student"
+                    except ValueError as e:
+                        st.error(str(e))
+                    else:
+                        st.success("Logged in!")
+                        go_to("home")
+
+    with tab_signup:
+        name = st.text_input("Full name", key="su_name")
+        phone_s = st.text_input("Phone number", key="su_phone")
+        pw1 = st.text_input("Password", type="password", key="su_pw1")
+        score, label, tips = sh.password_strength(pw1) if pw1 else (0, "", [])
+        if pw1:
+            colors = ["#ef4444", "#ef4444", "#f59e0b", "#10b981", "#059669"]
+            st.markdown(
+                f"<div class='strength-bar'><div class='strength-fill' "
+                f"style='width:{(score+1)*20}%; background:{colors[score]};'></div></div>"
+                f"<small>Password strength: <b>{label}</b></small>",
+                unsafe_allow_html=True,
+            )
+        pw2 = st.text_input("Confirm password", type="password", key="su_pw2")
+        sec_q = st.selectbox("Security question (used for password recovery)", SECURITY_QUESTIONS, key="su_secq")
+        sec_a = st.text_input("Your answer", key="su_seca")
+
+        if st.button("Create Account", type="primary", use_container_width=True, key="signup_btn"):
+            _, _, tips = sh.password_strength(pw1)
+            if not name.strip() or not phone_s.strip():
+                st.error("Please fill in your name and phone number.")
+            elif tips:
+                st.error("Password is too weak: " + ", ".join(tips))
+            elif pw1 != pw2:
+                st.error("Passwords do not match.")
+            elif not sec_a.strip():
+                st.error("Please answer the security question.")
+            else:
+                with st.spinner("Creating your account..."):
+                    try:
+                        sh.create_student(name, phone_s, pw1, sec_q, sec_a)
+                        clear_all_caches()
+                    except ValueError as e:
+                        st.error(str(e))
+                    else:
+                        st.success("Account created! Please log in from the 'Log In' tab.")
+
+    with tab_forgot:
+        st.caption("Reset your password using the security question you set at sign up.")
+        f_phone = st.text_input("Phone number", key="fp_phone")
+        student_preview = sh.get_student_by_phone(f_phone.strip()) if f_phone.strip() else None
+        if student_preview:
+            st.info(f"Security question: **{student_preview.get('security_question')}**")
+            f_answer = st.text_input("Your answer", key="fp_answer")
+            f_new1 = st.text_input("New password", type="password", key="fp_new1")
+            f_new2 = st.text_input("Confirm new password", type="password", key="fp_new2")
+            if st.button("Reset Password", type="primary", use_container_width=True, key="fp_btn"):
+                _, _, tips = sh.password_strength(f_new1)
+                if tips:
+                    st.error("Password is too weak: " + ", ".join(tips))
+                elif f_new1 != f_new2:
+                    st.error("Passwords do not match.")
+                else:
+                    with st.spinner("Resetting..."):
+                        try:
+                            sh.reset_password_via_security(f_phone.strip(), f_answer, f_new1)
+                            clear_all_caches()
+                        except ValueError as e:
+                            st.error(str(e))
+                        else:
+                            st.success("Password reset! Please log in with your new password.")
+        elif f_phone.strip():
+            st.warning("No account found with this phone number.")
+
+
+# =========================================================================
+# Top navigation (persistent on every student page)
+# =========================================================================
+
+STUDENT_NAV = [("home", "🏠 Home"), ("tests", "📝 Tests & Results"),
+               ("leaderboard", "🏆 Leaderboard"), ("profile", "👨‍🏫 Profile")]
+
+
+def render_top_nav(current_page):
+    with st.container(key="top_nav"):
+        cols = st.columns(len(STUDENT_NAV))
+        for col, (page_key, label) in zip(cols, STUDENT_NAV):
+            with col:
+                is_active = current_page == page_key or (page_key == "tests" and current_page == "test_detail")
+                if st.button(label, key=f"nav_{page_key}", use_container_width=True,
+                             type="primary" if is_active else "secondary"):
+                    go_to(page_key)
+    st.write("")
+
+
+# =========================================================================
+# Student: Home
+# =========================================================================
+
+def page_home():
+    sid = st.session_state["student_id"]
+    name = st.session_state["student_name"]
+    st.markdown(f"### 👋 Welcome, {name}")
+
+    active = sh.get_active_answer_key()
+    with st.container():
+        st.markdown("<div class='app-card'>", unsafe_allow_html=True)
+        if active:
+            already = sh.has_submitted(sid, active["key_id"])
+            remaining = active["end_dt"] - sh.now_bd()
+            mins_left = max(0, int(remaining.total_seconds() // 60))
+            st.markdown(f"#### 🟢 Active Test: {active['exam_name'] or active['key_id']}")
+            c1, c2 = st.columns(2)
+            c1.metric("Questions", active["total_questions"])
+            c2.metric("Time Left", f"{mins_left} min")
+            if already:
+                st.info("You already submitted this test. Check it in Tests & Results.")
+            else:
+                if st.button("📤 Quick OMR Submit", type="primary", use_container_width=True):
+                    go_to("tests", quick_submit=True)
+        else:
+            upcoming = sh.get_upcoming_answer_key()
+            if upcoming:
+                st.info(f"No test is active right now. Next up: **{upcoming['exam_name'] or upcoming['key_id']}** "
+                        f"at **{upcoming['start_dt'].strftime('%Y-%m-%d %H:%M')}**.")
+            else:
+                st.info("No test is active or upcoming right now.")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    results = cached_results()
+    my_results = results[results["student_id"] == sid] if not results.empty else results
+
+    st.markdown("<div class='app-card'>", unsafe_allow_html=True)
+    st.markdown("#### 📊 Last Result")
+    if my_results.empty:
+        st.caption("You haven't submitted any test yet.")
+    else:
+        last = my_results.sort_values("timestamp", ascending=False).iloc[0]
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Marks", last["marks"])
+        c2.metric("Correct", int(last["correct"]))
+        c3.metric("Wrong", int(last["wrong_count"]))
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown("<div class='app-card'>", unsafe_allow_html=True)
+    st.markdown("#### 📈 Overall Progress")
+    if my_results.empty:
+        st.caption("Your progress will show up here after your first test.")
+    else:
+        tests_completed = len(my_results)
+        avg_pct = round((my_results["marks"] / my_results["total"]).mean() * 100, 1)
+        rank, out_of = sh.get_rank_for_student(sid)
+
+        my_results_sorted = my_results.copy()
+        my_results_sorted["ts"] = pd.to_datetime(my_results_sorted["timestamp"], errors="coerce")
+        this_month = my_results_sorted[my_results_sorted["ts"].dt.month == date.today().month]
+        last_month_num = date.today().month - 1 or 12
+        last_month = my_results_sorted[my_results_sorted["ts"].dt.month == last_month_num]
+        trend_html = ""
+        if not this_month.empty and not last_month.empty:
+            this_avg = (this_month["marks"] / this_month["total"]).mean() * 100
+            last_avg = (last_month["marks"] / last_month["total"]).mean() * 100
+            diff = round(this_avg - last_avg, 1)
+            arrow = "↑" if diff >= 0 else "↓"
+            trend_html = f"<p>{arrow} {abs(diff)}% {'better' if diff >= 0 else 'lower'} than last month</p>"
+
+        rank_html = f"<span class='rank-badge rank-you'>🏆 Current Rank: {rank} / {out_of}</span>" if rank else ""
+
+        st.markdown(
+            f"""
+            <div class='metric-row'>
+                <div class='metric-box'><div class='label'>Tests Completed</div><div class='value'>{tests_completed}</div></div>
+                <div class='metric-box'><div class='label'>Average Score</div><div class='value'>{avg_pct}%</div></div>
+            </div>
+            <p style='margin-top:10px;'>{rank_html}</p>
+            {trend_html}
+            """,
+            unsafe_allow_html=True,
+        )
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown(
+        f"<div class='app-card'>💡 <i>{motivation_for(sid)}</i></div>",
+        unsafe_allow_html=True,
+    )
+
+
+# =========================================================================
+# Student: Tests & Results (list + detail)
+# =========================================================================
+
+def render_omr_review(rows):
+    """rows = omr_scanner.build_review_rows() output, already filtered to
+    wrong + skipped only."""
+    if not rows:
+        st.success("🎉 No wrong or skipped answers!")
+        return
+    html = ["<div>"]
+    for row in rows:
+        q, given, correct_ans, status = row["q"], row["given"], row["correct"], row["status"]
+        tag = "<span class='omr-tag wrong-tag'>Wrong</span>" if status == "wrong" else "<span class='omr-tag skip-tag'>Skipped</span>"
+        bubbles = ""
+        for opt in ["A", "B", "C", "D"]:
+            cls = "omr-bubble"
+            if opt == correct_ans:
+                cls += " correct"
+            elif status == "wrong" and opt == given:
+                cls += " wrong"
+            bubbles += f"<span class='{cls}'>{opt}</span>"
+        html.append(
+            f"<div class='omr-row'><span class='omr-qnum'>Q{q}</span>{tag}<span>{bubbles}</span></div>"
+        )
+    html.append("</div>")
+    st.markdown("".join(html), unsafe_allow_html=True)
+
+
+def render_result_detail(result_row, key_row):
+    exam_name = key_row.get("exam_name") or result_row["key_id"]
+    st.markdown(f"### {exam_name}")
+    total, correct, wrong_count, skipped = (
+        int(result_row["total"]), int(result_row["correct"]),
+        int(result_row["wrong_count"]), int(result_row["skipped"]),
+    )
+    st.markdown(
+        f"`Score: {correct}/{total}` &nbsp; `❌ Wrong {wrong_count}` &nbsp; "
+        f"`⚪ Skipped {skipped}` &nbsp; `✅ Correct {correct}`"
+    )
+    if bool(result_row.get("edited_by_mentor")):
+        st.caption("ℹ️ This result was reviewed/edited by your mentor.")
+
+    import json as _json
+    answer_string = key_row["answer_string"]
+
+    try:
+        wrong_details = _json.loads(result_row.get("wrong_details_json") or "{}")
+    except Exception:
+        wrong_details = {}
+    try:
+        skipped_qs = _json.loads(result_row.get("skipped_json") or "[]")
+    except Exception:
+        skipped_qs = []
+
+    rows = []
+    for q_str, detail in sorted(wrong_details.items(), key=lambda kv: int(kv[0])):
+        rows.append({"q": int(q_str), "given": detail["given"], "correct": detail["correct"], "status": "wrong"})
+    for q in skipped_qs:
+        rows.append({"q": q, "given": None, "correct": answer_string[q - 1].upper(), "status": "skipped"})
+    rows.sort(key=lambda r: r["q"])
+
+    st.markdown("#### Wrong & Skipped Answers")
+    render_omr_review(rows)
+
+
+def page_tests_results():
+    sid = st.session_state["student_id"]
+
+    view_key_id = st.session_state.get("view_key_id")
+    if view_key_id:
+        results = cached_results()
+        keys_df = cached_answer_keys()
+        match = results[(results["student_id"] == sid) & (results["key_id"] == view_key_id)]
+        key_match = keys_df[keys_df["key_id"] == view_key_id]
+        if match.empty or key_match.empty:
+            st.warning("Result not found.")
+        else:
+            if st.button("← Back to Tests & Results"):
+                st.session_state["view_key_id"] = None
+                st.rerun()
+            render_result_detail(match.iloc[0], key_match.iloc[0])
+        return
+
+    st.markdown("### 📝 Submit OMR / Test History")
+
+    active = sh.get_active_answer_key()
+    calibration = sh.load_calibration()
+
+    with st.container():
+        st.markdown("<div class='app-card'>", unsafe_allow_html=True)
+        st.markdown("#### 📤 Submit Your OMR Sheet")
+        if not calibration:
+            st.error("The mentor hasn't calibrated the OMR sheet yet. Please check back later.")
+        elif not active:
+            st.info("No test is active right now.")
+        elif sh.has_submitted(sid, active["key_id"]):
+            st.success("✅ You've already submitted this test. Duplicate submissions aren't allowed.")
+        else:
+            st.caption(f"Active test: **{active['exam_name'] or active['key_id']}** · "
+                       f"{active['total_questions']} questions")
+            uploaded = st.file_uploader(
+                "Upload a photo of your filled OMR sheet (camera or gallery)",
+                type=["png", "jpg", "jpeg"], key="omr_upload",
+            )
+            if uploaded:
+                image = Image.open(uploaded).convert("RGB")
+                st.image(image, caption="Uploaded photo", use_container_width=True)
+
+                if st.button("📤 Submit & See Score", type="primary", use_container_width=True):
+                    with st.spinner("Validating image..."):
+                        img_bgr = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+                        ok, errors, warnings_ = omr_scanner.validate_omr_image(img_bgr)
+
+                    if not ok:
+                        for e in errors:
+                            st.error(e)
+                    else:
+                        for w in warnings_:
+                            st.warning(w)
+                        with st.spinner("Reading your answers..."):
+                            active_now = sh.get_active_answer_key()
+                            if not active_now:
+                                st.error("The test window has just closed. Your result can't be recorded.")
+                            elif sh.has_submitted(sid, active_now["key_id"]):
+                                st.warning("You've already submitted this test.")
+                            else:
+                                warped, warp_ok = omr_scanner.detect_and_warp(img_bgr)
+                                if not warp_ok:
+                                    st.warning("Couldn't clearly detect the sheet's corners - "
+                                               "still scoring, but retake a straighter photo if the result looks wrong.")
+                                grid = omr_scanner.build_grid(calibration)
+                                student_answers = omr_scanner.read_answers(warped, grid)
+                                key_string = active_now["answer_string"]
+                                key_id = active_now["key_id"]
+
+                                result = omr_scanner.score_answers(
+                                    student_answers, key_string,
+                                    negative_marking=active_now.get("negative_marking", False),
+                                    negative_value=active_now.get("negative_marks_value", 0.0),
+                                )
+                                sh.append_result(sid, st.session_state["student_name"], key_id, result)
+                                clear_all_caches()
+                                st.success("✅ Result saved!")
+
+                                r1, r2, r3 = st.columns(3)
+                                r1.metric("Correct ✅", result["correct"])
+                                r2.metric("Wrong ❌", result["wrong_count"])
+                                r3.metric("Skipped ⚪", result["skipped"])
+                                st.metric("🏆 Marks", result["marks"])
+
+                                rows = omr_scanner.build_review_rows(student_answers, key_string)
+                                review_rows = [r for r in rows if r["status"] in ("wrong", "skipped")]
+                                st.markdown("#### Review")
+                                render_omr_review(review_rows)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown("#### 📋 Test History")
+    results = cached_results()
+    keys_df = cached_answer_keys()
+    my_results = results[results["student_id"] == sid] if not results.empty else results
+
+    if my_results.empty:
+        st.caption("No tests submitted yet.")
+        return
+
+    my_results = my_results.sort_values("timestamp", ascending=False)
+    header_cols = st.columns([2.4, 1.3, 0.9, 0.9, 0.9, 0.9, 0.9, 0.8])
+    for c, label in zip(header_cols, ["Exam", "Date", "Total", "Correct", "Wrong", "Skipped", "Marks", ""]):
+        c.markdown(f"**{label}**")
+
+    for _, row in my_results.iterrows():
+        key_match = keys_df[keys_df["key_id"] == row["key_id"]]
+        exam_name = key_match.iloc[0]["exam_name"] if not key_match.empty and key_match.iloc[0]["exam_name"] else row["key_id"]
+        cols = st.columns([2.4, 1.3, 0.9, 0.9, 0.9, 0.9, 0.9, 0.8])
+        cols[0].write(exam_name)
+        cols[1].write(str(row["timestamp"]).split(" ")[0])
+        cols[2].write(int(row["total"]))
+        cols[3].write(int(row["correct"]))
+        cols[4].write(int(row["wrong_count"]))
+        cols[5].write(int(row["skipped"]))
+        cols[6].write(row["marks"])
+        if cols[7].button("View", key=f"view_{row['key_id']}"):
+            st.session_state["view_key_id"] = row["key_id"]
+            st.rerun()
+
+
+# =========================================================================
+# Student: Leaderboard
+# =========================================================================
+
+def _rank_class(rank):
+    return {1: "rank-gold", 2: "rank-silver", 3: "rank-bronze"}.get(rank, "")
+
+
+def _rank_icon(rank):
+    return {1: "🥇", 2: "🥈", 3: "🥉"}.get(rank, f"#{rank}")
+
+
+def page_leaderboard():
+    sid = st.session_state["student_id"]
+    st.markdown("### 🏆 Leaderboard")
+    mode = st.radio("View", ["Test-wise", "Overall"], horizontal=True, label_visibility="collapsed")
+
+    if mode == "Test-wise":
+        keys_df = cached_answer_keys()
+        if keys_df.empty:
+            st.info("No tests have been created yet.")
+            return
+        keys_df = keys_df.iloc[::-1].reset_index(drop=True)
+        options = {}
+        for _, row in keys_df.iterrows():
+            label = f"{row.get('exam_name') or row['key_id']} | {row['date']}"
+            options[label] = row["key_id"]
+        choice = st.selectbox("Choose a test", list(options.keys()))
+        key_id = options[choice]
+        df = sh.get_leaderboard_by_key(key_id)
+    else:
+        df = sh.get_overall_leaderboard()
+        key_id = None
+
+    if df is None or df.empty:
+        st.info("No results yet for this view.")
+        return
+
+    my_rank, _ = sh.get_rank_for_student(sid, key_id)
+    if my_rank:
+        st.caption(f"Your current rank: **#{my_rank}**")
+
+    for _, row in df.head(50).iterrows():
+        rank = int(row["rank"])
+        is_me = row["student_id"] == sid
+        score_val = row["marks"] if "marks" in row else row.get("avg_percent")
+        accuracy_val = row.get("accuracy", "-")
+        css_class = "lb-row me" if is_me else "lb-row"
+        icon = _rank_icon(rank) if rank <= 3 else f"#{rank}"
+        badge_class = _rank_class(rank)
+        st.markdown(
+            f"""
+            <div class="{css_class}">
+                <span class="rank-badge {badge_class}">{icon}</span>
+                <span style="flex:1; font-weight:{'700' if is_me else '500'};">{row['student']}{' (You)' if is_me else ''}</span>
+                <span>Score: <b>{score_val}</b></span>
+                <span style="opacity:.7;">Accuracy: {accuracy_val if accuracy_val != '-' else '-'}</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+# =========================================================================
+# Student: Profile
+# =========================================================================
+
+def page_profile():
+    sid = st.session_state["student_id"]
+    student = sh.get_student_by_id(sid)
+    st.markdown("### 👨‍🏫 Profile")
+    st.markdown("<div class='app-card'>", unsafe_allow_html=True)
+    st.write(f"**Name:** {student['name']}")
+    st.write(f"**Phone:** {student['phone']}")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    with st.expander("🔑 Change Password"):
+        cur_pw = st.text_input("Current password", type="password", key="prof_cur_pw")
+        new_pw1 = st.text_input("New password", type="password", key="prof_new_pw1")
+        if new_pw1:
+            score, label, tips = sh.password_strength(new_pw1)
+            colors = ["#ef4444", "#ef4444", "#f59e0b", "#10b981", "#059669"]
+            st.markdown(
+                f"<div class='strength-bar'><div class='strength-fill' "
+                f"style='width:{(score+1)*20}%; background:{colors[score]};'></div></div>"
+                f"<small>Password strength: <b>{label}</b></small>",
+                unsafe_allow_html=True,
+            )
+        new_pw2 = st.text_input("Confirm new password", type="password", key="prof_new_pw2")
+        if st.button("Update Password", type="primary"):
+            try:
+                sh.authenticate_student(student["phone"], cur_pw)
+            except ValueError:
+                st.error("Current password is incorrect.")
+            else:
+                _, _, tips = sh.password_strength(new_pw1)
+                if tips:
+                    st.error("New password is too weak: " + ", ".join(tips))
+                elif new_pw1 != new_pw2:
+                    st.error("New passwords don't match.")
+                else:
+                    with st.spinner("Updating..."):
+                        sh.change_student_password(sid, new_pw1)
+                        clear_all_caches()
+                    st.success("Password updated. Please log in again.")
+                    for k in ("student_id", "student_name", "session_version", "role"):
+                        st.session_state.pop(k, None)
+                    st.rerun()
+
+    if st.button("🚪 Log Out", use_container_width=True):
+        for k in ("student_id", "student_name", "session_version", "role"):
+            st.session_state.pop(k, None)
+        go_to("home")
+
+
+# =========================================================================
+# Mentor: Answer Key tab (native bubble-grid input) - kept from the
+# original app, with a clarifying notification added.
+# =========================================================================
 
 def _inject_bubble_grid_css():
     st.markdown(
@@ -684,7 +791,6 @@ def _time_input_12h(key_prefix, default_hour_24=9, default_minute=0):
     default_hour_12 = default_hour_24 % 12
     if default_hour_12 == 0:
         default_hour_12 = 12
-
     c1, c2, c3 = st.columns([1, 1, 1])
     with c1:
         st.caption("Hour")
@@ -698,7 +804,6 @@ def _time_input_12h(key_prefix, default_hour_24=9, default_minute=0):
         st.caption("AM/PM")
         period = st.selectbox("AM/PM", ["AM", "PM"], index=0 if default_period == "AM" else 1,
                                key=f"{key_prefix}_period", label_visibility="collapsed")
-
     hour_24 = hour % 12
     if period == "PM":
         hour_24 += 12
@@ -706,22 +811,30 @@ def _time_input_12h(key_prefix, default_hour_24=9, default_minute=0):
 
 
 def render_answer_key_tab():
-    st.subheader("🗓️ Set Today's Answer Key & Exam Time")
+    st.subheader("🗓️ Set Answer Key & Exam Time")
 
-    st.markdown("#### Step 1: How Many MCQs? (Exam Style)")
+    st.markdown("#### ① How many MCQs? (Exam Style)")
     exam_style = st.radio(
         "Exam Style", ["📄 100 Questions (Q1-100)", "📄 40 Questions (Q1-40)"],
         horizontal=True, label_visibility="collapsed", key="mentor_exam_style_choice",
     )
     total_q = 100 if "100" in exam_style else 40
 
+    if total_q == 100:
+        st.info("ℹ️ Questions 1-50 are shown first (in two columns of 25). "
+                 "Scroll down and click **Next: 51-100** to enter the second half.")
+    else:
+        st.info("ℹ️ Questions are shown in two columns: 1-20 and 21-40, on the same page.")
+
     if st.session_state.get("mentor_answer_total_q") != total_q:
         for q in range(1, 101):
             st.session_state.pop(_answer_key(q), None)
         st.session_state["mentor_answer_total_q"] = total_q
+        st.session_state["mentor_answer_page"] = 1
 
     st.divider()
-    st.markdown("#### Step 2: Exam Details")
+
+    st.markdown("#### ② Exam Details")
     exam_name = st.text_input("Exam name", placeholder="e.g. Physics Model Test - 3")
     d = st.date_input("Exam date", value=date.today())
     st.markdown("**Start time**")
@@ -730,23 +843,25 @@ def render_answer_key_tab():
     end_t = _time_input_12h("mentor_end_t", default_hour_24=9, default_minute=30)
 
     st.divider()
+
     st.markdown("#### ➖ Negative Marking (Optional)")
     negative_marking = st.checkbox(
-        "Enable negative marking for this exam (marks are deducted for wrong answers; skipped questions are not penalized)",
+        "Enable negative marking for this exam (marks deducted for wrong answers; skipped questions are not penalized)",
         key="mentor_neg_marking",
     )
     negative_value = 0.0
     if negative_marking:
         negative_value = st.number_input(
-            "How many marks should be deducted per wrong answer? (e.g. 0.25 is common for admission exams)",
+            "Marks deducted per wrong answer (e.g. 0.25 is common for admission exams)",
             min_value=0.0, max_value=1.0, value=0.25, step=0.05, format="%.2f",
             key="mentor_neg_value",
         )
-        st.caption(f"Example: 4 wrong answers out of {total_q} would deduct {4 * negative_value:.2f} marks.")
+        st.caption(f"Example: out of {total_q}, 4 wrong answers would deduct {4 * negative_value:.2f} marks.")
 
     st.divider()
+
     answered = _count_answered(total_q)
-    st.markdown(f"#### Step 3: ✏️ Fill the Answer Key ({answered}/{total_q} answered)")
+    st.markdown(f"#### ③ ✏️ Fill the Answer Key ({answered}/{total_q} answered)")
     st.progress(answered / total_q if total_q else 0)
 
     tool_col1, tool_col2 = st.columns(2)
@@ -768,14 +883,42 @@ def render_answer_key_tab():
                     st.rerun()
 
     _inject_bubble_grid_css()
-    with st.container(key="answer_bubble_grid"):
-        blocks = [(1, 25), (26, 50), (51, 75), (76, 100)] if total_q == 100 else [(1, 20), (21, 40)]
-        grid_cols = st.columns(len(blocks))
-        for col, (b_start, b_end) in zip(grid_cols, blocks):
-            with col:
-                _render_bubble_block(b_start, b_end)
+
+    if total_q == 100:
+        page = st.session_state.get("mentor_answer_page", 1)
+        if page == 1:
+            st.caption("Showing questions **1-50**")
+            with st.container(key="answer_bubble_grid"):
+                col1, col2 = st.columns(2)
+                with col1:
+                    _render_bubble_block(1, 25)
+                with col2:
+                    _render_bubble_block(26, 50)
+            if st.button("Next: 51-100 →", use_container_width=True):
+                st.session_state["mentor_answer_page"] = 2
+                st.rerun()
+        else:
+            st.caption("Showing questions **51-100**")
+            with st.container(key="answer_bubble_grid"):
+                col1, col2 = st.columns(2)
+                with col1:
+                    _render_bubble_block(51, 75)
+                with col2:
+                    _render_bubble_block(76, 100)
+            if st.button("← Back: 1-50", use_container_width=True):
+                st.session_state["mentor_answer_page"] = 1
+                st.rerun()
+    else:
+        st.caption("Showing questions **1-40** (two columns of 20)")
+        with st.container(key="answer_bubble_grid"):
+            col1, col2 = st.columns(2)
+            with col1:
+                _render_bubble_block(1, 20)
+            with col2:
+                _render_bubble_block(21, 40)
 
     st.divider()
+
     if st.button("✅ Save Answer Key", type="primary", use_container_width=True):
         answered = _count_answered(total_q)
         if not exam_name.strip():
@@ -786,186 +929,390 @@ def render_answer_key_tab():
             answer_string = _build_answer_string(total_q)
             start_str = f"{d.strftime('%Y-%m-%d')} {start_t.strftime('%H:%M')}"
             end_str = f"{d.strftime('%Y-%m-%d')} {end_t.strftime('%H:%M')}"
-            key_id = sh.add_answer_key(
-                exam_name.strip(), d.strftime("%Y-%m-%d"), start_str, end_str,
-                total_q, answer_string,
-                negative_marking=negative_marking, negative_marks_value=negative_value,
-            )
-            for q in range(1, total_q + 1):
-                st.session_state.pop(_answer_key(q), None)
+            with st.spinner("Saving..."):
+                key_id = sh.add_answer_key(
+                    exam_name.strip(), d.strftime("%Y-%m-%d"), start_str, end_str,
+                    total_q, answer_string,
+                    negative_marking=negative_marking, negative_marks_value=negative_value,
+                )
+                for q in range(1, total_q + 1):
+                    st.session_state.pop(_answer_key(q), None)
+                clear_all_caches()
             st.success(f"✅ Answer key for '{exam_name}' saved! Key ID: {key_id}")
 
 
-def page_mentor():
-    top_c1, top_c2 = st.columns([1, 5])
-    with top_c1:
-        if st.button("← Back"):
-            st.session_state["page"] = "home"
-            st.session_state.pop("mentor_authed", None)
-            st.rerun()
+# =========================================================================
+# Mentor: Dashboard / Analytics
+# =========================================================================
 
-    st.header("👨‍🏫 Mentor Panel")
-    if not is_mentor():
+def page_mentor_dashboard():
+    st.subheader("📊 Mentor Dashboard")
+    with st.spinner("Loading analytics..."):
+        stats = sh.get_mentor_analytics()
+    st.markdown(
+        f"""
+        <div class='metric-row'>
+            <div class='metric-box'><div class='label'>Total Students</div><div class='value'>{stats['total_students']}</div></div>
+            <div class='metric-box'><div class='label'>Active Students</div><div class='value'>{stats['active_students']}</div></div>
+            <div class='metric-box'><div class='label'>Total Submissions</div><div class='value'>{stats['total_submissions']}</div></div>
+            <div class='metric-box'><div class='label'>Submissions Today</div><div class='value'>{stats['submissions_today']}</div></div>
+            <div class='metric-box'><div class='label'>Average Score</div><div class='value'>{stats['average_score_pct']}%</div></div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    if stats["active_exam"]:
+        st.success(f"🟢 Active exam right now: **{stats['active_exam']}**")
+    else:
+        st.info("No exam is active right now.")
+
+
+# =========================================================================
+# Mentor: Students (view / disable / reset password)
+# =========================================================================
+
+def page_mentor_students():
+    st.subheader("👥 Student Management")
+    with st.spinner("Loading students..."):
+        df = cached_students()
+        results_df = cached_results()
+
+    if df.empty:
+        st.info("No students have signed up yet.")
         return
 
-    tab1, tab2, tab3, tab4 = st.tabs(
-        ["📝 Answer Key", "🎯 Calibration", "📋 All Answer Keys", "🔑 Password"]
-    )
+    search = st.text_input("🔍 Search by name or phone")
+    if search:
+        mask = df["name"].astype(str).str.contains(search, case=False) | \
+               df["phone"].astype(str).str.contains(search, case=False)
+        df = df[mask]
 
-    with tab1:
-        render_answer_key_tab()
+    for _, row in df.iterrows():
+        sid = row["student_id"]
+        disabled = sh._to_bool(row.get("disabled", False))
+        student_results = results_df[results_df["student_id"] == sid] if not results_df.empty else results_df
+        tests_taken = len(student_results)
+        avg_score = round((student_results["marks"] / student_results["total"]).mean() * 100, 1) if tests_taken else "-"
 
-    with tab2:
-        st.markdown("#### Sheet Layout")
-        layout_choice = st.radio("Which sheet layout are you calibrating?",
-                                  ["100 Questions", "40 Questions"], horizontal=True, key="calib_layout_choice")
-        layout_q = 100 if layout_choice == "100 Questions" else 40
+        with st.container():
+            st.markdown("<div class='app-card'>", unsafe_allow_html=True)
+            c1, c2 = st.columns([3, 2])
+            with c1:
+                status = "🔴 Disabled" if disabled else "🟢 Active"
+                st.markdown(f"**{row['name']}** &nbsp; {status}")
+                st.caption(f"📱 {row['phone']} · Tests: {tests_taken} · Avg: {avg_score}%")
+            with c2:
+                b1, b2 = st.columns(2)
+                with b1:
+                    toggle_label = "Enable" if disabled else "Disable"
+                    if st.button(toggle_label, key=f"toggle_{sid}", use_container_width=True):
+                        with st.spinner("Updating..."):
+                            sh.set_student_disabled(sid, not disabled)
+                            clear_all_caches()
+                        st.rerun()
+                with b2:
+                    if st.button("Reset PW", key=f"reset_{sid}", use_container_width=True):
+                        with st.spinner("Resetting..."):
+                            temp_pw = sh.admin_reset_password(sid)
+                            clear_all_caches()
+                        st.success(f"New temporary password for {row['name']}: `{temp_pw}` "
+                                   f"(share this with the student directly)")
+            st.markdown("</div>", unsafe_allow_html=True)
 
-        existing_calibration = sh.load_calibration(layout_q)
-        if existing_calibration and not st.session_state.get("force_recalibrate"):
-            st.success(f"✅ Calibration for the {layout_q}-question layout is already saved.")
-            with st.expander("View the currently active calibration"):
-                st.json(existing_calibration)
-            st.caption("Students can submit OMR sheets normally. You don't need to visit this page again unless the sheet design changes.")
-            if st.button("🔄 Recalibrate"):
-                st.session_state["force_recalibrate"] = True
-                st.session_state["calib_points"] = []
-                st.rerun()
-        else:
-            if existing_calibration:
-                st.info("You're creating a new calibration - the old one will be replaced when you save.")
-                if st.button("❌ Go Back to the Previous Calibration"):
-                    st.session_state["force_recalibrate"] = False
+
+# =========================================================================
+# Mentor: Results (edit/override + export)
+# =========================================================================
+
+def page_mentor_results():
+    st.subheader("🧾 Results & Result Override")
+    keys_df = cached_answer_keys()
+    if keys_df.empty:
+        st.info("No exams created yet.")
+        return
+
+    keys_df = keys_df.iloc[::-1].reset_index(drop=True)
+    options = {f"{r.get('exam_name') or r['key_id']} | {r['date']}": r["key_id"] for _, r in keys_df.iterrows()}
+    choice = st.selectbox("Select exam", list(options.keys()))
+    key_id = options[choice]
+
+    results = cached_results()
+    exam_results = results[results["key_id"] == key_id] if not results.empty else results
+
+    if exam_results.empty:
+        st.info("No submissions for this exam yet.")
+        return
+
+    exam_results = exam_results.sort_values("marks", ascending=False)
+
+    exp_col1, exp_col2 = st.columns(2)
+    with exp_col1:
+        st.download_button(
+            "⬇️ Export CSV", data=sh.df_to_csv_bytes(exam_results),
+            file_name=f"{key_id}_results.csv", mime="text/csv", use_container_width=True,
+        )
+    with exp_col2:
+        st.download_button(
+            "⬇️ Export Excel", data=sh.df_to_excel_bytes(exam_results),
+            file_name=f"{key_id}_results.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
+
+    st.markdown("#### Submissions")
+    for _, row in exam_results.iterrows():
+        with st.expander(f"{row['student']} — Marks: {row['marks']}"
+                          f"{' (edited)' if bool(row.get('edited_by_mentor')) else ''}"):
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Correct", int(row["correct"]))
+            c2.metric("Wrong", int(row["wrong_count"]))
+            c3.metric("Skipped", int(row["skipped"]))
+
+            with st.form(key=f"edit_form_{row['student_id']}"):
+                new_correct = st.number_input("Correct", min_value=0, max_value=int(row["total"]),
+                                               value=int(row["correct"]))
+                new_wrong = st.number_input("Wrong", min_value=0, max_value=int(row["total"]),
+                                             value=int(row["wrong_count"]))
+                new_marks = st.number_input("Marks (override)", value=float(row["marks"]), step=0.25)
+                submitted = st.form_submit_button("💾 Save Override", type="primary")
+                if submitted:
+                    with st.spinner("Saving..."):
+                        sh.update_result(
+                            row["student_id"], key_id,
+                            new_marks=new_marks, new_correct=new_correct, new_wrong_count=new_wrong,
+                        )
+                        clear_all_caches()
+                    st.success("Result updated.")
                     st.rerun()
 
-            st.subheader("🎯 OMR Sheet Calibration (only needed once per layout)")
-            st.markdown(
-                """
-                Upload a **straight, clear photo of a blank OMR sheet**, then click 4 points
-                on the image below in this order:
-                1. Question **1** - center of bubble **A**
-                2. Question **1** - center of bubble **D**
-                3. Question **25** - center of bubble **A**
-                4. Question **26** - center of bubble **A**
-                """
-            )
-            uploaded = st.file_uploader("Upload blank OMR sheet", type=["png", "jpg", "jpeg"], key="calib_upload")
-            if uploaded:
-                image = Image.open(uploaded).convert("RGB")
-                img_bgr = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-                warped, ok = omr_scanner.detect_and_warp(img_bgr)
-                if not ok:
-                    st.warning("Couldn't automatically detect the sheet's 4 corners. You can still click below to calibrate, but retaking the photo straighter/flatter will help.")
 
-                warped_rgb = cv2.cvtColor(warped, cv2.COLOR_BGR2RGB)
-                warped_pil = Image.fromarray(warped_rgb)
+# =========================================================================
+# Mentor: Calibration (kept from original)
+# =========================================================================
 
-                if "calib_points" not in st.session_state:
-                    st.session_state["calib_points"] = []
+def page_mentor_calibration():
+    existing_calibration = sh.load_calibration()
+    if existing_calibration and not st.session_state.get("force_recalibrate"):
+        st.success("✅ Calibration is already saved - no need to redo it.")
+        with st.expander("View the currently active calibration"):
+            st.json(existing_calibration)
+        st.caption("Students can submit OMR sheets normally. You don't need to visit this page again unless the sheet design changes.")
+        if st.button("🔄 Recalibrate"):
+            st.session_state["force_recalibrate"] = True
+            st.session_state["calib_points"] = []
+            st.rerun()
+        return
 
-                labels = ["Q1-A", "Q1-D", "Q25-A", "Q26-A"]
-                current_step = len(st.session_state["calib_points"])
+    if existing_calibration:
+        st.info("You're creating a new calibration - the old one will be replaced when you save.")
+        if st.button("❌ Go Back to the Previous Calibration"):
+            st.session_state["force_recalibrate"] = False
+            st.rerun()
 
-                if current_step < 4:
-                    st.info(f"Now click: **{labels[current_step]}**")
-                    coords = streamlit_image_coordinates(warped_pil, key="calib_img")
-                    if coords is not None:
-                        pt = (coords["x"], coords["y"])
-                        if not st.session_state["calib_points"] or st.session_state["calib_points"][-1] != pt:
-                            st.session_state["calib_points"].append(pt)
-                            st.rerun()
-                else:
-                    st.success("All 4 points have been clicked!")
-                    pts = st.session_state["calib_points"]
-                    for lbl, pt in zip(labels, pts):
-                        st.write(f"- {lbl}: {pt}")
+    st.subheader("🎯 OMR Sheet Calibration (only needed once)")
+    st.markdown(
+        """
+        Upload a **straight, clear photo of a blank OMR sheet**, then click 4 points
+        on the image below in this order:
+        1. Question **1** - center of bubble **A**
+        2. Question **1** - center of bubble **D**
+        3. Question **25** - center of bubble **A**
+        4. Question **26** - center of bubble **A**
+        """
+    )
+    uploaded = st.file_uploader("Upload blank OMR sheet", type=["png", "jpg", "jpeg"], key="calib_upload")
+    if not uploaded:
+        return
 
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        if st.button("🔄 Start Over"):
-                            st.session_state["calib_points"] = []
-                            st.rerun()
-                    with col2:
-                        if st.button("💾 Save Calibration", type="primary"):
-                            calibration = {
-                                "q1_a": pts[0], "q1_d": pts[1],
-                                "q25_a": pts[2], "q26_a": pts[3],
-                            }
-                            sh.save_calibration(calibration, layout_q)
-                            st.success("Calibration saved! Students can now upload OMR sheets for this layout.")
-                            st.session_state["calib_points"] = []
-                            st.session_state["force_recalibrate"] = False
+    image = Image.open(uploaded).convert("RGB")
+    img_bgr = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+    with st.spinner("Analyzing sheet..."):
+        warped, ok = omr_scanner.detect_and_warp(img_bgr)
+    if not ok:
+        st.warning("Couldn't automatically detect the sheet's 4 corners. You can still click below to calibrate, but retaking the photo straighter/flatter will help.")
 
-    with tab3:
-        st.subheader("📋 All Answer Keys")
-        df = sh.get_all_answer_keys()
-        if df.empty:
-            st.info("No answer key has been set yet.")
+    warped_rgb = cv2.cvtColor(warped, cv2.COLOR_BGR2RGB)
+    warped_pil = Image.fromarray(warped_rgb)
+
+    if "calib_points" not in st.session_state:
+        st.session_state["calib_points"] = []
+
+    labels = ["Q1-A", "Q1-D", "Q25-A", "Q26-A"]
+    current_step = len(st.session_state["calib_points"])
+
+    if current_step < 4:
+        st.info(f"Now click: **{labels[current_step]}**")
+        coords = streamlit_image_coordinates(warped_pil, key="calib_img")
+        if coords is not None:
+            pt = (coords["x"], coords["y"])
+            if not st.session_state["calib_points"] or st.session_state["calib_points"][-1] != pt:
+                st.session_state["calib_points"].append(pt)
+                st.rerun()
+    else:
+        st.success("All 4 points have been clicked!")
+        pts = st.session_state["calib_points"]
+        for lbl, pt in zip(labels, pts):
+            st.write(f"- {lbl}: {pt}")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🔄 Start Over"):
+                st.session_state["calib_points"] = []
+                st.rerun()
+        with col2:
+            if st.button("💾 Save Calibration", type="primary"):
+                calibration = {"q1_a": pts[0], "q1_d": pts[1], "q25_a": pts[2], "q26_a": pts[3]}
+                with st.spinner("Saving..."):
+                    sh.save_calibration(calibration)
+                st.success("Calibration saved! Students can now upload OMR sheets.")
+                st.session_state["calib_points"] = []
+                st.session_state["force_recalibrate"] = False
+
+
+# =========================================================================
+# Mentor: Settings (mentor password)
+# =========================================================================
+
+def page_mentor_settings():
+    st.subheader("🔑 Change Mentor Password")
+    st.caption("This password is for you (the mentor) only.")
+    current_pw = st.text_input("Current password", type="password", key="cur_pw")
+    new_pw1 = st.text_input("New password", type="password", key="new_pw1")
+    if new_pw1:
+        score, label, tips = sh.password_strength(new_pw1)
+        colors = ["#ef4444", "#ef4444", "#f59e0b", "#10b981", "#059669"]
+        st.markdown(
+            f"<div class='strength-bar'><div class='strength-fill' "
+            f"style='width:{(score+1)*20}%; background:{colors[score]};'></div></div>"
+            f"<small>Password strength: <b>{label}</b></small>",
+            unsafe_allow_html=True,
+        )
+    new_pw2 = st.text_input("Re-enter new password", type="password", key="new_pw2")
+    if st.button("✅ Update Password", type="primary"):
+        if current_pw != sh.get_mentor_password():
+            st.error("Current password is incorrect.")
+        elif not new_pw1:
+            st.error("New password cannot be empty.")
+        elif new_pw1 != new_pw2:
+            st.error("The two new password entries don't match.")
         else:
-            show_cols = ["key_id", "exam_name", "date", "start_time", "end_time",
-                         "total_questions", "negative_marking", "negative_marks_value"]
-            show_cols = [c for c in show_cols if c in df.columns]
-            display_df = df[show_cols].iloc[::-1].reset_index(drop=True)
-            if "negative_marking" in display_df.columns:
-                display_df["negative_marking"] = display_df["negative_marking"].apply(
-                    lambda v: "Yes" if str(v).strip() in ("1", "True", "TRUE") else "No"
-                )
-            rename_map = {"negative_marking": "Negative Marking", "negative_marks_value": "Per Wrong"}
-            display_df = display_df.rename(columns=rename_map)
-            st.dataframe(display_df, use_container_width=True, hide_index=True)
-
-    with tab4:
-        st.subheader("🔑 Change Mentor Password")
-        st.caption("This password/invite code is for you (the mentor) only.")
-        current_pw = st.text_input("Current password", type="password", key="cur_pw")
-        new_pw1 = st.text_input("New password", type="password", key="new_pw1")
-        new_pw2 = st.text_input("Re-enter new password", type="password", key="new_pw2")
-        if st.button("✅ Update Password", type="primary"):
-            if current_pw != sh.get_mentor_password():
-                st.error("Current password is incorrect.")
-            elif not new_pw1:
-                st.error("New password cannot be empty.")
-            elif new_pw1 != new_pw2:
-                st.error("The two new password entries don't match.")
+            _, _, tips = sh.password_strength(new_pw1)
+            if tips:
+                st.error("New password is too weak: " + ", ".join(tips))
             else:
-                sh.set_mentor_password(new_pw1)
+                with st.spinner("Updating..."):
+                    sh.set_mentor_password(new_pw1)
                 st.session_state["mentor_authed"] = False
                 st.success("Password changed! Please log in again with the new password.")
                 st.rerun()
 
 
-# =====================================================================
+# =========================================================================
+# Mentor Panel
+# =========================================================================
+
+def is_mentor():
+    if st.session_state.get("mentor_authed"):
+        return True
+    st.markdown("### 👨‍🏫 Mentor Login")
+    pw = st.text_input("Mentor password", type="password", key="mentor_pw")
+    if st.button("Mentor Login", type="primary"):
+        if pw == sh.get_mentor_password():
+            st.session_state["mentor_authed"] = True
+            st.rerun()
+        else:
+            st.error("Incorrect mentor password.")
+    return False
+
+
+MENTOR_NAV = [("m_dashboard", "📊 Dashboard"), ("m_answerkey", "📝 Answer Key"),
+              ("m_students", "👥 Students"), ("m_results", "🧾 Results"),
+              ("m_calibration", "🎯 Calibration"), ("m_settings", "⚙️ Settings")]
+
+
+def page_mentor():
+    st.header("👨‍🏫 Mentor Panel")
+    if not is_mentor():
+        return
+
+    current = st.session_state.get("mentor_page", "m_dashboard")
+    with st.container(key="top_nav"):
+        cols = st.columns(len(MENTOR_NAV))
+        for col, (page_key, label) in zip(cols, MENTOR_NAV):
+            with col:
+                if st.button(label, key=f"mnav_{page_key}", use_container_width=True,
+                             type="primary" if current == page_key else "secondary"):
+                    st.session_state["mentor_page"] = page_key
+                    st.rerun()
+    st.write("")
+
+    if current == "m_dashboard":
+        page_mentor_dashboard()
+    elif current == "m_answerkey":
+        render_answer_key_tab()
+    elif current == "m_students":
+        page_mentor_students()
+    elif current == "m_results":
+        page_mentor_results()
+    elif current == "m_calibration":
+        page_mentor_calibration()
+    elif current == "m_settings":
+        page_mentor_settings()
+
+    st.divider()
+    if st.button("🚪 Log Out of Mentor Panel"):
+        st.session_state["mentor_authed"] = False
+        go_to("home")
+
+
+# =========================================================================
 # Main
-# =====================================================================
+# =========================================================================
 
 def main():
     inject_global_css()
-    cookie_manager = get_cookie_manager()
-    sh.init_sheets()
 
-    try_auto_login(cookie_manager)
+    if not check_app_password():
+        return
 
-    if st.session_state.get("page") == "mentor":
+    with st.spinner("Connecting..."):
+        sh.init_sheets()
+
+    restore_page_from_url()
+
+    role = st.session_state.get("role")
+    is_student_logged_in = role == "student" and student_session_is_valid()
+
+    if not is_student_logged_in and st.session_state.get("role") == "student":
+        # session was invalidated (password changed / account disabled elsewhere)
+        for k in ("student_id", "student_name", "session_version", "role"):
+            st.session_state.pop(k, None)
+        st.warning("Your session has expired (password may have changed elsewhere). Please log in again.")
+
+    top_col1, top_col2 = st.columns([3, 1])
+    with top_col2:
+        if st.button("👨‍🏫 Mentor", use_container_width=True):
+            go_to("mentor")
+
+    page = st.session_state.get("page", "home")
+
+    if page == "mentor":
         page_mentor()
         return
 
-    if "user" not in st.session_state:
-        render_auth_page(cookie_manager)
+    if not is_student_logged_in:
+        page_student_auth()
         return
 
-    render_navbar()
-    page = st.session_state.get("page", "home")
+    render_top_nav(page)
 
     if page == "home":
         page_home()
-    elif page == "mytests":
-        page_my_tests()
-    elif page == "analysis":
-        page_analysis()
+    elif page in ("tests", "test_detail"):
+        page_tests_results()
     elif page == "leaderboard":
         page_leaderboard()
     elif page == "profile":
-        page_profile(cookie_manager)
+        page_profile()
     else:
         page_home()
 
