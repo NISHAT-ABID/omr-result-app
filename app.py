@@ -19,7 +19,7 @@ import cv2
 import numpy as np
 import pandas as pd
 import streamlit as st
-from PIL import Image
+from PIL import Image, ImageOps
 from streamlit_image_coordinates import streamlit_image_coordinates
 
 import omr_scanner
@@ -240,6 +240,17 @@ def inject_global_css():
         div[class*="_phone_row"] div[data-testid="column"]:last-child .stTextInput,
         div[class*="_phone_row"] div[data-testid="column"]:last-child input {
             width: 100% !important;
+        }
+
+        /* ---- Student per-submission calibration ---- */
+        .calib-step-badge {
+            display:inline-block; padding:4px 12px; border-radius:999px;
+            background:#dbeafe; color:#1e3a8a; font-weight:700; font-size:13px;
+        }
+        .calib-point-chip {
+            display:inline-block; padding:4px 10px; border-radius:999px;
+            background:rgba(34,197,94,0.15); color:#15803d; font-weight:600;
+            font-size:12px; margin:2px 4px 2px 0;
         }
 
         @media (max-width: 900px) {
@@ -783,6 +794,15 @@ def render_result_detail(result_row, key_row):
     render_omr_review(rows)
 
 
+def _reset_submission_state():
+    """Clears every piece of session_state used by the per-submission photo
+    calibration flow below - called once a submission is saved (or when a
+    new photo is uploaded) so leftover state from a previous photo never
+    leaks into the next one."""
+    for k in ("submit_file_sig", "submit_prepared_image", "submit_validation", "submit_calib_points"):
+        st.session_state.pop(k, None)
+
+
 def page_tests_results():
     sid = st.session_state["student_id"]
 
@@ -804,74 +824,146 @@ def page_tests_results():
     st.markdown("### 📝 Submit OMR / Test History")
 
     active = cached_active_answer_key()
-    calibration = cached_calibration()
 
     with st.container():
         st.markdown("<div class='app-card'>", unsafe_allow_html=True)
         st.markdown("#### 📤 Submit Your OMR Sheet")
-        if not calibration:
-            st.error("The mentor hasn't calibrated the OMR sheet yet. Please check back later.")
-        elif not active:
+        if not active:
             st.info("No test is active right now.")
         elif sh.has_submitted(sid, active["key_id"]):
             st.success("✅ You've already submitted this test. Duplicate submissions aren't allowed.")
         else:
+            total_q = active["total_questions"]
             st.caption(f"Active test: **{active['exam_name'] or active['key_id']}** · "
-                       f"{active['total_questions']} questions")
+                       f"{total_q} questions")
             uploaded = st.file_uploader(
-                "Upload a photo of your filled OMR sheet (camera or gallery)",
+                "Upload a clear, straight photo of your FULL filled OMR sheet (camera or gallery). "
+                "Make sure all 4 corners of the sheet are visible in the frame.",
                 type=["png", "jpg", "jpeg"], key="omr_upload",
             )
-            if uploaded:
-                image = Image.open(uploaded).convert("RGB")
-                st.image(image, caption="Uploaded photo", use_container_width=True)
 
-                if st.button("📤 Submit & See Score", type="primary", use_container_width=True):
-                    with st.spinner("Validating image..."):
-                        img_bgr = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-                        ok, errors, warnings_ = omr_scanner.validate_omr_image(img_bgr)
+            if uploaded is None:
+                _reset_submission_state()
+            else:
+                # A stable signature for "is this the same photo as last rerun?" -
+                # if the student swaps the photo, every bit of calibration/
+                # validation state for the OLD photo must be thrown away.
+                file_sig = f"{uploaded.name}_{uploaded.size}"
+                if st.session_state.get("submit_file_sig") != file_sig:
+                    _reset_submission_state()
+                    st.session_state["submit_file_sig"] = file_sig
 
-                    if not ok:
-                        for e in errors:
-                            st.error(e)
+                # ---- Step 0: prepare the photo once per upload (orient + validate) ----
+                if "submit_prepared_image" not in st.session_state:
+                    pil_img = Image.open(uploaded).convert("RGB")
+                    # Fixes photos that come out sideways/upside-down because of
+                    # phone camera EXIF orientation - keeps the sheet upright and
+                    # fully visible, which the calibration clicks below depend on.
+                    pil_img = ImageOps.exif_transpose(pil_img)
+                    orig_bgr = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+
+                    # Quality checks ALWAYS run on the original, full-resolution
+                    # photo - resizing happens only after, for display/calibration.
+                    ok, errors, warnings_ = omr_scanner.validate_omr_image(orig_bgr)
+                    proc_bgr = omr_scanner.resize_max_dim(orig_bgr) if ok else orig_bgr
+
+                    st.session_state["submit_prepared_image"] = proc_bgr
+                    st.session_state["submit_validation"] = (ok, errors, warnings_)
+
+                img_bgr = st.session_state["submit_prepared_image"]
+                ok, errors, warnings_ = st.session_state["submit_validation"]
+
+                display_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+                display_pil = Image.fromarray(display_rgb)
+                st.image(display_rgb, caption="Your uploaded sheet - full photo", use_container_width=True)
+
+                if not ok:
+                    for e in errors:
+                        st.error(e)
+                else:
+                    for w in warnings_:
+                        st.warning(w)
+
+                    points_info = omr_scanner.calibration_points_info(total_q)
+                    calib_points = st.session_state.get("submit_calib_points", [])
+
+                    st.markdown("#### 🎯 Calibrate Your Sheet")
+                    st.caption(
+                        "Tap the exact CENTER of these 4 bubbles on YOUR photo above, in order. "
+                        "This has to be done for every submission since every photo is a little "
+                        "different - it's what makes the reading accurate."
+                    )
+
+                    if len(calib_points) < 4:
+                        step = points_info[len(calib_points)]
+                        st.markdown(
+                            f"<span class='calib-step-badge'>Step {len(calib_points) + 1} of 4</span> "
+                            f"&nbsp; Now tap: **{step['full']}**",
+                            unsafe_allow_html=True,
+                        )
+                        coords = streamlit_image_coordinates(display_pil, key=f"submit_calib_img_{file_sig}")
+                        if coords is not None:
+                            pt = (coords["x"], coords["y"])
+                            if not calib_points or calib_points[-1] != pt:
+                                calib_points.append(pt)
+                                st.session_state["submit_calib_points"] = calib_points
+                                st.rerun()
                     else:
-                        for w in warnings_:
-                            st.warning(w)
-                        with st.spinner("Reading your answers..."):
-                            active_now = sh.get_active_answer_key()
-                            if not active_now:
-                                st.error("The test window has just closed. Your result can't be recorded.")
-                            elif sh.has_submitted(sid, active_now["key_id"]):
-                                st.warning("You've already submitted this test.")
-                            else:
-                                warped, warp_ok = omr_scanner.detect_and_warp(img_bgr)
-                                if not warp_ok:
-                                    st.warning("Couldn't clearly detect the sheet's corners - "
-                                               "still scoring, but retake a straighter photo if the result looks wrong.")
-                                grid = omr_scanner.build_grid(calibration)
-                                student_answers = omr_scanner.read_answers(warped, grid)
-                                key_string = active_now["answer_string"]
-                                key_id = active_now["key_id"]
+                        st.success("✅ All 4 points marked!")
+                        chip_html = "".join(
+                            f"<span class='calib-point-chip'>{info['short']}: {pt}</span>"
+                            for info, pt in zip(points_info, calib_points)
+                        )
+                        st.markdown(chip_html, unsafe_allow_html=True)
 
-                                result = omr_scanner.score_answers(
-                                    student_answers, key_string,
-                                    negative_marking=active_now.get("negative_marking", False),
-                                    negative_value=active_now.get("negative_marks_value", 0.0),
-                                )
-                                sh.append_result(sid, st.session_state["student_name"], key_id, result)
-                                clear_all_caches()
-                                st.success("✅ Result saved!")
+                        cb1, cb2 = st.columns(2)
+                        with cb1:
+                            if st.button("🔄 Redo Calibration Points", use_container_width=True):
+                                st.session_state["submit_calib_points"] = []
+                                st.rerun()
+                        with cb2:
+                            submit_clicked = st.button(
+                                "📤 Submit & See Score", type="primary", use_container_width=True
+                            )
 
-                                r1, r2, r3 = st.columns(3)
-                                r1.metric("Correct ✅", result["correct"])
-                                r2.metric("Wrong ❌", result["wrong_count"])
-                                r3.metric("Skipped ⚪", result["skipped"])
-                                st.metric("🏆 Marks", result["marks"])
+                        if submit_clicked:
+                            with st.spinner("Reading your answers..."):
+                                active_now = sh.get_active_answer_key()
+                                if not active_now:
+                                    st.error("The test window has just closed. Your result can't be recorded.")
+                                elif sh.has_submitted(sid, active_now["key_id"]):
+                                    st.warning("You've already submitted this test.")
+                                else:
+                                    calibration = {
+                                        "p1": calib_points[0], "p2": calib_points[1],
+                                        "p3": calib_points[2], "p4": calib_points[3],
+                                    }
+                                    grid = omr_scanner.build_grid(calibration, total_questions=active_now["total_questions"])
+                                    radius = omr_scanner.compute_bubble_radius(img_bgr)
+                                    student_answers = omr_scanner.read_answers(img_bgr, grid, radius=radius)
+                                    key_string = active_now["answer_string"]
+                                    key_id = active_now["key_id"]
 
-                                rows = omr_scanner.build_review_rows(student_answers, key_string)
-                                review_rows = [r for r in rows if r["status"] in ("wrong", "skipped")]
-                                st.markdown("#### Review")
-                                render_omr_review(review_rows)
+                                    result = omr_scanner.score_answers(
+                                        student_answers, key_string,
+                                        negative_marking=active_now.get("negative_marking", False),
+                                        negative_value=active_now.get("negative_marks_value", 0.0),
+                                    )
+                                    sh.append_result(sid, st.session_state["student_name"], key_id, result)
+                                    clear_all_caches()
+                                    _reset_submission_state()
+                                    st.success("✅ Result saved!")
+
+                                    r1, r2, r3 = st.columns(3)
+                                    r1.metric("Correct ✅", result["correct"])
+                                    r2.metric("Wrong ❌", result["wrong_count"])
+                                    r3.metric("Skipped ⚪", result["skipped"])
+                                    st.metric("🏆 Marks", result["marks"])
+
+                                    rows = omr_scanner.build_review_rows(student_answers, key_string)
+                                    review_rows = [r for r in rows if r["status"] in ("wrong", "skipped")]
+                                    st.markdown("#### Review")
+                                    render_omr_review(review_rows)
         st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("#### 📋 Test History")
@@ -1738,47 +1830,95 @@ def page_mentor_results():
 
 
 # =========================================================================
-# Mentor: OMR Sheet Setup (calibration)
+# Mentor: OMR Sheet Setup (calibration) - now supports both the 100Q and
+# 40Q layouts, saved independently under the same "calibration" config
+# entry (a dict keyed by "100" / "40"). This is now mainly a REFERENCE
+# setup step; the grid actually used to read each student's photo is
+# always built from that student's own click-calibration (see
+# page_tests_results), which is far more tolerant of camera angle/skew.
 # =========================================================================
 
-def page_mentor_calibration():
-    st.subheader("🎯 OMR Sheet Setup (only needed once)")
-    st.caption("This tells the app exactly where each answer bubble sits on your OMR sheet, "
-               "so it can automatically read every student's scanned sheet correctly.")
+CALIB_LAYOUT_OPTIONS = [
+    (100, "📄 100 Questions"),
+    (40, "📄 40 Questions"),
+]
 
-    existing_calibration = sh.load_calibration()
-    if existing_calibration and not st.session_state.get("force_recalibrate"):
-        st.success("✅ Sheet setup is already saved - no need to redo it.")
-        with st.expander("View the currently active setup"):
-            st.json(existing_calibration)
-        st.caption("Students can submit OMR sheets normally. You don't need to visit this page again unless the sheet design changes.")
-        if st.button("🔄 Redo Sheet Setup"):
-            st.session_state["force_recalibrate"] = True
+
+def _calibration_status_summary(all_calibration):
+    all_calibration = all_calibration or {}
+    parts = []
+    for total_q, label in CALIB_LAYOUT_OPTIONS:
+        done = str(total_q) in all_calibration
+        icon = "✅" if done else "⚪"
+        parts.append(f"{icon} {label}: {'Set up' if done else 'Not set up yet'}")
+    return parts
+
+
+def page_mentor_calibration():
+    st.subheader("🎯 OMR Sheet Setup (only needed once per layout)")
+    st.caption("This records where each answer bubble sits on your blank OMR sheet, for each "
+               "exam layout. Students will still calibrate their own photo before every "
+               "submission (that's what's actually used to read their answers) - this page "
+               "is mainly a reference/setup checklist for you.")
+
+    all_calibration = sh.load_calibration() or {}
+    for line in _calibration_status_summary(all_calibration):
+        st.write(line)
+    st.divider()
+
+    layout_labels = [label for _, label in CALIB_LAYOUT_OPTIONS]
+    layout_choice = st.radio(
+        "Which layout are you setting up?", layout_labels,
+        horizontal=True, key="calib_layout_choice",
+    )
+    total_q = next(tq for tq, label in CALIB_LAYOUT_OPTIONS if label == layout_choice)
+    layout_key = str(total_q)
+
+    # Reset in-progress click points if the mentor switches which layout
+    # they're setting up, so points from one layout never leak into another.
+    if st.session_state.get("calib_active_layout") != total_q:
+        st.session_state["calib_active_layout"] = total_q
+        st.session_state["calib_points"] = []
+
+    existing_layout_calibration = all_calibration.get(layout_key)
+    force_key = f"force_recalibrate_{total_q}"
+
+    if existing_layout_calibration and not st.session_state.get(force_key):
+        st.success(f"✅ {layout_choice} sheet setup is already saved - no need to redo it.")
+        with st.expander("View the currently saved setup"):
+            st.json(existing_layout_calibration)
+        st.caption("You don't need to visit this page again for this layout unless the sheet design changes.")
+        if st.button("🔄 Redo This Layout's Setup", key=f"redo_{total_q}"):
+            st.session_state[force_key] = True
             st.session_state["calib_points"] = []
             st.rerun()
         return
 
-    if existing_calibration:
-        st.info("You're redoing the sheet setup - the old one will be replaced when you save.")
-        if st.button("❌ Go Back to the Previous Setup"):
-            st.session_state["force_recalibrate"] = False
+    if existing_layout_calibration:
+        st.info("You're redoing this layout's setup - the old one will be replaced when you save.")
+        if st.button("❌ Go Back to the Previous Setup", key=f"cancel_redo_{total_q}"):
+            st.session_state[force_key] = False
             st.rerun()
 
+    points_info = omr_scanner.calibration_points_info(total_q)
+
     st.markdown(
-        """
-        Upload a **straight, clear photo of a blank OMR sheet**, then click 4 points
-        on the image below in this order:
-        1. Question **1** - center of bubble **A**
-        2. Question **1** - center of bubble **D**
-        3. Question **25** - center of bubble **A**
-        4. Question **26** - center of bubble **A**
-        """
+        f"Upload a **straight, clear photo of a blank {layout_choice.split(' ', 1)[1]} OMR sheet**, "
+        "then click 4 points on the image below in this order:"
     )
-    uploaded = st.file_uploader("Upload blank OMR sheet", type=["png", "jpg", "jpeg"], key="calib_upload")
+    for i, info in enumerate(points_info, start=1):
+        st.markdown(f"{i}. **{info['full']}**")
+
+    uploaded = st.file_uploader(
+        "Upload blank OMR sheet", type=["png", "jpg", "jpeg"], key=f"calib_upload_{total_q}"
+    )
     if not uploaded:
         return
 
     image = Image.open(uploaded).convert("RGB")
+    # Same EXIF-orientation fix as the student flow, so a sideways phone
+    # photo doesn't throw off where the clicked points land.
+    image = ImageOps.exif_transpose(image)
     img_bgr = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
     with st.spinner("Analyzing sheet..."):
         warped, ok = omr_scanner.detect_and_warp(img_bgr)
@@ -1791,12 +1931,11 @@ def page_mentor_calibration():
     if "calib_points" not in st.session_state:
         st.session_state["calib_points"] = []
 
-    labels = ["Q1-A", "Q1-D", "Q25-A", "Q26-A"]
     current_step = len(st.session_state["calib_points"])
 
     if current_step < 4:
-        st.info(f"Now click: **{labels[current_step]}**")
-        coords = streamlit_image_coordinates(warped_pil, key="calib_img")
+        st.info(f"Now click: **{points_info[current_step]['full']}**")
+        coords = streamlit_image_coordinates(warped_pil, key=f"calib_img_{total_q}")
         if coords is not None:
             pt = (coords["x"], coords["y"])
             if not st.session_state["calib_points"] or st.session_state["calib_points"][-1] != pt:
@@ -1805,21 +1944,27 @@ def page_mentor_calibration():
     else:
         st.success("All 4 points have been clicked!")
         pts = st.session_state["calib_points"]
-        for lbl, pt in zip(labels, pts):
-            st.write(f"- {lbl}: {pt}")
+        for info, pt in zip(points_info, pts):
+            st.write(f"- {info['short']}: {pt}")
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("🔄 Start Over"):
+            if st.button("🔄 Start Over", key=f"calib_restart_{total_q}"):
                 st.session_state["calib_points"] = []
                 st.rerun()
         with col2:
-            if st.button("💾 Save Setup", type="primary"):
-                calibration = {"q1_a": pts[0], "q1_d": pts[1], "q25_a": pts[2], "q26_a": pts[3]}
+            if st.button("💾 Save Setup", type="primary", key=f"calib_save_{total_q}"):
+                layout_calibration = {
+                    "p1": pts[0], "p2": pts[1], "p3": pts[2], "p4": pts[3],
+                    "total_questions": total_q,
+                }
+                updated_calibration = dict(all_calibration)
+                updated_calibration[layout_key] = layout_calibration
                 with st.spinner("Saving..."):
-                    sh.save_calibration(calibration)
-                st.success("Sheet setup saved! Students can now upload OMR sheets.")
+                    sh.save_calibration(updated_calibration)
+                    clear_all_caches()
+                st.success(f"{layout_choice} sheet setup saved!")
                 st.session_state["calib_points"] = []
-                st.session_state["force_recalibrate"] = False
+                st.session_state[force_key] = False
 
 
 # =========================================================================
