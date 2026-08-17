@@ -149,6 +149,17 @@ def inject_global_css():
         /* ---- Compact time row (exam create) ---- */
         .time-row-label { font-weight:600; padding-top:6px; font-size:14px; }
 
+        /* ---- Fixed +880 phone prefix box ---- */
+        .bd-phone-prefix {
+            border: 1px solid rgba(128,128,128,0.35);
+            border-radius: 8px;
+            padding: 9px 10px;
+            text-align: center;
+            font-weight: 600;
+            opacity: .85;
+            background: rgba(127,127,127,0.06);
+        }
+
         @media (max-width: 640px) {
             /* Hide the wide desktop nav row and show the compact mobile bar instead */
             .st-key-top_nav { display: none !important; }
@@ -262,6 +273,24 @@ SECURITY_QUESTIONS = [
 ]
 
 
+def phone_field(key_prefix, placeholder="1712345678"):
+    """A phone number field with a fixed, non-editable '+880' prefix - the
+    student only ever types the 10 digits that follow. This removes the
+    'leading 0 disappears' class of bug entirely (there's no 0 for the
+    user to type or for anything to drop), and keeps every number stored
+    in one consistent format. Returns whatever raw digits the user has
+    typed so far (validate with sh.validate_bd_phone_digits before use)."""
+    st.markdown("**Phone number**")
+    c1, c2 = st.columns([0.9, 3.1], gap="small")
+    with c1:
+        st.markdown("<div class='bd-phone-prefix'>+880</div>", unsafe_allow_html=True)
+    with c2:
+        return st.text_input(
+            "Phone number", key=f"{key_prefix}_digits", label_visibility="collapsed",
+            placeholder=placeholder, max_chars=10,
+        )
+
+
 def student_session_is_valid():
     """Session security: if the password was changed (or account disabled)
     elsewhere, session_version on the sheet will differ from what we
@@ -282,19 +311,24 @@ def page_student_auth():
     with tab_login:
         # Wrapped in a real st.form: this both (a) lets the browser detect
         # it as a login form for autofill / "remember password", and
-        # (b) makes pressing Enter inside either field submit the form -
-        # no extra click needed after autofill/paste.
+        # (b) makes pressing Enter inside any field submit the form - no
+        # extra click needed after autofill/paste. No live password-
+        # strength feedback is needed on this tab, so a form (which only
+        # reruns on submit) doesn't cost us anything here.
         with st.form(key="login_form", clear_on_submit=False):
-            phone = st.text_input("Phone number", key="login_phone")
+            login_digits = phone_field("login")
             pw = st.text_input("Password", type="password", key="login_pw")
             submitted = st.form_submit_button("Log In", type="primary", use_container_width=True)
         if submitted:
-            if not phone or not pw:
-                st.error("Please enter both phone number and password.")
+            ok, err, canonical_phone = sh.validate_bd_phone_digits(login_digits)
+            if not ok:
+                st.error(err)
+            elif not pw:
+                st.error("Please enter your password.")
             else:
                 with st.spinner("Logging in..."):
                     try:
-                        student = sh.authenticate_student(phone.strip(), pw)
+                        student = sh.authenticate_student(canonical_phone, pw)
                         st.session_state["student_id"] = student["student_id"]
                         st.session_state["student_name"] = student["name"]
                         st.session_state["session_version"] = sh._to_int(student.get("session_version"), 1)
@@ -306,15 +340,15 @@ def page_student_auth():
                         go_to("home")
 
     with tab_signup:
-        with st.form(key="signup_form", clear_on_submit=False):
-            name = st.text_input("Full name", key="su_name")
-            phone_s = st.text_input("Phone number", key="su_phone", placeholder="e.g. 01712345678")
-            pw1 = st.text_input("Password", type="password", key="su_pw1")
-            pw2 = st.text_input("Confirm password", type="password", key="su_pw2")
-            sec_q = st.selectbox("Security question (used for password recovery)", SECURITY_QUESTIONS, key="su_secq")
-            sec_a = st.text_input("Your answer", key="su_seca")
-            signup_submitted = st.form_submit_button("Create Account", type="primary", use_container_width=True)
-
+        # NOT wrapped in st.form on purpose: a form only reruns the script
+        # when its submit button is clicked, so a password-strength meter
+        # inside a form only ever updates AFTER you hit submit - which is
+        # exactly the confusing behaviour we're fixing here. Plain widgets
+        # rerun on every keystroke, so the strength bar updates live while
+        # typing, before the button is ever pressed.
+        name = st.text_input("Full name", key="su_name")
+        phone_digits = phone_field("su")
+        pw1 = st.text_input("Password", type="password", key="su_pw1")
         if pw1:
             score, label, _tips = sh.password_strength(pw1)
             colors = ["#ef4444", "#ef4444", "#f59e0b", "#10b981", "#059669"]
@@ -324,11 +358,17 @@ def page_student_auth():
                 f"<small>Password strength: <b>{label}</b></small>",
                 unsafe_allow_html=True,
             )
+        pw2 = st.text_input("Confirm password", type="password", key="su_pw2")
+        sec_q = st.selectbox("Security question (used for password recovery)", SECURITY_QUESTIONS, key="su_secq")
+        sec_a = st.text_input("Your answer", key="su_seca")
 
-        if signup_submitted:
+        if st.button("Create Account", type="primary", use_container_width=True, key="signup_btn"):
+            ok, phone_err, canonical_phone = sh.validate_bd_phone_digits(phone_digits)
             _, _, tips = sh.password_strength(pw1)
-            if not name.strip() or not phone_s.strip():
-                st.error("Please fill in your name and phone number.")
+            if not name.strip():
+                st.error("Please enter your name.")
+            elif not ok:
+                st.error(phone_err)
             elif tips:
                 st.error("Password is too weak: " + ", ".join(tips))
             elif pw1 != pw2:
@@ -338,7 +378,7 @@ def page_student_auth():
             else:
                 with st.spinner("Creating your account..."):
                     try:
-                        sh.create_student(name, phone_s, pw1, sec_q, sec_a)
+                        sh.create_student(name, canonical_phone, pw1, sec_q, sec_a)
                         clear_all_caches()
                     except ValueError as e:
                         st.error(str(e))
@@ -347,16 +387,24 @@ def page_student_auth():
 
     with tab_forgot:
         st.caption("Reset your password using the security question you set at sign up.")
-        f_phone = st.text_input("Phone number", key="fp_phone")
-        student_preview = sh.get_student_by_phone(f_phone.strip()) if f_phone.strip() else None
+        f_phone_digits = phone_field("fp")
+        ok_preview, err_preview, canonical_preview = sh.validate_bd_phone_digits(f_phone_digits)
+        student_preview = sh.get_student_by_phone(canonical_preview) if ok_preview else None
         if student_preview:
             st.info(f"Security question: **{student_preview.get('security_question')}**")
-            with st.form(key="forgot_pw_form", clear_on_submit=False):
-                f_answer = st.text_input("Your answer", key="fp_answer")
-                f_new1 = st.text_input("New password", type="password", key="fp_new1")
-                f_new2 = st.text_input("Confirm new password", type="password", key="fp_new2")
-                fp_submitted = st.form_submit_button("Reset Password", type="primary", use_container_width=True)
-            if fp_submitted:
+            f_answer = st.text_input("Your answer", key="fp_answer")
+            f_new1 = st.text_input("New password", type="password", key="fp_new1")
+            if f_new1:
+                score, label, _tips = sh.password_strength(f_new1)
+                colors = ["#ef4444", "#ef4444", "#f59e0b", "#10b981", "#059669"]
+                st.markdown(
+                    f"<div class='strength-bar'><div class='strength-fill' "
+                    f"style='width:{(score+1)*20}%; background:{colors[score]};'></div></div>"
+                    f"<small>Password strength: <b>{label}</b></small>",
+                    unsafe_allow_html=True,
+                )
+            f_new2 = st.text_input("Confirm new password", type="password", key="fp_new2")
+            if st.button("Reset Password", type="primary", use_container_width=True, key="fp_btn"):
                 _, _, tips = sh.password_strength(f_new1)
                 if tips:
                     st.error("Password is too weak: " + ", ".join(tips))
@@ -365,14 +413,17 @@ def page_student_auth():
                 else:
                     with st.spinner("Resetting..."):
                         try:
-                            sh.reset_password_via_security(f_phone.strip(), f_answer, f_new1)
+                            sh.reset_password_via_security(canonical_preview, f_answer, f_new1)
                             clear_all_caches()
                         except ValueError as e:
                             st.error(str(e))
                         else:
                             st.success("Password reset! Please log in with your new password.")
-        elif f_phone.strip():
-            st.warning("No account found with this phone number.")
+        elif f_phone_digits.strip():
+            if not ok_preview:
+                st.caption(err_preview)
+            else:
+                st.warning("No account found with this phone number.")
 
     # ---- Small, quiet mentor entry point right below the login card ----
     st.markdown("<p class='mentor-entry-caption'>Are you a mentor?</p>", unsafe_allow_html=True)
@@ -775,12 +826,10 @@ def page_profile():
     st.markdown("</div>", unsafe_allow_html=True)
 
     with st.expander("🔑 Change Password"):
-        with st.form(key="change_pw_form", clear_on_submit=False):
-            cur_pw = st.text_input("Current password", type="password", key="prof_cur_pw")
-            new_pw1 = st.text_input("New password", type="password", key="prof_new_pw1")
-            new_pw2 = st.text_input("Confirm new password", type="password", key="prof_new_pw2")
-            change_submitted = st.form_submit_button("Update Password", type="primary")
-
+        # Plain widgets (no st.form) so the strength bar updates live while
+        # typing, instead of only appearing after the button is clicked.
+        cur_pw = st.text_input("Current password", type="password", key="prof_cur_pw")
+        new_pw1 = st.text_input("New password", type="password", key="prof_new_pw1")
         if new_pw1:
             score, label, _tips = sh.password_strength(new_pw1)
             colors = ["#ef4444", "#ef4444", "#f59e0b", "#10b981", "#059669"]
@@ -790,6 +839,8 @@ def page_profile():
                 f"<small>Password strength: <b>{label}</b></small>",
                 unsafe_allow_html=True,
             )
+        new_pw2 = st.text_input("Confirm new password", type="password", key="prof_new_pw2")
+        change_submitted = st.button("Update Password", type="primary")
 
         if change_submitted:
             try:
@@ -1307,12 +1358,9 @@ def page_mentor_calibration():
 def page_mentor_settings():
     st.subheader("🔑 Change Mentor Password")
     st.caption("This password is for you (the mentor) only.")
-    with st.form(key="mentor_pw_form", clear_on_submit=False):
-        current_pw = st.text_input("Current password", type="password", key="cur_pw")
-        new_pw1 = st.text_input("New password", type="password", key="new_pw1")
-        new_pw2 = st.text_input("Re-enter new password", type="password", key="new_pw2")
-        submitted = st.form_submit_button("✅ Update Password", type="primary")
-
+    # Plain widgets (no st.form) so the strength bar updates live while typing.
+    current_pw = st.text_input("Current password", type="password", key="cur_pw")
+    new_pw1 = st.text_input("New password", type="password", key="new_pw1")
     if new_pw1:
         score, label, _tips = sh.password_strength(new_pw1)
         colors = ["#ef4444", "#ef4444", "#f59e0b", "#10b981", "#059669"]
@@ -1322,6 +1370,8 @@ def page_mentor_settings():
             f"<small>Password strength: <b>{label}</b></small>",
             unsafe_allow_html=True,
         )
+    new_pw2 = st.text_input("Re-enter new password", type="password", key="new_pw2")
+    submitted = st.button("✅ Update Password", type="primary")
 
     if submitted:
         if current_pw != sh.get_mentor_password():
