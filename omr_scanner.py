@@ -3,27 +3,42 @@ omr_scanner.py
 --------------
 All logic for extracting answers from an OMR sheet photo lives here.
 
-There are 2 main steps:
-1. detect_and_warp() -> finds the sheet's 4 corners in the photo and
-   straightens it ("perspective warp") onto a fixed-size canvas.
-2. read_answers() -> using the calibration data, checks the pixel
-   darkness at each question's 4 bubble positions (A/B/C/D) to find
-   which one is filled in.
+There are 2 supported sheet layouts:
+  - 100 questions -> 4 printed blocks of 25 questions each (Q1-25, 26-50, 51-75, 76-100)
+  - 40  questions -> 2 printed blocks of 20 questions each (Q1-20, 21-40)
 
-validate_omr_image() runs BEFORE any of that - it rejects photos that are
-too small, too blurry, too dark/bright, or otherwise unlikely to score
-correctly, so the student gets a clear message instead of a silently wrong
-result.
+Two separate calibration flows use the SAME 4-click pattern, just with
+different question numbers plugged in depending on the layout:
+  1) Question 1        - center of option A
+  2) Question 1        - center of option D
+  3) Question <N>       - center of option A (last row of the first block)
+  4) Question <N + 1>   - center of option A (first row of the next block)
+where N = 25 for the 100-question layout and N = 20 for the 40-question layout.
+See get_layout() / calibration_points_info() below.
 
-Calibration = the mentor uploads a blank OMR sheet once on the
-"Calibration" page and clicks 4 points:
-  1) Question 1  - center of option A
-  2) Question 1  - center of option D
-  3) Question 25 - center of option A (same block, last row)
-  4) Question 26 - center of option A (next block, first row)
+There are two places this 4-click calibration happens:
+  - Mentor "OMR Sheet Setup" page: mentor clicks the 4 points once on a
+    BLANK sheet, per layout (100q / 40q). This is kept mainly as a
+    reference/setup-status record.
+  - Student submission: EVERY student clicks the 4 points on their OWN
+    uploaded photo, right before submitting. This is what's actually used
+    to build the reading grid for that submission - since each photo can
+    have a slightly different angle/crop from the phone camera, having the
+    grid anchored to points clicked on that exact photo is far more
+    reliable than trying to perspective-warp every photo to match one
+    fixed reference grid.
 
-From these 4 points, all 100 questions' bubble positions are computed,
-since a printed sheet always has a uniform grid.
+Main steps for scoring one submission:
+1. validate_omr_image() -> rejects photos that are too small, blurry, or
+   too dark/bright, so the student gets a clear message instead of a
+   silently wrong result. Runs on the full-resolution photo.
+2. resize_max_dim() -> shrinks (never enlarges) the photo to a manageable
+   size for the on-screen calibration click + fast pixel sampling.
+3. build_grid() -> using the 4 clicked points (on that resized photo) and
+   the exam's layout (100 or 40), computes every question's 4 bubble
+   positions.
+4. read_answers() -> checks pixel darkness at each bubble position to find
+   which option (if any) was filled in.
 """
 
 import cv2
@@ -32,10 +47,14 @@ import numpy as np
 WARP_WIDTH = 1200
 WARP_HEIGHT = 1600
 TOTAL_QUESTIONS = 100
-QUESTIONS_PER_BLOCK = 25
-NUM_BLOCKS = 4
 OPTIONS = ["A", "B", "C", "D"]
-BUBBLE_SAMPLE_RADIUS = 12  # pixels; may need adjusting depending on the warped image
+BUBBLE_SAMPLE_RADIUS = 12  # pixels; used as a default when no adaptive radius is given
+
+# Student-facing photos are capped to this many pixels on the longer side
+# before calibration/reading - keeps the click UI responsive and pixel
+# sampling fast, without affecting the (separate) quality validation below,
+# which always runs on the original full-resolution photo first.
+STUDENT_DISPLAY_MAX_DIM = 1300
 
 # ---- image-quality thresholds (tune if real-world photos misbehave) ----
 MIN_WIDTH = 500
@@ -44,10 +63,47 @@ BLUR_VARIANCE_THRESHOLD = 60.0   # below this = too blurry (Laplacian variance)
 DARK_MEAN_THRESHOLD = 40.0       # below this = too dark
 BRIGHT_MEAN_THRESHOLD = 240.0    # above this = too bright / overexposed / blown out
 
+# ---- sheet layouts: total_questions -> (questions_per_block, num_blocks) ----
+LAYOUT_PRESETS = {
+    100: (25, 4),
+    40: (20, 2),
+}
+
+
+def get_layout(total_questions):
+    """
+    Returns (questions_per_block, num_blocks) for a given sheet size.
+    100 -> 4 printed blocks of 25. 40 -> 2 printed blocks of 20.
+    Falls back to a generic 2-block split for any other total (shouldn't
+    normally happen, since the app only offers 100q / 40q exams).
+    """
+    if total_questions in LAYOUT_PRESETS:
+        return LAYOUT_PRESETS[total_questions]
+    blocks = 2
+    per_block = -(-total_questions // blocks)  # ceil division
+    return per_block, blocks
+
+
+def calibration_points_info(total_questions):
+    """
+    Returns the ordered list of the 4 calibration points to click for this
+    layout, as [{"key", "short", "full"}, ...]. "key" matches the field
+    name used in the calibration dict passed to build_grid().
+    """
+    per_block, _blocks = get_layout(total_questions)
+    return [
+        {"key": "p1", "short": "Q1-A", "full": "Question 1 - center of bubble A"},
+        {"key": "p2", "short": "Q1-D", "full": "Question 1 - center of bubble D"},
+        {"key": "p3", "short": f"Q{per_block}-A", "full": f"Question {per_block} - center of bubble A"},
+        {"key": "p4", "short": f"Q{per_block + 1}-A", "full": f"Question {per_block + 1} - center of bubble A"},
+    ]
+
 
 def validate_omr_image(image_bgr):
     """
     Runs quick, cheap checks on an uploaded photo before we try to score it.
+    Always run this on the ORIGINAL full-resolution photo (before any
+    resizing), since the blur/brightness thresholds were tuned for that.
 
     Returns: (ok: bool, errors: list[str], warnings: list[str])
       - errors   -> blocking problems; the submission should be refused
@@ -82,6 +138,32 @@ def validate_omr_image(image_bgr):
     return (len(errors) == 0), errors, warnings
 
 
+def resize_max_dim(image_bgr, max_dim=STUDENT_DISPLAY_MAX_DIM):
+    """
+    Shrinks (never enlarges) an image so its longer side is at most
+    max_dim, keeping aspect ratio. Used to give a fast, responsive
+    calibration/reading image without affecting quality validation
+    (which should always run on the original photo, before this).
+    """
+    h, w = image_bgr.shape[:2]
+    longest = max(h, w)
+    if longest <= max_dim:
+        return image_bgr
+    scale = max_dim / float(longest)
+    new_w, new_h = max(1, int(round(w * scale))), max(1, int(round(h * scale)))
+    return cv2.resize(image_bgr, (new_w, new_h), interpolation=cv2.INTER_AREA)
+
+
+def compute_bubble_radius(image_bgr):
+    """
+    Adaptive bubble-sampling radius based on the image's actual size -
+    needed because, unlike the fixed-size mentor calibration canvas,
+    each student's resized photo can be a slightly different size.
+    """
+    h, w = image_bgr.shape[:2]
+    return max(9, int(round(min(h, w) * 0.010)))
+
+
 def _order_points(pts):
     """Orders 4 points as top-left, top-right, bottom-right, bottom-left."""
     rect = np.zeros((4, 2), dtype="float32")
@@ -97,7 +179,9 @@ def _order_points(pts):
 def detect_and_warp(image_bgr):
     """
     Finds the largest 4-cornered contour (the sheet's border) in the photo
-    and warps it flat onto a fixed size canvas.
+    and warps it flat onto a fixed size canvas. Used by the MENTOR's blank
+    -sheet calibration page only - student submissions skip this and use
+    their own clicked points directly on their (un-warped) photo instead.
 
     If no good contour is found, just resizes the image and returns it
     (the user should then be asked to retake a straighter photo).
@@ -135,28 +219,37 @@ def detect_and_warp(image_bgr):
     return warped, True
 
 
-def build_grid(calibration):
+def build_grid(calibration, total_questions=TOTAL_QUESTIONS):
     """
-    calibration dict contains 4 clicked points (x, y):
-    q1_a, q1_d, q25_a, q26_a
+    calibration dict contains 4 clicked points (x, y), keyed as produced
+    by calibration_points_info(): p1 (Q1-A), p2 (Q1-D), p3 (Q<N>-A),
+    p4 (Q<N+1>-A), where N is the last question of the first printed
+    block for this layout (25 for 100q sheets, 20 for 40q sheets).
 
-    From these, computes each question's (1-100) 4 bubble centers and
-    returns a dict: { question_no: {"A": (x,y), "B": (x,y), ...} }
+    From these, computes every question's (1..total_questions) 4 bubble
+    centers and returns a dict: { question_no: {"A": (x,y), ...} }
     """
-    q1_a = np.array(calibration["q1_a"], dtype=float)
-    q1_d = np.array(calibration["q1_d"], dtype=float)
-    q25_a = np.array(calibration["q25_a"], dtype=float)
-    q26_a = np.array(calibration["q26_a"], dtype=float)
+    per_block, blocks = get_layout(total_questions)
 
-    option_step = (q1_d - q1_a) / (len(OPTIONS) - 1)   # distance A->D, split into 3
-    row_step = (q25_a - q1_a) / (QUESTIONS_PER_BLOCK - 1)  # distance row to row
-    block_step = q26_a - q1_a                           # x/y shift from one block to the next
+    q1_a = np.array(calibration["p1"], dtype=float)
+    q1_d = np.array(calibration["p2"], dtype=float)
+    qN_a = np.array(calibration["p3"], dtype=float)
+    qN1_a = np.array(calibration["p4"], dtype=float)
+
+    option_step = (q1_d - q1_a) / (len(OPTIONS) - 1)     # distance A->D, split into 3
+    if per_block > 1:
+        row_step = (qN_a - q1_a) / (per_block - 1)        # distance row to row
+    else:
+        row_step = np.array([0.0, 0.0])
+    block_step = qN1_a - q1_a                              # x/y shift from one block to the next
 
     grid = {}
     q_no = 1
-    for block in range(NUM_BLOCKS):
+    for block in range(blocks):
         block_origin = q1_a + block * block_step
-        for row in range(QUESTIONS_PER_BLOCK):
+        for row in range(per_block):
+            if q_no > total_questions:
+                return grid
             row_origin = block_origin + row * row_step
             options = {}
             for i, opt in enumerate(OPTIONS):
@@ -178,7 +271,7 @@ def _bubble_darkness(gray_img, center, radius=BUBBLE_SAMPLE_RADIUS):
     return float(np.mean(patch))
 
 
-def read_answers(warped_bgr, grid, dark_threshold=150, min_gap=15):
+def read_answers(warped_bgr, grid, dark_threshold=150, min_gap=15, radius=None):
     """
     For each question, compares the darkness of its 4 bubbles to find
     which one is marked.
@@ -186,16 +279,23 @@ def read_answers(warped_bgr, grid, dark_threshold=150, min_gap=15):
     dark_threshold: below this, the bubble is considered filled (dark)
     min_gap: if the darkest and second-darkest bubbles are too close in
              darkness, it's treated as "unclear / multiple marked"
+    radius: bubble sampling radius in pixels. Defaults to
+            BUBBLE_SAMPLE_RADIUS (fixed-canvas mentor flow); pass the
+            output of compute_bubble_radius() for student photos, which
+            aren't resized to one fixed canvas size.
 
     Returns: dict {question_no: 'A'/'B'/'C'/'D'/None}
     None means blank or unclear
     """
+    if radius is None:
+        radius = BUBBLE_SAMPLE_RADIUS
+
     gray = cv2.cvtColor(warped_bgr, cv2.COLOR_BGR2GRAY)
     gray = cv2.GaussianBlur(gray, (3, 3), 0)
 
     answers = {}
     for q_no, options in grid.items():
-        darkness = {opt: _bubble_darkness(gray, center) for opt, center in options.items()}
+        darkness = {opt: _bubble_darkness(gray, center, radius) for opt, center in options.items()}
         sorted_opts = sorted(darkness.items(), key=lambda kv: kv[1])
         darkest_opt, darkest_val = sorted_opts[0]
         second_val = sorted_opts[1][1]
@@ -297,9 +397,9 @@ def build_review_rows(student_answers, key_string):
 
 def render_sheet_image(grid, total_questions=100, answers=None):
     """
-    Uses the calibration grid to draw a blank/filled bubble-sheet image
-    (a PIL Image) that can be shown in the Mentor Panel and clicked on -
-    just like a real OMR sheet, for selecting answers.
+    Uses a calibration grid to draw a blank/filled bubble-sheet image
+    (a PIL Image) that can be shown and clicked on - just like a real OMR
+    sheet, for selecting answers.
 
     answers: {question_no: 'A'/'B'/'C'/'D'} - filled bubbles are shown solid black.
     """
