@@ -58,17 +58,22 @@ def inject_global_css():
         /* ---- Mobile top bar: hamburger (left) + profile icon (right) ---- */
         .st-key-mobile_top_bar { display: none; }
         .st-key-mobile_top_bar div[data-testid="stHorizontalBlock"] { gap: 6px; align-items: center; }
+        /* Icon-only circle buttons (hamburger trigger + profile icon) */
         .st-key-mobile_top_bar button {
-            border-radius: 999px !important;
+            border-radius: 50% !important;
+            width: 40px !important;
+            height: 40px !important;
+            padding: 0 !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            font-size: 16px !important;
+            margin: 0 auto !important;
             border: 1px solid rgba(128,128,128,0.25) !important;
-            padding: 6px 10px !important;
-            font-size: 15px !important;
         }
 
-        /* ---- Mentor entry points (login page + small in-app link) ----
-           Restyled: subtle outline pill instead of the loud gold gradient,
-           and noticeably smaller/quieter text. */
-        .st-key-mentor_entry_wrap button,
+        /* ---- Mentor entry point (login page only - the small quiet link
+           shown under the login card for logged-out users) ---- */
         .st-key-mentor_entry_login button {
             background: transparent !important;
             color: #b45309 !important;
@@ -79,7 +84,6 @@ def inject_global_css():
             padding: 4px 10px !important;
             box-shadow: none !important;
         }
-        .st-key-mentor_entry_wrap button:hover,
         .st-key-mentor_entry_login button:hover {
             background: rgba(180,83,9,0.08) !important;
         }
@@ -121,8 +125,9 @@ def inject_global_css():
         .rank-you { background:#bfdbfe; color:#1e3a8a; }
 
         .lb-row {
-            display:flex; align-items:center; gap:10px; padding:8px 10px;
-            border-radius:10px; margin-bottom:4px; border:1px solid rgba(128,128,128,0.12);
+            display:flex; align-items:center; gap:10px; padding:10px 12px;
+            border-radius:10px; margin-bottom:6px; border:1px solid rgba(128,128,128,0.12);
+            flex-wrap: wrap;
         }
         .lb-row.me { background: rgba(59,130,246,0.12); border-color: rgba(59,130,246,0.4); }
 
@@ -160,11 +165,35 @@ def inject_global_css():
             background: rgba(127,127,127,0.06);
         }
 
+        /* ---- Phone field: force the +880 box and digit input to stay on
+           ONE row, even on narrow/mobile screens (Streamlit's own columns
+           stack vertically below ~640px by default - this overrides that
+           just for the phone-number row). Matched via a substring on the
+           container's key class so it works for every key_prefix
+           (login/su/fp) without a separate rule for each. ---- */
+        div[class*="_phone_row"] div[data-testid="stHorizontalBlock"] {
+            flex-direction: row !important;
+            flex-wrap: nowrap !important;
+            align-items: center !important;
+            gap: 8px !important;
+        }
+        div[class*="_phone_row"] div[data-testid="column"]:first-child {
+            flex: 0 0 78px !important;
+            width: 78px !important;
+            min-width: 78px !important;
+        }
+        div[class*="_phone_row"] div[data-testid="column"]:last-child {
+            flex: 1 1 auto !important;
+            min-width: 0 !important;
+            width: auto !important;
+        }
+
         @media (max-width: 640px) {
             /* Hide the wide desktop nav row and show the compact mobile bar instead */
             .st-key-top_nav { display: none !important; }
             .st-key-mobile_top_bar { display: block !important; }
             .metric-box { flex: 1 1 45%; }
+            .lb-row { font-size: 13px; }
         }
         </style>
         """,
@@ -278,17 +307,22 @@ def phone_field(key_prefix, placeholder="1712345678"):
     student only ever types the 10 digits that follow. This removes the
     'leading 0 disappears' class of bug entirely (there's no 0 for the
     user to type or for anything to drop), and keeps every number stored
-    in one consistent format. Returns whatever raw digits the user has
-    typed so far (validate with sh.validate_bd_phone_digits before use)."""
+    in one consistent format. The '+880' box and the digit input are kept
+    on ONE row (see the '_phone_row' CSS rule in inject_global_css) even
+    on mobile, where Streamlit's columns would otherwise stack vertically.
+    Returns whatever raw digits the user has typed so far (validate with
+    sh.validate_bd_phone_digits before use)."""
     st.markdown("**Phone number**")
-    c1, c2 = st.columns([0.9, 3.1], gap="small")
-    with c1:
-        st.markdown("<div class='bd-phone-prefix'>+880</div>", unsafe_allow_html=True)
-    with c2:
-        return st.text_input(
-            "Phone number", key=f"{key_prefix}_digits", label_visibility="collapsed",
-            placeholder=placeholder, max_chars=10,
-        )
+    with st.container(key=f"{key_prefix}_phone_row"):
+        c1, c2 = st.columns([0.9, 3.1], gap="small")
+        with c1:
+            st.markdown("<div class='bd-phone-prefix'>+880</div>", unsafe_allow_html=True)
+        with c2:
+            digits = st.text_input(
+                "Phone number", key=f"{key_prefix}_digits", label_visibility="collapsed",
+                placeholder=placeholder, max_chars=10,
+            )
+    return digits
 
 
 def student_session_is_valid():
@@ -455,7 +489,9 @@ def render_top_nav(current_page):
 
     # ---- Mobile: compact bar - hamburger (☰, opens a popover with the
     # same nav links) on the left, a direct profile icon on the right.
-    # Hidden on desktop via CSS; shown only under the mobile breakpoint. ----
+    # Both render as small circle icon buttons (see CSS). Mentor Login is
+    # NOT in this bar - it lives on the Profile page instead. Hidden on
+    # desktop via CSS; shown only under the mobile breakpoint. ----
     with st.container(key="mobile_top_bar"):
         c1, c2, c3 = st.columns([1, 3, 1])
         with c1:
@@ -464,7 +500,7 @@ def render_top_nav(current_page):
                     if st.button(label, key=f"mnav_pop_{page_key}", use_container_width=True):
                         go_to(page_key)
         with c3:
-            if st.button("👤", key="mobile_profile_btn", use_container_width=True):
+            if st.button("👤", key="mobile_profile_btn"):
                 go_to("profile")
 
     st.write("")
@@ -750,7 +786,7 @@ def page_tests_results():
 
 
 # =========================================================================
-# Student: Leaderboard
+# Leaderboard (shared renderer for both the Student page and the Mentor panel)
 # =========================================================================
 
 def _rank_class(rank):
@@ -761,10 +797,79 @@ def _rank_icon(rank):
     return {1: "🥇", 2: "🥈", 3: "🥉"}.get(rank, f"#{rank}")
 
 
-def page_leaderboard():
-    sid = st.session_state["student_id"]
-    st.markdown("### 🏆 Leaderboard")
-    mode = st.radio("View", ["Test-wise", "Overall"], horizontal=True, label_visibility="collapsed")
+def render_leaderboard_stats(df, mode):
+    if mode == "Overall":
+        total_students = len(df)
+        avg_score = round(df["avg_percent"].mean(), 1) if not df.empty else 0
+        highest_score = df["best_score"].max() if not df.empty else 0
+    else:
+        total_students = df["student_id"].nunique()
+        avg_score = round(df["marks"].mean(), 1) if not df.empty else 0
+        highest_score = df["marks"].max() if not df.empty else 0
+    st.markdown(
+        f"""
+        <div class='metric-row' style='margin-bottom:14px;'>
+            <div class='metric-box'><div class='label'>👥 Total Students</div><div class='value'>{total_students}</div></div>
+            <div class='metric-box'><div class='label'>📈 Average Score</div><div class='value'>{avg_score}</div></div>
+            <div class='metric-box'><div class='label'>🏆 Highest Score</div><div class='value'>{highest_score}</div></div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_leaderboard_rows(df, mode, sid=None):
+    for _, row in df.head(50).iterrows():
+        rank = int(row["rank"])
+        is_me = sid is not None and row["student_id"] == sid
+        css_class = "lb-row me" if is_me else "lb-row"
+        icon = _rank_icon(rank) if rank <= 3 else f"#{rank}"
+        badge_class = _rank_class(rank)
+        name_html = f"{row['student']}{' (You)' if is_me else ''}"
+
+        if mode == "Overall":
+            trend = row.get("trend")
+            trend_html = "<span style='opacity:.4;'>—</span>"
+            if trend is not None and pd.notna(trend):
+                arrow = "↑" if trend >= 0 else "↓"
+                color = "#22c55e" if trend >= 0 else "#ef4444"
+                trend_html = f"<span style='color:{color}; font-weight:700;'>{arrow} {abs(trend)}%</span>"
+            st.markdown(
+                f"""
+                <div class="{css_class}">
+                    <span class="rank-badge {badge_class}">{icon}</span>
+                    <span style="flex:1.5; font-weight:{'700' if is_me else '500'};">{name_html}</span>
+                    <span style="flex:0.8; opacity:.85;">Tests: <b>{int(row['exams_taken'])}</b></span>
+                    <span style="flex:0.8; opacity:.85;">Best: <b>{row['best_score']}</b></span>
+                    <span style="flex:0.9; opacity:.85;">Avg: <b>{row['avg_percent']}%</b></span>
+                    <span style="flex:0.9; opacity:.7;">Acc: {row['accuracy']}%</span>
+                    <span style="flex:0.8; text-align:right;">{trend_html}</span>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        else:
+            accuracy_val = row.get("accuracy", "-")
+            st.markdown(
+                f"""
+                <div class="{css_class}">
+                    <span class="rank-badge {badge_class}">{icon}</span>
+                    <span style="flex:1; font-weight:{'700' if is_me else '500'};">{name_html}</span>
+                    <span>Score: <b>{row['marks']}</b></span>
+                    <span style="opacity:.7;">Accuracy: {accuracy_val}%</span>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+
+def render_leaderboard(sid=None, key_suffix="student"):
+    """Shared leaderboard renderer. sid=None -> mentor view (no personal
+    'Your Rank' footer); sid='S0001' -> student view."""
+    mode = st.radio(
+        "View", ["Overall", "Test-wise"], horizontal=True,
+        label_visibility="collapsed", key=f"lb_mode_{key_suffix}",
+    )
 
     if mode == "Test-wise":
         keys_df = cached_answer_keys()
@@ -776,7 +881,7 @@ def page_leaderboard():
         for _, row in keys_df.iterrows():
             label = f"{row.get('exam_name') or row['key_id']} | {row['date']}"
             options[label] = row["key_id"]
-        choice = st.selectbox("Choose a test", list(options.keys()))
+        choice = st.selectbox("Choose a test", list(options.keys()), key=f"lb_test_choice_{key_suffix}")
         key_id = options[choice]
         df = sh.get_leaderboard_by_key(key_id)
     else:
@@ -787,29 +892,39 @@ def page_leaderboard():
         st.info("No results yet for this view.")
         return
 
-    my_rank, _ = sh.get_rank_for_student(sid, key_id)
-    if my_rank:
-        st.caption(f"Your current rank: **#{my_rank}**")
+    render_leaderboard_stats(df, mode)
 
-    for _, row in df.head(50).iterrows():
-        rank = int(row["rank"])
-        is_me = row["student_id"] == sid
-        score_val = row["marks"] if "marks" in row else row.get("avg_percent")
-        accuracy_val = row.get("accuracy", "-")
-        css_class = "lb-row me" if is_me else "lb-row"
-        icon = _rank_icon(rank) if rank <= 3 else f"#{rank}"
-        badge_class = _rank_class(rank)
-        st.markdown(
-            f"""
-            <div class="{css_class}">
-                <span class="rank-badge {badge_class}">{icon}</span>
-                <span style="flex:1; font-weight:{'700' if is_me else '500'};">{row['student']}{' (You)' if is_me else ''}</span>
-                <span>Score: <b>{score_val}</b></span>
-                <span style="opacity:.7;">Accuracy: {accuracy_val if accuracy_val != '-' else '-'}</span>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+    if sid is not None:
+        my_rank, _ = sh.get_rank_for_student(sid, key_id)
+        if my_rank:
+            st.caption(f"Your current rank: **#{my_rank}**")
+
+    render_leaderboard_rows(df, mode, sid=sid)
+
+    if sid is not None and mode == "Overall":
+        match = df[df["student_id"] == sid]
+        if not match.empty:
+            m = match.iloc[0]
+            rank = int(m["rank"])
+            st.markdown(
+                f"""
+                <div class='app-card' style='margin-top:6px; display:flex; gap:22px; flex-wrap:wrap; align-items:center;'>
+                    <div>🏅 <b>Your Rank</b><br><span style='font-size:20px; font-weight:700;'>#{rank}</span></div>
+                    <div>🎯 <b>Best Score</b><br><span style='font-size:20px; font-weight:700; color:#22c55e;'>{m['best_score']}</span></div>
+                    <div>📈 <b>Average Score</b><br><span style='font-size:20px; font-weight:700; color:#3b82f6;'>{m['avg_percent']}%</span></div>
+                    <div>✅ <b>Accuracy</b><br><span style='font-size:20px; font-weight:700;'>{m['accuracy']}%</span></div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+    st.caption("ℹ️ Leaderboard updates after each test submission.")
+
+
+def page_leaderboard():
+    sid = st.session_state["student_id"]
+    st.markdown("### 🏆 Leaderboard")
+    render_leaderboard(sid=sid, key_suffix="student")
 
 
 # =========================================================================
@@ -861,6 +976,14 @@ def page_profile():
                     for k in ("student_id", "student_name", "session_version", "role"):
                         st.session_state.pop(k, None)
                     st.rerun()
+
+    # ---- Mentor Login now lives here instead of a separate top-of-page
+    # button/bar, per request: keeps the student nav to 4 items everywhere. ----
+    st.markdown("<div class='app-card'>", unsafe_allow_html=True)
+    st.markdown("Are you a mentor?")
+    if st.button("👨‍🏫 Mentor Login", use_container_width=True, key="profile_mentor_login_btn"):
+        go_to("mentor")
+    st.markdown("</div>", unsafe_allow_html=True)
 
     if st.button("🚪 Log Out", use_container_width=True):
         for k in ("student_id", "student_name", "session_version", "role"):
@@ -938,6 +1061,17 @@ def _render_bubble_block(q_start, q_end):
                 key=widget_key, label_visibility="collapsed",
                 on_change=_on_bubble_change, args=(q, widget_key),
             )
+
+
+def _go_answer_page(page_num):
+    """Callback for the Next/Back buttons below the bubble grid. Using
+    on_click here (instead of the old 'if st.button(...): set state;
+    st.rerun()' pattern) is what fixes the multi-second lag when switching
+    pages: an on_click callback runs BEFORE the script reruns, so the page
+    number is already updated by the time the script body executes -
+    no extra, second full script rerun is needed on top of the one
+    Streamlit already triggers for the button click itself."""
+    st.session_state["mentor_answer_page"] = page_num
 
 
 def _time_input_12h(label, key_prefix, default_hour_24=9, default_minute=0):
@@ -1053,9 +1187,8 @@ def render_answer_key_tab():
                     _render_bubble_block(1, 25)
                 with col2:
                     _render_bubble_block(26, 50)
-            if st.button("Next: 51-100 →", use_container_width=True):
-                st.session_state["mentor_answer_page"] = 2
-                st.rerun()
+            st.button("Next: 51-100 →", use_container_width=True,
+                      on_click=_go_answer_page, args=(2,))
         else:
             st.caption("Showing questions **51-100**")
             with st.container(key="answer_bubble_grid"):
@@ -1064,9 +1197,8 @@ def render_answer_key_tab():
                     _render_bubble_block(51, 75)
                 with col2:
                     _render_bubble_block(76, 100)
-            if st.button("← Back: 1-50", use_container_width=True):
-                st.session_state["mentor_answer_page"] = 1
-                st.rerun()
+            st.button("← Back: 1-50", use_container_width=True,
+                      on_click=_go_answer_page, args=(1,))
     else:
         st.caption("Showing questions **1-40** (two columns of 20)")
         with st.container(key="answer_bubble_grid"):
@@ -1128,10 +1260,36 @@ def page_mentor_dashboard():
 
 
 # =========================================================================
-# Mentor: Students (view / disable / per-student Test Analysis)
+# Mentor: Leaderboard (reuses the same shared renderer as the student view)
+# =========================================================================
+
+def page_mentor_leaderboard():
+    st.subheader("🏆 Leaderboard")
+    render_leaderboard(sid=None, key_suffix="mentor")
+
+
+# =========================================================================
+# Mentor: Students (view / disable / per-student Test Analysis + drilldown)
 # =========================================================================
 
 def page_mentor_students():
+    # ---- Drilldown: mentor clicked "View" on one of a student's exams ----
+    view = st.session_state.get("mentor_view_result")
+    if view:
+        view_sid, view_key_id = view
+        results_df = cached_results()
+        keys_df = cached_answer_keys()
+        match = results_df[(results_df["student_id"] == view_sid) & (results_df["key_id"] == view_key_id)]
+        key_match = keys_df[keys_df["key_id"] == view_key_id]
+        if st.button("← Back to Students"):
+            st.session_state["mentor_view_result"] = None
+            st.rerun()
+        if match.empty or key_match.empty:
+            st.warning("Result not found.")
+        else:
+            render_result_detail(match.iloc[0], key_match.iloc[0])
+        return
+
     st.subheader("👥 Student Management")
     with st.spinner("Loading students..."):
         df = cached_students()
@@ -1175,7 +1333,9 @@ def page_mentor_students():
                     st.caption("This student hasn't submitted any test yet.")
                 else:
                     sr = student_results.sort_values("timestamp", ascending=False)
-                    rows_out = []
+                    header_cols = st.columns([2.2, 1.1, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8])
+                    for c, label in zip(header_cols, ["Exam", "Date", "Total", "Correct", "Wrong", "Skipped", "Marks", ""]):
+                        c.markdown(f"**{label}**")
                     for _, r in sr.iterrows():
                         key_match = keys_df[keys_df["key_id"] == r["key_id"]] if not keys_df.empty else pd.DataFrame()
                         exam_name = (
@@ -1183,17 +1343,19 @@ def page_mentor_students():
                             if not key_match.empty and key_match.iloc[0]["exam_name"]
                             else r["key_id"]
                         )
-                        rows_out.append({
-                            "Exam": exam_name,
-                            "Date": str(r["timestamp"]).split(" ")[0],
-                            "Total": int(r["total"]),
-                            "Correct": int(r["correct"]),
-                            "Wrong": int(r["wrong_count"]),
-                            "Skipped": int(r["skipped"]),
-                            "Marks": r["marks"],
-                            "Accuracy %": r["accuracy"],
-                        })
-                    st.dataframe(pd.DataFrame(rows_out), use_container_width=True, hide_index=True)
+                        cols = st.columns([2.2, 1.1, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8])
+                        cols[0].write(exam_name)
+                        cols[1].write(str(r["timestamp"]).split(" ")[0])
+                        cols[2].write(int(r["total"]))
+                        cols[3].write(int(r["correct"]))
+                        cols[4].write(int(r["wrong_count"]))
+                        cols[5].write(int(r["skipped"]))
+                        cols[6].write(r["marks"])
+                        # Mentor drilldown: same full report (score + wrong/skipped
+                        # bubble review) the student sees on their own history page.
+                        if cols[7].button("View", key=f"mview_{sid}_{r['key_id']}"):
+                            st.session_state["mentor_view_result"] = (sid, r["key_id"])
+                            st.rerun()
             st.markdown("</div>", unsafe_allow_html=True)
 
     st.caption("ℹ️ Students reset their own forgotten passwords from the login page's "
@@ -1418,6 +1580,7 @@ MENTOR_NAV = [
     ("m_calibration", "🎯 OMR Sheet Setup"),
     ("m_students", "👥 Students"),
     ("m_results", "🧾 Results"),
+    ("m_leaderboard", "🏆 Leaderboard"),
     ("m_settings", "⚙️ Settings"),
 ]
 
@@ -1439,7 +1602,7 @@ def page_mentor():
                     st.session_state["mentor_page"] = page_key
                     st.rerun()
 
-    # ---- Mobile: hamburger with the same links + profile-style icon spot ----
+    # ---- Mobile: hamburger with the same links + logout icon spot ----
     with st.container(key="mobile_top_bar"):
         c1, c2, c3 = st.columns([1, 3, 1])
         with c1:
@@ -1449,7 +1612,7 @@ def page_mentor():
                         st.session_state["mentor_page"] = page_key
                         st.rerun()
         with c3:
-            if st.button("🚪", key="mobile_mentor_logout_btn", use_container_width=True,
+            if st.button("🚪", key="mobile_mentor_logout_btn",
                          help="Log out of Mentor Panel"):
                 st.session_state["mentor_authed"] = False
                 go_to("home")
@@ -1466,6 +1629,8 @@ def page_mentor():
         page_mentor_students()
     elif current == "m_results":
         page_mentor_results()
+    elif current == "m_leaderboard":
+        page_mentor_leaderboard()
     elif current == "m_settings":
         page_mentor_settings()
 
@@ -1517,15 +1682,10 @@ def main():
         page_student_auth()
         return
 
-    # Logged-in student pages keep a small, quiet mentor entry point in the
-    # top-right corner on desktop (hidden on mobile - mobile gets its own
-    # compact hamburger/profile bar inside render_top_nav instead).
-    top_col1, top_col2 = st.columns([4, 1])
-    with top_col2:
-        with st.container(key="mentor_entry_wrap"):
-            if st.button("👨‍🏫 Mentor", use_container_width=True, key="mentor_entry_wrap_btn"):
-                go_to("mentor")
-
+    # Logged-in student pages: no separate "Mentor" button anywhere in the
+    # top bar (desktop or mobile) any more - Mentor Login now lives on the
+    # Profile page instead, so the nav stays a clean, consistent 4 items
+    # (Home / Tests & Results / Leaderboard / Profile) everywhere.
     render_top_nav(page)
 
     if page == "home":
