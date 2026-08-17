@@ -938,7 +938,7 @@ def page_tests_results():
                                 calib_points.append(pt)
                                 st.session_state["submit_calib_points"] = calib_points
                                 st.rerun()
-                 else:
+                     else:
                         st.success(f"✅ All {total_points} points marked!")
                         chip_html = "".join(
                             f"<span class='calib-point-chip'>{info['short']}: {pt}</span>"
