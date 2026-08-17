@@ -1920,13 +1920,18 @@ def page_mentor_calibration():
     # photo doesn't throw off where the clicked points land.
     image = ImageOps.exif_transpose(image)
     img_bgr = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-    with st.spinner("Analyzing sheet..."):
-        warped, ok = omr_scanner.detect_and_warp(img_bgr)
-    if not ok:
-        st.warning("Couldn't automatically detect the sheet's 4 corners. You can still click below to set it up, but retaking the photo straighter/flatter will help.")
 
+    # NOTE: detect_and_warp() was removed here on purpose. It tries to find
+    # the sheet's 4-corner outline automatically, but on real phone photos
+    # it sometimes locks onto the wrong rectangle (e.g. just one printed
+    # block instead of the whole sheet), which crops the image down to a
+    # tiny section - exactly the bug reported. The student submission flow
+    # never used detect_and_warp either (it just resizes the original,
+    # oriented photo) and works reliably, so we do the same thing here for
+    # consistency. This calibration is reference-only (never used for
+    # actual scoring), so skipping the perspective-warp is perfectly fine.
     warped_display_bgr = omr_scanner.resize_max_dim(
-        warped, max_dim=omr_scanner.STUDENT_DISPLAY_MAX_DIM
+        img_bgr, max_dim=omr_scanner.STUDENT_DISPLAY_MAX_DIM
     )
     warped_rgb = cv2.cvtColor(warped_display_bgr, cv2.COLOR_BGR2RGB)
     warped_pil = Image.fromarray(warped_rgb)
