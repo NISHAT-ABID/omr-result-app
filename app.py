@@ -42,6 +42,27 @@ def inject_global_css():
         }
         * { transition: background-color .15s ease, color .15s ease, opacity .15s ease; }
 
+        /* ---- App accent color override (blue instead of default orange/red) ---- */
+        button[kind="primary"], .stButton>button[kind="primary"], .stFormSubmitButton>button[kind="primary"] {
+            background-color: #2563eb !important;
+            border-color: #2563eb !important;
+            color: #fff !important;
+        }
+        button[kind="primary"]:hover, .stButton>button[kind="primary"]:hover, .stFormSubmitButton>button[kind="primary"]:hover {
+            background-color: #1d4ed8 !important;
+            border-color: #1d4ed8 !important;
+        }
+        input[type="radio"], input[type="checkbox"] { accent-color: #2563eb !important; }
+        div[role="radiogroup"] label[data-baseweb="radio"] div:first-child,
+        [data-testid="stRadio"] label span[data-testid] {
+            border-color: #2563eb !important;
+        }
+        div[data-baseweb="radio"] div[aria-checked="true"] {
+            border-color: #2563eb !important;
+            background-color: #2563eb !important;
+        }
+        .stProgress > div > div > div > div { background-color: #2563eb !important; }
+
         /* ---- Desktop navigation ---- */
         .st-key-top_nav { margin-bottom: 10px; }
         .st-key-top_nav div[data-testid="stHorizontalBlock"] { gap: 8px; }
@@ -59,8 +80,16 @@ def inject_global_css():
         /* ---- Mobile top bar + custom expandable menu ---- */
         .st-key-mobile_top_bar { display: none; }
         .st-key-mobile_top_bar div[data-testid="stHorizontalBlock"] {
+            display: flex !important;
+            flex-direction: row !important;
+            flex-wrap: nowrap !important;
             gap: 8px;
-            align-items: center;
+            align-items: center !important;
+            width: 100% !important;
+        }
+        .st-key-mobile_top_bar div[data-testid="column"] {
+            width: auto !important;
+            min-width: 0 !important;
         }
         .st-key-mobile_top_bar button {
             border-radius: 50% !important;
@@ -180,27 +209,37 @@ def inject_global_css():
         .bd-phone-prefix {
             border: 1px solid rgba(128,128,128,0.35);
             border-radius: 8px;
-            padding: 9px 10px;
+            padding: 9px 6px;
             text-align: center;
             font-weight: 600;
             opacity: .85;
             background: rgba(127,127,127,0.06);
+            white-space: nowrap;
         }
+        div[class*="_phone_row"] { width: 100% !important; }
         div[class*="_phone_row"] div[data-testid="stHorizontalBlock"] {
+            display: flex !important;
             flex-direction: row !important;
             flex-wrap: nowrap !important;
             align-items: center !important;
             gap: 8px !important;
+            width: 100% !important;
+        }
+        div[class*="_phone_row"] div[data-testid="column"] {
+            width: auto !important;
+            min-width: 0 !important;
         }
         div[class*="_phone_row"] div[data-testid="column"]:first-child {
-            flex: 0 0 78px !important;
-            width: 78px !important;
-            min-width: 78px !important;
+            flex: 0 0 68px !important;
+            max-width: 68px !important;
         }
         div[class*="_phone_row"] div[data-testid="column"]:last-child {
-            flex: 1 1 auto !important;
+            flex: 1 1 0% !important;
             min-width: 0 !important;
-            width: auto !important;
+        }
+        div[class*="_phone_row"] div[data-testid="column"]:last-child .stTextInput,
+        div[class*="_phone_row"] div[data-testid="column"]:last-child input {
+            width: 100% !important;
         }
 
         @media (max-width: 900px) {
@@ -212,6 +251,11 @@ def inject_global_css():
             .metric-box { flex: 1 1 45%; }
             .lb-row { font-size: 13px; }
             .analysis-test-card { padding: 11px 12px; }
+            .bd-phone-prefix { padding: 9px 3px; font-size: 13px; }
+            div[class*="_phone_row"] div[data-testid="column"]:first-child {
+                flex: 0 0 58px !important;
+                max-width: 58px !important;
+            }
         }
         </style>
         """,
@@ -1274,6 +1318,37 @@ def _inject_bubble_grid_css():
             display: inline-block; min-width: 28px; font-weight: 600;
             color: var(--text-color, inherit); opacity: 0.75; padding-top: 6px;
         }
+        /* Force number + options to stay on the SAME row on mobile too -
+           Streamlit stacks st.columns vertically below ~640px by default,
+           which is what was pushing the A/B/C/D options under the question
+           number. Overriding with flex row + nowrap here keeps them side
+           by side on every screen size, matching the desktop look. */
+        .st-key-answer_bubble_grid div[data-testid="stHorizontalBlock"] {
+            display: flex !important;
+            flex-direction: row !important;
+            flex-wrap: nowrap !important;
+            align-items: center !important;
+            gap: 4px !important;
+        }
+        .st-key-answer_bubble_grid div[data-testid="column"] {
+            width: auto !important;
+            min-width: 0 !important;
+        }
+        .st-key-answer_bubble_grid div[data-testid="column"]:first-child {
+            flex: 0 0 26px !important;
+        }
+        .st-key-answer_bubble_grid div[data-testid="column"]:last-child {
+            flex: 1 1 auto !important;
+            min-width: 0 !important;
+        }
+        @media (max-width: 640px) {
+            .st-key-answer_bubble_grid div[role="radiogroup"] { gap: 4px !important; }
+            .st-key-answer_bubble_grid div[role="radiogroup"] label {
+                padding: 2px 6px 2px 4px !important;
+                font-size: 12px !important;
+            }
+            .q-num-badge { min-width: 20px; font-size: 13px; }
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -1788,7 +1863,6 @@ def page_mentor_settings():
                 st.rerun()
 
     st.divider()
-    st.caption("You can also log out of the Mentor Panel from here.")
     if st.button("🚪 Log Out of Mentor Panel", key="mentor_settings_logout", use_container_width=True):
         st.session_state["mentor_authed"] = False
         go_to("home")
@@ -1801,16 +1875,20 @@ def page_mentor_settings():
 def is_mentor():
     if st.session_state.get("mentor_authed"):
         return True
-    st.markdown("### 👨‍🏫 Mentor Login")
+    st.markdown("### 🔑 Mentor Login")
     with st.form(key="mentor_login_form", clear_on_submit=False):
         pw = st.text_input("Mentor password", type="password", key="mentor_pw")
-        submitted = st.form_submit_button("Mentor Login", type="primary")
+        submitted = st.form_submit_button("Log In", type="primary", use_container_width=True)
     if submitted:
         if pw == sh.get_mentor_password():
             st.session_state["mentor_authed"] = True
             st.rerun()
         else:
             st.error("Incorrect mentor password.")
+
+    st.write("")
+    if st.button("← Back to Student Login", use_container_width=True, key="mentor_back_to_student"):
+        go_to("home")
     return False
 
 
@@ -1826,9 +1904,10 @@ MENTOR_NAV = [
 
 
 def page_mentor():
-    st.header("👨‍🏫 Mentor Panel")
     if not is_mentor():
         return
+
+    st.header("👨‍🏫 Mentor Panel")
 
     current = st.session_state.get("mentor_page", "m_dashboard")
     is_student_analysis = st.session_state.get("page") == "mentor_student_analysis"
@@ -1848,7 +1927,11 @@ def page_mentor():
                     st.session_state.pop("mentor_analysis_view_key_id", None)
                     go_to("mentor")
 
-    # Mobile: ☰ when closed, ✕ when open.
+    # Mobile: ☰ when closed, ✕ when open. Hamburger stays on the LEFT and
+    # the Settings shortcut stays on the RIGHT (same row - forced via the
+    # ".st-key-mobile_top_bar" flex CSS in inject_global_css, since
+    # Streamlit's own responsive rules would otherwise stack these two
+    # columns vertically on narrow screens).
     with st.container(key="mobile_top_bar"):
         c1, c2, c3 = st.columns([1, 3, 1])
         with c1:
@@ -1898,10 +1981,16 @@ def page_mentor():
     elif current == "m_settings":
         page_mentor_settings()
 
-    st.divider()
-    if st.button("🚪 Log Out of Mentor Panel", key="mentor_bottom_logout"):
-        st.session_state["mentor_authed"] = False
-        go_to("home")
+    # The Settings page already has its own "Log Out of Mentor Panel"
+    # button right below the password form, so we don't repeat a second
+    # one (and a second explanatory caption) down here when Settings is
+    # the page being viewed - only show this convenience logout on the
+    # other mentor pages.
+    if current != "m_settings" or is_student_analysis:
+        st.divider()
+        if st.button("🚪 Log Out of Mentor Panel", key="mentor_bottom_logout"):
+            st.session_state["mentor_authed"] = False
+            go_to("home")
 
 
 # =========================================================================
