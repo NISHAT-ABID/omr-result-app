@@ -1925,7 +1925,10 @@ def page_mentor_calibration():
     if not ok:
         st.warning("Couldn't automatically detect the sheet's 4 corners. You can still click below to set it up, but retaking the photo straighter/flatter will help.")
 
-    warped_rgb = cv2.cvtColor(warped, cv2.COLOR_BGR2RGB)
+    warped_display_bgr = omr_scanner.resize_max_dim(
+        warped, max_dim=omr_scanner.STUDENT_DISPLAY_MAX_DIM
+    )
+    warped_rgb = cv2.cvtColor(warped_display_bgr, cv2.COLOR_BGR2RGB)
     warped_pil = Image.fromarray(warped_rgb)
 
     if "calib_points" not in st.session_state:
