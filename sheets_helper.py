@@ -31,6 +31,20 @@ the number 1745678901 (dropping the leading zero), and can also mangle
 date/time strings. RAW mode stores exactly the text we send, with no
 reinterpretation, which is what this app relies on everywhere (phone
 lookups, date/time parsing with strptime, etc.).
+
+IMPORTANT - Phone column kept as plain TEXT, belt-and-suspenders:
+RAW input alone stops Sheets from re-parsing NEW writes, but a column
+that was ever populated with an auto-parsed number earlier (e.g. before
+RAW was added, or via manual editing in the Sheets UI) can be left with
+a "Number" cell format. Google Sheets will still *display* a text value
+that looks numeric using that stale number format, which can visually
+hide/confuse a leading zero. So on every write to the Students sheet we
+also explicitly force the Phone column's cell format to plain text
+(see `_force_phone_column_text_format`). This makes the leading-zero
+bug impossible going forward, independent of what happened to the sheet
+in the past. Rows created *before* this fix may still have the old,
+already-corrupted value baked in - `format_bd_phone()` below applies a
+best-effort cosmetic fix for those legacy rows when displaying them.
 """
 
 import hashlib
@@ -74,6 +88,7 @@ STUDENTS_HEADER = [
     "security_question", "security_answer_hash", "disabled",
     "session_version", "created_at",
 ]
+PHONE_COL_INDEX = STUDENTS_HEADER.index("phone") + 1  # 1-based, for gspread.format()
 
 BD_TZ = ZoneInfo("Asia/Dhaka")
 
@@ -119,9 +134,25 @@ def _to_int(val, default=0):
 
 
 def _normalize_phone(phone):
-    """Keeps only digits, preserves leading zeros. Used everywhere a phone
-    number is stored or looked up, so signup/login always agree."""
-    return re.sub(r"\D", "", str(phone or ""))
+    """Keeps only digits, preserves leading zeros. Also strips a leading
+    Bangladeshi country code (880 / +880) down to the local 0-prefixed
+    form, so '+8801712345678' and '01712345678' end up identical. Used
+    everywhere a phone number is stored or looked up, so signup/login
+    always agree."""
+    digits = re.sub(r"\D", "", str(phone or ""))
+    if digits.startswith("880") and len(digits) == 13:
+        digits = "0" + digits[3:]
+    return digits
+
+
+def format_bd_phone(phone):
+    """Display-only cosmetic fix for LEGACY rows that were saved before the
+    text-format fix and lost their leading zero (11-digit BD mobile numbers
+    always start with 0). Does not touch what's stored in the sheet."""
+    digits = re.sub(r"\D", "", str(phone or ""))
+    if len(digits) == 10 and digits[0] != "0":
+        return "0" + digits
+    return digits
 
 
 @st.cache_resource(show_spinner=False)
@@ -143,6 +174,8 @@ def _get_or_create_worksheet(sh, title, header):
     except gspread.WorksheetNotFound:
         ws = _with_retry(sh.add_worksheet, title=title, rows=2000, cols=len(header) + 2)
         _with_retry(ws.append_row, header, value_input_option=RAW)
+        if title == "Students":
+            _force_phone_column_text_format(ws)
         return ws
 
     values = _with_retry(ws.get_all_values)
@@ -154,7 +187,22 @@ def _get_or_create_worksheet(sh, title, header):
             # header grew (we added new columns in an update) -> extend it,
             # existing rows just get blank values in the new columns
             _with_retry(ws.update, "A1", [header], value_input_option=RAW)
+    if title == "Students":
+        _force_phone_column_text_format(ws)
     return ws
+
+
+def _force_phone_column_text_format(ws):
+    """Belt-and-suspenders fix for the 'leading zero disappears from phone
+    numbers' bug: force the whole Phone column to plain-text cell format,
+    so Google Sheets never re-renders a stored value using a stale Number
+    format (which is what makes a leading zero vanish visually / on
+    export), regardless of how old data in that column got there."""
+    try:
+        col_letter = gspread.utils.rowcol_to_a1(1, PHONE_COL_INDEX).rstrip("1")
+        _with_retry(ws.format, f"{col_letter}:{col_letter}", {"numberFormat": {"type": "TEXT"}})
+    except Exception:
+        pass  # cosmetic/defensive only - never block app startup on this
 
 
 @st.cache_resource(show_spinner=False)
@@ -394,7 +442,15 @@ def _gen_temp_password(length=8):
 def _all_students_df():
     ws = _cached_worksheet("Students")
     records = _with_retry(ws.get_all_records)
-    return pd.DataFrame(records)
+    df = pd.DataFrame(records)
+    if not df.empty and "phone" in df.columns:
+        # Belt-and-suspenders: get_all_records() can hand back a phone-like
+        # column as an int if gspread infers a numeric type for the whole
+        # column (e.g. from legacy data). Force it back to a zero-padded
+        # string of digits so nothing downstream (login lookup, display,
+        # search) ever silently drops a leading zero again in-memory.
+        df["phone"] = df["phone"].apply(lambda v: _normalize_phone(v))
+    return df
 
 
 def get_all_students_df():
