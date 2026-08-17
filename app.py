@@ -55,6 +55,30 @@ def inject_global_css():
             border: none !important;
         }
 
+        /* ---- Mentor entry points (login page + small in-app link) ---- */
+        .st-key-mentor_entry_wrap button,
+        .st-key-mentor_entry_login button {
+            background: linear-gradient(135deg, #f59e0b, #d97706) !important;
+            color: #ffffff !important;
+            border: none !important;
+            border-radius: 999px !important;
+            font-weight: 600 !important;
+            font-size: 13px !important;
+            padding: 8px 10px !important;
+            box-shadow: 0 2px 8px rgba(217,119,6,0.35);
+        }
+        .st-key-mentor_entry_wrap button:hover,
+        .st-key-mentor_entry_login button:hover {
+            filter: brightness(1.08);
+        }
+        .mentor-entry-caption {
+            text-align: center;
+            opacity: .65;
+            font-size: 13px;
+            margin-top: 26px;
+            margin-bottom: 8px;
+        }
+
         /* ---- Generic cards ---- */
         .app-card {
             border: 1px solid rgba(128,128,128,0.25);
@@ -318,6 +342,14 @@ def page_student_auth():
                             st.success("Password reset! Please log in with your new password.")
         elif f_phone.strip():
             st.warning("No account found with this phone number.")
+
+    # ---- Small, clearly-styled mentor entry point right below the login card ----
+    st.markdown("<p class='mentor-entry-caption'>Are you a mentor?</p>", unsafe_allow_html=True)
+    _, mid, _ = st.columns([1, 1.3, 1])
+    with mid:
+        with st.container(key="mentor_entry_login"):
+            if st.button("👨‍🏫 Mentor Login", use_container_width=True, key="mentor_entry_login_btn"):
+                go_to("mentor")
 
 
 # =========================================================================
@@ -811,7 +843,7 @@ def _time_input_12h(key_prefix, default_hour_24=9, default_minute=0):
 
 
 def render_answer_key_tab():
-    st.subheader("🗓️ Set Answer Key & Exam Time")
+    st.subheader("🗓️ Create Exam & Set Answer Key")
 
     st.markdown("#### ① How many MCQs? (Exam Style)")
     exam_style = st.radio(
@@ -968,7 +1000,7 @@ def page_mentor_dashboard():
 
 
 # =========================================================================
-# Mentor: Students (view / disable / reset password)
+# Mentor: Students (view / disable / per-student Test Analysis)
 # =========================================================================
 
 def page_mentor_students():
@@ -976,6 +1008,7 @@ def page_mentor_students():
     with st.spinner("Loading students..."):
         df = cached_students()
         results_df = cached_results()
+        keys_df = cached_answer_keys()
 
     if df.empty:
         st.info("No students have signed up yet.")
@@ -996,28 +1029,47 @@ def page_mentor_students():
 
         with st.container():
             st.markdown("<div class='app-card'>", unsafe_allow_html=True)
-            c1, c2 = st.columns([3, 2])
+            c1, c2 = st.columns([3, 1.4])
             with c1:
                 status = "🔴 Disabled" if disabled else "🟢 Active"
                 st.markdown(f"**{row['name']}** &nbsp; {status}")
                 st.caption(f"📱 {row['phone']} · Tests: {tests_taken} · Avg: {avg_score}%")
             with c2:
-                b1, b2 = st.columns(2)
-                with b1:
-                    toggle_label = "Enable" if disabled else "Disable"
-                    if st.button(toggle_label, key=f"toggle_{sid}", use_container_width=True):
-                        with st.spinner("Updating..."):
-                            sh.set_student_disabled(sid, not disabled)
-                            clear_all_caches()
-                        st.rerun()
-                with b2:
-                    if st.button("Reset PW", key=f"reset_{sid}", use_container_width=True):
-                        with st.spinner("Resetting..."):
-                            temp_pw = sh.admin_reset_password(sid)
-                            clear_all_caches()
-                        st.success(f"New temporary password for {row['name']}: `{temp_pw}` "
-                                   f"(share this with the student directly)")
+                toggle_label = "Enable" if disabled else "Disable"
+                if st.button(toggle_label, key=f"toggle_{sid}", use_container_width=True):
+                    with st.spinner("Updating..."):
+                        sh.set_student_disabled(sid, not disabled)
+                        clear_all_caches()
+                    st.rerun()
+
+            with st.expander(f"📊 Test Analysis — {row['name']}"):
+                if student_results.empty:
+                    st.caption("This student hasn't submitted any test yet.")
+                else:
+                    sr = student_results.sort_values("timestamp", ascending=False)
+                    rows_out = []
+                    for _, r in sr.iterrows():
+                        key_match = keys_df[keys_df["key_id"] == r["key_id"]] if not keys_df.empty else pd.DataFrame()
+                        exam_name = (
+                            key_match.iloc[0]["exam_name"]
+                            if not key_match.empty and key_match.iloc[0]["exam_name"]
+                            else r["key_id"]
+                        )
+                        rows_out.append({
+                            "Exam": exam_name,
+                            "Date": str(r["timestamp"]).split(" ")[0],
+                            "Total": int(r["total"]),
+                            "Correct": int(r["correct"]),
+                            "Wrong": int(r["wrong_count"]),
+                            "Skipped": int(r["skipped"]),
+                            "Marks": r["marks"],
+                            "Accuracy %": r["accuracy"],
+                        })
+                    st.dataframe(pd.DataFrame(rows_out), use_container_width=True, hide_index=True)
             st.markdown("</div>", unsafe_allow_html=True)
+
+    st.caption("ℹ️ Students reset their own forgotten passwords from the login page's "
+               "'Forgot Password' tab (using their security question) - no mentor action needed.")
 
 
 # =========================================================================
@@ -1087,29 +1139,32 @@ def page_mentor_results():
 
 
 # =========================================================================
-# Mentor: Calibration (kept from original)
+# Mentor: OMR Sheet Setup (calibration) - kept from original
 # =========================================================================
 
 def page_mentor_calibration():
+    st.subheader("🎯 OMR Sheet Setup (only needed once)")
+    st.caption("This tells the app exactly where each answer bubble sits on your OMR sheet, "
+               "so it can automatically read every student's scanned sheet correctly.")
+
     existing_calibration = sh.load_calibration()
     if existing_calibration and not st.session_state.get("force_recalibrate"):
-        st.success("✅ Calibration is already saved - no need to redo it.")
-        with st.expander("View the currently active calibration"):
+        st.success("✅ Sheet setup is already saved - no need to redo it.")
+        with st.expander("View the currently active setup"):
             st.json(existing_calibration)
         st.caption("Students can submit OMR sheets normally. You don't need to visit this page again unless the sheet design changes.")
-        if st.button("🔄 Recalibrate"):
+        if st.button("🔄 Redo Sheet Setup"):
             st.session_state["force_recalibrate"] = True
             st.session_state["calib_points"] = []
             st.rerun()
         return
 
     if existing_calibration:
-        st.info("You're creating a new calibration - the old one will be replaced when you save.")
-        if st.button("❌ Go Back to the Previous Calibration"):
+        st.info("You're redoing the sheet setup - the old one will be replaced when you save.")
+        if st.button("❌ Go Back to the Previous Setup"):
             st.session_state["force_recalibrate"] = False
             st.rerun()
 
-    st.subheader("🎯 OMR Sheet Calibration (only needed once)")
     st.markdown(
         """
         Upload a **straight, clear photo of a blank OMR sheet**, then click 4 points
@@ -1129,7 +1184,7 @@ def page_mentor_calibration():
     with st.spinner("Analyzing sheet..."):
         warped, ok = omr_scanner.detect_and_warp(img_bgr)
     if not ok:
-        st.warning("Couldn't automatically detect the sheet's 4 corners. You can still click below to calibrate, but retaking the photo straighter/flatter will help.")
+        st.warning("Couldn't automatically detect the sheet's 4 corners. You can still click below to set it up, but retaking the photo straighter/flatter will help.")
 
     warped_rgb = cv2.cvtColor(warped, cv2.COLOR_BGR2RGB)
     warped_pil = Image.fromarray(warped_rgb)
@@ -1159,11 +1214,11 @@ def page_mentor_calibration():
                 st.session_state["calib_points"] = []
                 st.rerun()
         with col2:
-            if st.button("💾 Save Calibration", type="primary"):
+            if st.button("💾 Save Setup", type="primary"):
                 calibration = {"q1_a": pts[0], "q1_d": pts[1], "q25_a": pts[2], "q26_a": pts[3]}
                 with st.spinner("Saving..."):
                     sh.save_calibration(calibration)
-                st.success("Calibration saved! Students can now upload OMR sheets.")
+                st.success("Sheet setup saved! Students can now upload OMR sheets.")
                 st.session_state["calib_points"] = []
                 st.session_state["force_recalibrate"] = False
 
@@ -1224,9 +1279,14 @@ def is_mentor():
     return False
 
 
-MENTOR_NAV = [("m_dashboard", "📊 Dashboard"), ("m_answerkey", "📝 Answer Key"),
-              ("m_students", "👥 Students"), ("m_results", "🧾 Results"),
-              ("m_calibration", "🎯 Calibration"), ("m_settings", "⚙️ Settings")]
+MENTOR_NAV = [
+    ("m_dashboard", "📊 Dashboard"),
+    ("m_answerkey", "📝 Create Exam"),
+    ("m_calibration", "🎯 OMR Sheet Setup"),
+    ("m_students", "👥 Students"),
+    ("m_results", "🧾 Results"),
+    ("m_settings", "⚙️ Settings"),
+]
 
 
 def page_mentor():
@@ -1249,12 +1309,12 @@ def page_mentor():
         page_mentor_dashboard()
     elif current == "m_answerkey":
         render_answer_key_tab()
+    elif current == "m_calibration":
+        page_mentor_calibration()
     elif current == "m_students":
         page_mentor_students()
     elif current == "m_results":
         page_mentor_results()
-    elif current == "m_calibration":
-        page_mentor_calibration()
     elif current == "m_settings":
         page_mentor_settings()
 
@@ -1288,11 +1348,6 @@ def main():
             st.session_state.pop(k, None)
         st.warning("Your session has expired (password may have changed elsewhere). Please log in again.")
 
-    top_col1, top_col2 = st.columns([3, 1])
-    with top_col2:
-        if st.button("👨‍🏫 Mentor", use_container_width=True):
-            go_to("mentor")
-
     page = st.session_state.get("page", "home")
 
     if page == "mentor":
@@ -1300,8 +1355,18 @@ def main():
         return
 
     if not is_student_logged_in:
+        # Login page: the mentor entry point lives inline below the login
+        # card (see page_student_auth), so no separate top button here.
         page_student_auth()
         return
+
+    # Logged-in student pages keep a small, unobtrusive mentor entry point
+    # in the top-right corner (previous behaviour, restyled).
+    top_col1, top_col2 = st.columns([4, 1])
+    with top_col2:
+        with st.container(key="mentor_entry_wrap"):
+            if st.button("👨‍🏫 Mentor", use_container_width=True, key="mentor_entry_wrap_btn"):
+                go_to("mentor")
 
     render_top_nav(page)
 
