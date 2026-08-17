@@ -716,16 +716,43 @@ def get_leaderboard_by_key(key_id):
 
 
 def get_overall_leaderboard():
-    """Ranking by average percentage (total marks / total possible) across all exams."""
+    """Ranking by average percentage (total marks / total possible) across
+    all exams. Also includes each student's best score, mean accuracy, and
+    a month-over-month trend (this month's average % vs last month's) so
+    the leaderboard UI can show Tests Taken / Best Score / Average Score /
+    Accuracy / Trend columns, not just a plain rank."""
     df = get_all_results_df()
     if df.empty:
         return df
+
+    df = df.copy()
+    df["ts"] = pd.to_datetime(df["timestamp"], errors="coerce")
+    this_month = now_bd().month
+    last_month = this_month - 1 or 12
+
     grouped = df.groupby(["student_id", "student"]).agg(
         total_marks=("marks", "sum"),
         total_possible=("total", "sum"),
         exams_taken=("key_id", "nunique"),
+        best_score=("marks", "max"),
+        accuracy=("accuracy", "mean"),
     ).reset_index()
     grouped["avg_percent"] = (grouped["total_marks"] / grouped["total_possible"] * 100).round(2)
+    grouped["accuracy"] = grouped["accuracy"].round(2)
+    grouped["best_score"] = grouped["best_score"].round(2)
+
+    trends = {}
+    for student_id, sub in df.groupby("student_id"):
+        this_rows = sub[sub["ts"].dt.month == this_month]
+        last_rows = sub[sub["ts"].dt.month == last_month]
+        if this_rows.empty or last_rows.empty:
+            trends[student_id] = None
+            continue
+        this_avg = (this_rows["marks"] / this_rows["total"]).mean() * 100
+        last_avg = (last_rows["marks"] / last_rows["total"]).mean() * 100
+        trends[student_id] = round(this_avg - last_avg, 1)
+    grouped["trend"] = grouped["student_id"].map(trends)
+
     grouped = grouped.sort_values("avg_percent", ascending=False).reset_index(drop=True)
     grouped.insert(0, "rank", range(1, len(grouped) + 1))
     return grouped
