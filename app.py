@@ -908,7 +908,7 @@ def page_tests_results():
                 if not ok:
                     for e in errors:
                         st.error(e)
-                else:
+                   else:
                     for w in warnings_:
                         st.warning(w)
 
