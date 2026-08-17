@@ -133,26 +133,60 @@ def _to_int(val, default=0):
         return default
 
 
+PHONE_COUNTRY_CODE = "880"
+
+
 def _normalize_phone(phone):
-    """Keeps only digits, preserves leading zeros. Also strips a leading
-    Bangladeshi country code (880 / +880) down to the local 0-prefixed
-    form, so '+8801712345678' and '01712345678' end up identical. Used
-    everywhere a phone number is stored or looked up, so signup/login
-    always agree."""
+    """Canonicalizes ANY phone representation we might encounter - a fresh
+    '+880 1712345678' style entry, an old-style local '01712345678' row
+    saved before the phone-field redesign, or an already-canonical
+    '8801712345678' - down to one consistent form: '880' + the 10 local
+    digits (no '+', no leading 0). Used everywhere a phone number is
+    stored or looked up, so signup/login always agree regardless of which
+    era a particular row was created in - no data migration needed."""
     digits = re.sub(r"\D", "", str(phone or ""))
-    if digits.startswith("880") and len(digits) == 13:
-        digits = "0" + digits[3:]
+    if digits.startswith(PHONE_COUNTRY_CODE) and len(digits) == 13:
+        return digits
+    if digits.startswith("0") and len(digits) == 11:
+        return PHONE_COUNTRY_CODE + digits[1:]
+    if len(digits) == 10:
+        return PHONE_COUNTRY_CODE + digits
     return digits
 
 
 def format_bd_phone(phone):
-    """Display-only cosmetic fix for LEGACY rows that were saved before the
-    text-format fix and lost their leading zero (11-digit BD mobile numbers
-    always start with 0). Does not touch what's stored in the sheet."""
-    digits = re.sub(r"\D", "", str(phone or ""))
-    if len(digits) == 10 and digits[0] != "0":
-        return "0" + digits
-    return digits
+    """Display form: '+880 1712345678'. Works for any stored variant
+    (old or new) since it normalizes first."""
+    canon = _normalize_phone(phone)
+    if canon.startswith(PHONE_COUNTRY_CODE) and len(canon) == 13:
+        return "+880 " + canon[3:]
+    return str(phone or "")
+
+
+def validate_bd_phone_digits(digits):
+    """Validates what the user typed into the '+880 [______]' field (i.e.
+    everything AFTER the fixed +880 prefix - no '0', no '+880' expected
+    from the user at all, which is what removes the whole leading-zero
+    class of bug).
+
+    Returns (ok, error_message_or_None, canonical_phone_or_None).
+    canonical_phone is ready to pass straight into create_student /
+    authenticate_student / get_student_by_phone.
+    """
+    digits = re.sub(r"\D", "", digits or "")
+    if not digits:
+        return False, "Please enter your phone number.", None
+    if len(digits) > 10:
+        return False, (
+            f"Too many digits ({len(digits)}). Just type the 10 digits that come "
+            f"after +880 - skip the leading 0 and don't type +880 again "
+            f"(e.g. for 01712345678, type 1712345678)."
+        ), None
+    if len(digits) < 10:
+        return False, f"Enter all 10 digits after +880 - you've typed {len(digits)} so far.", None
+    if digits[0] != "1":
+        return False, "A Bangladeshi mobile number starts with 1 right after +880 (e.g. +880 1712345678).", None
+    return True, None, PHONE_COUNTRY_CODE + digits
 
 
 @st.cache_resource(show_spinner=False)
