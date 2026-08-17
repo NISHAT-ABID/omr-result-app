@@ -908,7 +908,7 @@ def page_tests_results():
                 if not ok:
                     for e in errors:
                         st.error(e)
-                   else:
+                else:
                     for w in warnings_:
                         st.warning(w)
 
@@ -938,16 +938,16 @@ def page_tests_results():
                                 calib_points.append(pt)
                                 st.session_state["submit_calib_points"] = calib_points
                                 st.rerun()
-                     else:
-                            st.success(f"✅ All {total_points} points marked!")
-                            chip_html = "".join(
+                    else:
+                        st.success(f"✅ All {total_points} points marked!")
+                        chip_html = "".join(
                             f"<span class='calib-point-chip'>{info['short']}: {pt}</span>"
                             for info, pt in zip(points_info, calib_points)
-                            )
-                            st.markdown(chip_html, unsafe_allow_html=True)
+                        )
+                        st.markdown(chip_html, unsafe_allow_html=True)
 
-                            cb1, cb2 = st.columns(2)
-                            with cb1:
+                        cb1, cb2 = st.columns(2)
+                        with cb1:
                             if st.button("🔄 Redo Calibration Points", use_container_width=True):
                                 st.session_state["submit_calib_points"] = []
                                 st.rerun()
