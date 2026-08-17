@@ -22,6 +22,15 @@ Worksheets (tabs) used inside one Google Sheet:
 
 The Sheet ID is stored as SHEET_ID in .streamlit/secrets.toml.
 All worksheets are created automatically the first time the app runs.
+
+IMPORTANT - value_input_option="RAW":
+Every write below explicitly uses RAW input mode. Without this, Google
+Sheets' default ("USER_ENTERED") auto-parses text as if a human typed it
+in the UI - which silently turns a phone number like "01745678901" into
+the number 1745678901 (dropping the leading zero), and can also mangle
+date/time strings. RAW mode stores exactly the text we send, with no
+reinterpretation, which is what this app relies on everywhere (phone
+lookups, date/time parsing with strptime, etc.).
 """
 
 import hashlib
@@ -43,6 +52,8 @@ SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive",
 ]
+
+RAW = "RAW"  # value_input_option used for every write - see module docstring
 
 ANSWERKEYS_HEADER = [
     "key_id", "exam_name", "date", "start_time", "end_time",
@@ -107,6 +118,12 @@ def _to_int(val, default=0):
         return default
 
 
+def _normalize_phone(phone):
+    """Keeps only digits, preserves leading zeros. Used everywhere a phone
+    number is stored or looked up, so signup/login always agree."""
+    return re.sub(r"\D", "", str(phone or ""))
+
+
 @st.cache_resource(show_spinner=False)
 def get_client():
     creds_dict = dict(st.secrets["gcp_service_account"])
@@ -125,18 +142,18 @@ def _get_or_create_worksheet(sh, title, header):
         ws = _with_retry(sh.worksheet, title)
     except gspread.WorksheetNotFound:
         ws = _with_retry(sh.add_worksheet, title=title, rows=2000, cols=len(header) + 2)
-        _with_retry(ws.append_row, header)
+        _with_retry(ws.append_row, header, value_input_option=RAW)
         return ws
 
     values = _with_retry(ws.get_all_values)
     if not values:
-        _with_retry(ws.append_row, header)
+        _with_retry(ws.append_row, header, value_input_option=RAW)
     else:
         existing_header = values[0]
         if existing_header != header and len(header) > len(existing_header):
             # header grew (we added new columns in an update) -> extend it,
             # existing rows just get blank values in the new columns
-            _with_retry(ws.update, "A1", [header])
+            _with_retry(ws.update, "A1", [header], value_input_option=RAW)
     return ws
 
 
@@ -178,6 +195,7 @@ def add_answer_key(exam_name, date_str, start_time_str, end_time_str,
         ws.append_row,
         [key_id, exam_name, date_str, start_time_str, end_time_str,
          total_questions, answer_string, negative_marking, negative_marks_value],
+        value_input_option=RAW,
     )
     clear_data_caches()
     return key_id
@@ -278,9 +296,9 @@ def set_config_value(key, value):
             row_idx = i + 1
             break
     if row_idx:
-        _with_retry(ws.update, f"A{row_idx}:B{row_idx}", [[key, json_str]])
+        _with_retry(ws.update, f"A{row_idx}:B{row_idx}", [[key, json_str]], value_input_option=RAW)
     else:
-        _with_retry(ws.append_row, [key, json_str])
+        _with_retry(ws.append_row, [key, json_str], value_input_option=RAW)
 
 
 def get_config_value(key, default=None):
@@ -387,7 +405,8 @@ def get_student_by_phone(phone):
     df = _all_students_df()
     if df.empty:
         return None
-    match = df[df["phone"].astype(str) == str(phone).strip()]
+    target = _normalize_phone(phone)
+    match = df[df["phone"].astype(str).apply(_normalize_phone) == target]
     if match.empty:
         return None
     return match.iloc[0].to_dict()
@@ -404,6 +423,9 @@ def get_student_by_id(student_id):
 
 
 def create_student(name, phone, password, security_question, security_answer):
+    phone = _normalize_phone(phone)
+    if not phone:
+        raise ValueError("Please enter a valid phone number.")
     if get_student_by_phone(phone):
         raise ValueError("This phone number is already registered.")
     ws = _cached_worksheet("Students")
@@ -413,8 +435,9 @@ def create_student(name, phone, password, security_question, security_answer):
     ans_hash, _ = hash_password(security_answer.strip().lower(), salt)
     _with_retry(
         ws.append_row,
-        [student_id, name.strip(), str(phone).strip(), pw_hash, salt,
+        [student_id, name.strip(), phone, pw_hash, salt,
          security_question, ans_hash, False, 1, now_bd().strftime("%Y-%m-%d %H:%M:%S")],
+        value_input_option=RAW,
     )
     clear_data_caches()
     return student_id
@@ -450,8 +473,8 @@ def change_student_password(student_id, new_password):
     student = get_student_by_id(student_id)
     pw_hash, salt = hash_password(new_password)
     new_version = _to_int(student.get("session_version"), 1) + 1
-    _with_retry(ws.update, f"D{row_idx}:E{row_idx}", [[pw_hash, salt]])
-    _with_retry(ws.update, f"I{row_idx}", [[new_version]])
+    _with_retry(ws.update, f"D{row_idx}:E{row_idx}", [[pw_hash, salt]], value_input_option=RAW)
+    _with_retry(ws.update, f"I{row_idx}", [[new_version]], value_input_option=RAW)
     clear_data_caches()
 
 
@@ -466,7 +489,9 @@ def reset_password_via_security(phone, security_answer, new_password):
 
 
 def admin_reset_password(student_id):
-    """Mentor-triggered reset -> returns a temp password to hand to the student."""
+    """Mentor-triggered reset -> returns a temp password to hand to the student.
+    Not currently exposed in the UI (students self-serve via Forgot Password),
+    kept here in case a mentor override is needed via support in the future."""
     temp_password = _gen_temp_password()
     change_student_password(student_id, temp_password)
     return temp_password
@@ -477,12 +502,12 @@ def set_student_disabled(student_id, disabled: bool):
     row_idx = _find_student_row_idx(ws, student_id)
     if not row_idx:
         raise ValueError("Student not found.")
-    _with_retry(ws.update, f"H{row_idx}", [[bool(disabled)]])
+    _with_retry(ws.update, f"H{row_idx}", [[bool(disabled)]], value_input_option=RAW)
     if disabled:
         # also bump session version so an already-open session gets logged out
         student = get_student_by_id(student_id)
         new_version = _to_int(student.get("session_version"), 1) + 1
-        _with_retry(ws.update, f"I{row_idx}", [[new_version]])
+        _with_retry(ws.update, f"I{row_idx}", [[new_version]], value_input_option=RAW)
     clear_data_caches()
 
 
@@ -527,7 +552,7 @@ def append_result(student_id, student_name, key_id, result):
         result.get("negative_marking", False), result.get("negative_value", 0.0),
         False, wrong_details_json, skipped_json,
     ]
-    _with_retry(ws.append_row, row)
+    _with_retry(ws.append_row, row, value_input_option=RAW)
     clear_data_caches()
 
 
@@ -560,7 +585,7 @@ def update_result(student_id, key_id, new_marks=None, new_correct=None,
     for col, val in updates.items():
         col_idx = header.index(col) + 1
         col_letter = gspread.utils.rowcol_to_a1(1, col_idx).rstrip("1")
-        _with_retry(ws.update, f"{col_letter}{row_idx}", [[val]])
+        _with_retry(ws.update, f"{col_letter}{row_idx}", [[val]], value_input_option=RAW)
     clear_data_caches()
 
 
