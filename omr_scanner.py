@@ -86,18 +86,50 @@ def get_layout(total_questions):
 
 def calibration_points_info(total_questions):
     """
-    Returns the ordered list of the 4 calibration points to click for this
-    layout, as [{"key", "short", "full"}, ...]. "key" matches the field
-    name used in the calibration dict passed to build_grid().
-    """
-    per_block, _blocks = get_layout(total_questions)
-    return [
-        {"key": "p1", "short": "Q1-A", "full": "Question 1 - center of bubble A"},
-        {"key": "p2", "short": "Q1-D", "full": "Question 1 - center of bubble D"},
-        {"key": "p3", "short": f"Q{per_block}-A", "full": f"Question {per_block} - center of bubble A"},
-        {"key": "p4", "short": f"Q{per_block + 1}-A", "full": f"Question {per_block + 1} - center of bubble A"},
-    ]
+    Returns the ordered list of calibration points to click for this
+    layout, as [{"key", "short", "full", "block", "role"}, ...].
 
+    Unlike before (only 4 points total for the WHOLE sheet), this now asks
+    for a top-A and bottom-A point for EVERY printed block, plus one Q1-D
+    point (for A-to-D option spacing). This is what makes the reading
+    grid resilient to a photo where the sheet isn't perfectly flat - each
+    block gets its OWN row spacing instead of assuming every block is
+    identically spaced from the first one, which is what caused later
+    blocks to drift off (and read wrong/skipped) on curved or
+    perspective-tilted photos.
+
+    "block" is the 0-indexed block number, "role" is "top" / "bottom" /
+    "optd" (the Q1-D option-spacing reference point).
+    """
+    per_block, blocks = get_layout(total_questions)
+    points = []
+    for b in range(blocks):
+        block_start_q = b * per_block + 1
+        block_end_q = min(block_start_q + per_block - 1, total_questions)
+
+        points.append({
+            "key": f"p{len(points) + 1}",
+            "short": f"Q{block_start_q}-A",
+            "full": f"Question {block_start_q} - center of bubble A",
+            "block": b,
+            "role": "top",
+        })
+        if b == 0:
+            points.append({
+                "key": f"p{len(points) + 1}",
+                "short": f"Q{block_start_q}-D",
+                "full": f"Question {block_start_q} - center of bubble D",
+                "block": b,
+                "role": "optd",
+            })
+        points.append({
+            "key": f"p{len(points) + 1}",
+            "short": f"Q{block_end_q}-A",
+            "full": f"Question {block_end_q} - center of bubble A",
+            "block": b,
+            "role": "bottom",
+        })
+    return points
 
 def validate_omr_image(image_bgr):
     """
@@ -221,36 +253,53 @@ def detect_and_warp(image_bgr):
 
 def build_grid(calibration, total_questions=TOTAL_QUESTIONS):
     """
-    calibration dict contains 4 clicked points (x, y), keyed as produced
-    by calibration_points_info(): p1 (Q1-A), p2 (Q1-D), p3 (Q<N>-A),
-    p4 (Q<N+1>-A), where N is the last question of the first printed
-    block for this layout (25 for 100q sheets, 20 for 40q sheets).
+    calibration dict now holds ONE top-A and bottom-A point PER BLOCK
+    (plus one Q1-D point for option spacing), keyed as produced by
+    calibration_points_info() above.
 
-    From these, computes every question's (1..total_questions) 4 bubble
-    centers and returns a dict: { question_no: {"A": (x,y), ...} }
+    Each block's rows are interpolated using ONLY that block's own top/
+    bottom points - so a fold, curve, or perspective tilt in the photo
+    only affects the block it's actually in, instead of accumulating
+    error into every block that comes after it (which is what happened
+    with the old single-block_step-for-the-whole-sheet approach).
     """
     per_block, blocks = get_layout(total_questions)
+    points_info = calibration_points_info(total_questions)
 
-    q1_a = np.array(calibration["p1"], dtype=float)
-    q1_d = np.array(calibration["p2"], dtype=float)
-    qN_a = np.array(calibration["p3"], dtype=float)
-    qN1_a = np.array(calibration["p4"], dtype=float)
+    q1_a = None
+    q1_d = None
+    block_tops = {}
+    block_bottoms = {}
+    for info in points_info:
+        pt = np.array(calibration[info["key"]], dtype=float)
+        b = info["block"]
+        if info["role"] == "top":
+            block_tops[b] = pt
+            if b == 0:
+                q1_a = pt
+        elif info["role"] == "bottom":
+            block_bottoms[b] = pt
+        elif info["role"] == "optd":
+            q1_d = pt
 
-    option_step = (q1_d - q1_a) / (len(OPTIONS) - 1)     # distance A->D, split into 3
-    if per_block > 1:
-        row_step = (qN_a - q1_a) / (per_block - 1)        # distance row to row
-    else:
-        row_step = np.array([0.0, 0.0])
-    block_step = qN1_a - q1_a                              # x/y shift from one block to the next
+    option_step = (q1_d - q1_a) / (len(OPTIONS) - 1)
 
     grid = {}
     q_no = 1
-    for block in range(blocks):
-        block_origin = q1_a + block * block_step
-        for row in range(per_block):
+    for b in range(blocks):
+        top = block_tops[b]
+        bottom = block_bottoms[b]
+        rows_in_block = min(per_block, total_questions - b * per_block)
+        if rows_in_block <= 0:
+            break
+        if rows_in_block > 1:
+            row_step = (bottom - top) / (rows_in_block - 1)
+        else:
+            row_step = np.array([0.0, 0.0])
+        for row in range(rows_in_block):
             if q_no > total_questions:
                 return grid
-            row_origin = block_origin + row * row_step
+            row_origin = top + row * row_step
             options = {}
             for i, opt in enumerate(OPTIONS):
                 center = row_origin + i * option_step
@@ -273,19 +322,13 @@ def _bubble_darkness(gray_img, center, radius=BUBBLE_SAMPLE_RADIUS):
 
 def read_answers(warped_bgr, grid, dark_threshold=150, min_gap=15, radius=None):
     """
-    For each question, compares the darkness of its 4 bubbles to find
-    which one is marked.
+    For each question, compares the darkness of its 4 bubbles.
 
-    dark_threshold: below this, the bubble is considered filled (dark)
-    min_gap: if the darkest and second-darkest bubbles are too close in
-             darkness, it's treated as "unclear / multiple marked"
-    radius: bubble sampling radius in pixels. Defaults to
-            BUBBLE_SAMPLE_RADIUS (fixed-canvas mentor flow); pass the
-            output of compute_bubble_radius() for student photos, which
-            aren't resized to one fixed canvas size.
-
-    Returns: dict {question_no: 'A'/'B'/'C'/'D'/None}
-    None means blank or unclear
+    Returns: dict {question_no: 'A'/'B'/'C'/'D'/None/'MULTI'}
+      None   -> blank / nothing marked
+      'MULTI'-> two (or more) bubbles marked close together - ambiguous,
+                treated as a WRONG answer by score_answers() (not skipped),
+                since a real exam would count a double-touch as invalid.
     """
     if radius is None:
         radius = BUBBLE_SAMPLE_RADIUS
@@ -301,32 +344,20 @@ def read_answers(warped_bgr, grid, dark_threshold=150, min_gap=15, radius=None):
         second_val = sorted_opts[1][1]
 
         if darkest_val > dark_threshold:
-            answers[q_no] = None  # no bubble marked (blank)
+            answers[q_no] = None  # nothing marked
         elif (second_val - darkest_val) < min_gap:
-            answers[q_no] = None  # two bubbles nearly equally dark -> unclear/multi-mark
+            answers[q_no] = "MULTI"  # two bubbles nearly equally dark
         else:
             answers[q_no] = darkest_opt
     return answers
 
-
 def score_answers(student_answers, key_string, negative_marking=False, negative_value=0.0):
     """
     key_string: a string like 'ABCD...' (index 0 = Q1)
-    negative_marking: if True, `negative_value` marks are deducted for every
-                       WRONG (attempted-but-incorrect) answer. Skipped/blank
-                       questions are never penalized.
 
-    Returns a dict:
-      total          - total number of questions
-      answered       - how many the student attempted (non-blank)
-      skipped        - how many were left blank
-      correct        - how many were correct
-      wrong_count    - how many were attempted but wrong
-      wrong          - list of question numbers that were wrong
-      wrong_details  - {question_no: {"given": "B", "correct": "C"}}
-      accuracy       - correct / answered * 100 (0 if nothing answered)
-      marks          - correct - (wrong_count * negative_value), if enabled
-      negative_marking / negative_value - echoed back for display purposes
+    A 'MULTI' (double-touched) answer now counts as ATTEMPTED and WRONG -
+    it will be penalized under negative marking, same as a normal wrong
+    answer, instead of silently being treated as skipped.
     """
     total = len(key_string)
     correct = 0
@@ -343,7 +374,10 @@ def score_answers(student_answers, key_string, negative_marking=False, negative_
             skipped_questions.append(q_no)
             continue
         answered += 1
-        if given == correct_ans:
+        if given == "MULTI":
+            wrong.append(q_no)
+            wrong_details[q_no] = {"given": "Multiple", "correct": correct_ans}
+        elif given == correct_ans:
             correct += 1
         else:
             wrong.append(q_no)
@@ -370,13 +404,11 @@ def score_answers(student_answers, key_string, negative_marking=False, negative_
         "negative_value": negative_value,
     }
 
-
 def build_review_rows(student_answers, key_string):
     """
-    Builds a per-question review list for the OMR-style result view:
-    [{"q": 1, "given": "B", "correct": "A", "status": "wrong"}, ...]
-    status is one of "correct", "wrong", "skipped". Only wrong/skipped
-    rows are typically shown in the review UI.
+    status is one of "correct", "wrong", "skipped". A 'MULTI' answer shows
+    up as "wrong" with given="Multiple" (the review UI just won't
+    highlight a specific wrong bubble for it, since two were touched).
     """
     rows = []
     for i, correct_ans in enumerate(key_string):
@@ -385,6 +417,8 @@ def build_review_rows(student_answers, key_string):
         correct_ans = correct_ans.upper()
         if given is None:
             status = "skipped"
+        elif given == "MULTI":
+            status = "wrong"
         elif given == correct_ans:
             status = "correct"
         else:
