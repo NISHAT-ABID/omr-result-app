@@ -42,7 +42,7 @@ def inject_global_css():
         }
         * { transition: background-color .15s ease, color .15s ease, opacity .15s ease; }
 
-        /* ---- Top nav ---- */
+        /* ---- Top nav (desktop: full row of buttons) ---- */
         .st-key-top_nav div[data-testid="stHorizontalBlock"] { gap: 6px; }
         .st-key-top_nav button {
             width: 100%;
@@ -55,28 +55,40 @@ def inject_global_css():
             border: none !important;
         }
 
-        /* ---- Mentor entry points (login page + small in-app link) ---- */
+        /* ---- Mobile top bar: hamburger (left) + profile icon (right) ---- */
+        .st-key-mobile_top_bar { display: none; }
+        .st-key-mobile_top_bar div[data-testid="stHorizontalBlock"] { gap: 6px; align-items: center; }
+        .st-key-mobile_top_bar button {
+            border-radius: 999px !important;
+            border: 1px solid rgba(128,128,128,0.25) !important;
+            padding: 6px 10px !important;
+            font-size: 15px !important;
+        }
+
+        /* ---- Mentor entry points (login page + small in-app link) ----
+           Restyled: subtle outline pill instead of the loud gold gradient,
+           and noticeably smaller/quieter text. */
         .st-key-mentor_entry_wrap button,
         .st-key-mentor_entry_login button {
-            background: linear-gradient(135deg, #f59e0b, #d97706) !important;
-            color: #ffffff !important;
-            border: none !important;
+            background: transparent !important;
+            color: #b45309 !important;
+            border: 1px solid rgba(180,83,9,0.45) !important;
             border-radius: 999px !important;
             font-weight: 600 !important;
-            font-size: 13px !important;
-            padding: 8px 10px !important;
-            box-shadow: 0 2px 8px rgba(217,119,6,0.35);
+            font-size: 11px !important;
+            padding: 4px 10px !important;
+            box-shadow: none !important;
         }
         .st-key-mentor_entry_wrap button:hover,
         .st-key-mentor_entry_login button:hover {
-            filter: brightness(1.08);
+            background: rgba(180,83,9,0.08) !important;
         }
         .mentor-entry-caption {
             text-align: center;
             opacity: .65;
-            font-size: 13px;
-            margin-top: 26px;
-            margin-bottom: 8px;
+            font-size: 12px;
+            margin-top: 22px;
+            margin-bottom: 6px;
         }
 
         /* ---- Generic cards ---- */
@@ -134,8 +146,13 @@ def inject_global_css():
         .strength-bar { height:6px; border-radius:4px; background:rgba(128,128,128,0.2); overflow:hidden; margin-top:4px;}
         .strength-fill { height:100%; border-radius:4px; }
 
-        @media (max-width: 480px) {
-            .st-key-top_nav button { font-size: 11px !important; padding: 8px 2px !important; }
+        /* ---- Compact time row (exam create) ---- */
+        .time-row-label { font-weight:600; padding-top:6px; font-size:14px; }
+
+        @media (max-width: 640px) {
+            /* Hide the wide desktop nav row and show the compact mobile bar instead */
+            .st-key-top_nav { display: none !important; }
+            .st-key-mobile_top_bar { display: block !important; }
             .metric-box { flex: 1 1 45%; }
         }
         </style>
@@ -166,17 +183,17 @@ def motivation_for(student_id):
 # every single rerun/click, which is what causes "hang" in Streamlit apps)
 # =========================================================================
 
-@st.cache_data(ttl=15, show_spinner=False)
+@st.cache_data(ttl=30, show_spinner=False)
 def cached_answer_keys():
     return sh.get_all_answer_keys()
 
 
-@st.cache_data(ttl=10, show_spinner=False)
+@st.cache_data(ttl=20, show_spinner=False)
 def cached_results():
     return sh.get_all_results_df()
 
 
-@st.cache_data(ttl=15, show_spinner=False)
+@st.cache_data(ttl=30, show_spinner=False)
 def cached_students():
     return sh.get_all_students_df()
 
@@ -220,13 +237,16 @@ def check_app_password():
     )
     _, mid, _ = st.columns([1, 2, 1])
     with mid:
-        pw = st.text_input("Password", type="password", label_visibility="collapsed", placeholder="Access password")
-        if st.button("Continue", use_container_width=True, type="primary"):
-            if pw == st.secrets.get("APP_PASSWORD", ""):
-                st.session_state["authed"] = True
-                st.rerun()
-            else:
-                st.error("Incorrect password.")
+        with st.form(key="app_pw_form", clear_on_submit=False):
+            pw = st.text_input("Password", type="password", label_visibility="collapsed",
+                                placeholder="Access password")
+            submitted = st.form_submit_button("Continue", use_container_width=True, type="primary")
+            if submitted:
+                if pw == st.secrets.get("APP_PASSWORD", ""):
+                    st.session_state["authed"] = True
+                    st.rerun()
+                else:
+                    st.error("Incorrect password.")
     return False
 
 
@@ -260,9 +280,15 @@ def page_student_auth():
     tab_login, tab_signup, tab_forgot = st.tabs(["Log In", "Sign Up", "Forgot Password"])
 
     with tab_login:
-        phone = st.text_input("Phone number", key="login_phone")
-        pw = st.text_input("Password", type="password", key="login_pw")
-        if st.button("Log In", type="primary", use_container_width=True, key="login_btn"):
+        # Wrapped in a real st.form: this both (a) lets the browser detect
+        # it as a login form for autofill / "remember password", and
+        # (b) makes pressing Enter inside either field submit the form -
+        # no extra click needed after autofill/paste.
+        with st.form(key="login_form", clear_on_submit=False):
+            phone = st.text_input("Phone number", key="login_phone")
+            pw = st.text_input("Password", type="password", key="login_pw")
+            submitted = st.form_submit_button("Log In", type="primary", use_container_width=True)
+        if submitted:
             if not phone or not pw:
                 st.error("Please enter both phone number and password.")
             else:
@@ -280,11 +306,17 @@ def page_student_auth():
                         go_to("home")
 
     with tab_signup:
-        name = st.text_input("Full name", key="su_name")
-        phone_s = st.text_input("Phone number", key="su_phone")
-        pw1 = st.text_input("Password", type="password", key="su_pw1")
-        score, label, tips = sh.password_strength(pw1) if pw1 else (0, "", [])
+        with st.form(key="signup_form", clear_on_submit=False):
+            name = st.text_input("Full name", key="su_name")
+            phone_s = st.text_input("Phone number", key="su_phone", placeholder="e.g. 01712345678")
+            pw1 = st.text_input("Password", type="password", key="su_pw1")
+            pw2 = st.text_input("Confirm password", type="password", key="su_pw2")
+            sec_q = st.selectbox("Security question (used for password recovery)", SECURITY_QUESTIONS, key="su_secq")
+            sec_a = st.text_input("Your answer", key="su_seca")
+            signup_submitted = st.form_submit_button("Create Account", type="primary", use_container_width=True)
+
         if pw1:
+            score, label, _tips = sh.password_strength(pw1)
             colors = ["#ef4444", "#ef4444", "#f59e0b", "#10b981", "#059669"]
             st.markdown(
                 f"<div class='strength-bar'><div class='strength-fill' "
@@ -292,11 +324,8 @@ def page_student_auth():
                 f"<small>Password strength: <b>{label}</b></small>",
                 unsafe_allow_html=True,
             )
-        pw2 = st.text_input("Confirm password", type="password", key="su_pw2")
-        sec_q = st.selectbox("Security question (used for password recovery)", SECURITY_QUESTIONS, key="su_secq")
-        sec_a = st.text_input("Your answer", key="su_seca")
 
-        if st.button("Create Account", type="primary", use_container_width=True, key="signup_btn"):
+        if signup_submitted:
             _, _, tips = sh.password_strength(pw1)
             if not name.strip() or not phone_s.strip():
                 st.error("Please fill in your name and phone number.")
@@ -322,10 +351,12 @@ def page_student_auth():
         student_preview = sh.get_student_by_phone(f_phone.strip()) if f_phone.strip() else None
         if student_preview:
             st.info(f"Security question: **{student_preview.get('security_question')}**")
-            f_answer = st.text_input("Your answer", key="fp_answer")
-            f_new1 = st.text_input("New password", type="password", key="fp_new1")
-            f_new2 = st.text_input("Confirm new password", type="password", key="fp_new2")
-            if st.button("Reset Password", type="primary", use_container_width=True, key="fp_btn"):
+            with st.form(key="forgot_pw_form", clear_on_submit=False):
+                f_answer = st.text_input("Your answer", key="fp_answer")
+                f_new1 = st.text_input("New password", type="password", key="fp_new1")
+                f_new2 = st.text_input("Confirm new password", type="password", key="fp_new2")
+                fp_submitted = st.form_submit_button("Reset Password", type="primary", use_container_width=True)
+            if fp_submitted:
                 _, _, tips = sh.password_strength(f_new1)
                 if tips:
                     st.error("Password is too weak: " + ", ".join(tips))
@@ -343,12 +374,12 @@ def page_student_auth():
         elif f_phone.strip():
             st.warning("No account found with this phone number.")
 
-    # ---- Small, clearly-styled mentor entry point right below the login card ----
+    # ---- Small, quiet mentor entry point right below the login card ----
     st.markdown("<p class='mentor-entry-caption'>Are you a mentor?</p>", unsafe_allow_html=True)
     _, mid, _ = st.columns([1, 1.3, 1])
     with mid:
         with st.container(key="mentor_entry_login"):
-            if st.button("👨‍🏫 Mentor Login", use_container_width=True, key="mentor_entry_login_btn"):
+            if st.button("Mentor Login", use_container_width=True, key="mentor_entry_login_btn"):
                 go_to("mentor")
 
 
@@ -357,10 +388,11 @@ def page_student_auth():
 # =========================================================================
 
 STUDENT_NAV = [("home", "🏠 Home"), ("tests", "📝 Tests & Results"),
-               ("leaderboard", "🏆 Leaderboard"), ("profile", "👨‍🏫 Profile")]
+               ("leaderboard", "🏆 Leaderboard"), ("profile", "👤 Profile")]
 
 
 def render_top_nav(current_page):
+    # ---- Desktop: full row of nav buttons (hidden on narrow screens via CSS) ----
     with st.container(key="top_nav"):
         cols = st.columns(len(STUDENT_NAV))
         for col, (page_key, label) in zip(cols, STUDENT_NAV):
@@ -369,6 +401,21 @@ def render_top_nav(current_page):
                 if st.button(label, key=f"nav_{page_key}", use_container_width=True,
                              type="primary" if is_active else "secondary"):
                     go_to(page_key)
+
+    # ---- Mobile: compact bar - hamburger (☰, opens a popover with the
+    # same nav links) on the left, a direct profile icon on the right.
+    # Hidden on desktop via CSS; shown only under the mobile breakpoint. ----
+    with st.container(key="mobile_top_bar"):
+        c1, c2, c3 = st.columns([1, 3, 1])
+        with c1:
+            with st.popover("☰"):
+                for page_key, label in STUDENT_NAV:
+                    if st.button(label, key=f"mnav_pop_{page_key}", use_container_width=True):
+                        go_to(page_key)
+        with c3:
+            if st.button("👤", key="mobile_profile_btn", use_container_width=True):
+                go_to("profile")
+
     st.write("")
 
 
@@ -721,17 +768,21 @@ def page_leaderboard():
 def page_profile():
     sid = st.session_state["student_id"]
     student = sh.get_student_by_id(sid)
-    st.markdown("### 👨‍🏫 Profile")
+    st.markdown("### 👤 Profile")
     st.markdown("<div class='app-card'>", unsafe_allow_html=True)
     st.write(f"**Name:** {student['name']}")
-    st.write(f"**Phone:** {student['phone']}")
+    st.write(f"**Phone:** {sh.format_bd_phone(student['phone'])}")
     st.markdown("</div>", unsafe_allow_html=True)
 
     with st.expander("🔑 Change Password"):
-        cur_pw = st.text_input("Current password", type="password", key="prof_cur_pw")
-        new_pw1 = st.text_input("New password", type="password", key="prof_new_pw1")
+        with st.form(key="change_pw_form", clear_on_submit=False):
+            cur_pw = st.text_input("Current password", type="password", key="prof_cur_pw")
+            new_pw1 = st.text_input("New password", type="password", key="prof_new_pw1")
+            new_pw2 = st.text_input("Confirm new password", type="password", key="prof_new_pw2")
+            change_submitted = st.form_submit_button("Update Password", type="primary")
+
         if new_pw1:
-            score, label, tips = sh.password_strength(new_pw1)
+            score, label, _tips = sh.password_strength(new_pw1)
             colors = ["#ef4444", "#ef4444", "#f59e0b", "#10b981", "#059669"]
             st.markdown(
                 f"<div class='strength-bar'><div class='strength-fill' "
@@ -739,8 +790,8 @@ def page_profile():
                 f"<small>Password strength: <b>{label}</b></small>",
                 unsafe_allow_html=True,
             )
-        new_pw2 = st.text_input("Confirm new password", type="password", key="prof_new_pw2")
-        if st.button("Update Password", type="primary"):
+
+        if change_submitted:
             try:
                 sh.authenticate_student(student["phone"], cur_pw)
             except ValueError:
@@ -767,8 +818,7 @@ def page_profile():
 
 
 # =========================================================================
-# Mentor: Answer Key tab (native bubble-grid input) - kept from the
-# original app, with a clarifying notification added.
+# Mentor: Answer Key tab (native bubble-grid input)
 # =========================================================================
 
 def _inject_bubble_grid_css():
@@ -794,46 +844,69 @@ def _inject_bubble_grid_css():
     )
 
 
-def _answer_key(q):
-    return f"ans_q_{q}"
+def _answers_store():
+    """Single dict in session_state holding every question's chosen answer,
+    independent from any individual widget's mount/unmount lifecycle. Using
+    ONE dict (instead of one session_state key per question tied 1:1 to a
+    widget) is what protects against Streamlit losing answers when a page
+    of the bubble-grid (e.g. Q1-50) is unmounted while the mentor is on the
+    other page (Q51-100) - the data lives here regardless of which
+    questions are currently rendered on screen."""
+    if "mentor_answers" not in st.session_state:
+        st.session_state["mentor_answers"] = {}
+    return st.session_state["mentor_answers"]
+
+
+def _on_bubble_change(q, widget_key):
+    _answers_store()[q] = st.session_state.get(widget_key)
 
 
 def _count_answered(total_q):
-    return sum(1 for q in range(1, total_q + 1) if st.session_state.get(_answer_key(q)) is not None)
+    store = _answers_store()
+    return sum(1 for q in range(1, total_q + 1) if store.get(q) is not None)
 
 
 def _build_answer_string(total_q):
-    return "".join(st.session_state.get(_answer_key(q)) or "?" for q in range(1, total_q + 1))
+    store = _answers_store()
+    return "".join(store.get(q) or "?" for q in range(1, total_q + 1))
 
 
 def _render_bubble_block(q_start, q_end):
+    store = _answers_store()
+    options = ["A", "B", "C", "D"]
     for q in range(q_start, q_end + 1):
         num_col, radio_col = st.columns([0.55, 3], gap="small")
+        widget_key = f"ans_q_{q}"
         with num_col:
             st.markdown(f"<div class='q-num-badge'>{q}</div>", unsafe_allow_html=True)
         with radio_col:
+            current = store.get(q)
+            idx = options.index(current) if current in options else None
             st.radio(
-                f"Q{q}", options=["A", "B", "C", "D"], index=None, horizontal=True,
-                key=_answer_key(q), label_visibility="collapsed",
+                f"Q{q}", options=options, index=idx, horizontal=True,
+                key=widget_key, label_visibility="collapsed",
+                on_change=_on_bubble_change, args=(q, widget_key),
             )
 
 
-def _time_input_12h(key_prefix, default_hour_24=9, default_minute=0):
+def _time_input_12h(label, key_prefix, default_hour_24=9, default_minute=0):
+    """Compact single-line time picker: a short label followed by
+    Hour / Minute / AM-PM selects all on the same row (no extra caption
+    row above each select, so Start + End together take just 2 lines)."""
     default_period = "PM" if default_hour_24 >= 12 else "AM"
     default_hour_12 = default_hour_24 % 12
     if default_hour_12 == 0:
         default_hour_12 = 12
-    c1, c2, c3 = st.columns([1, 1, 1])
-    with c1:
-        st.caption("Hour")
+    lbl_col, h_col, m_col, p_col = st.columns([1.1, 1, 1, 1])
+    with lbl_col:
+        st.markdown(f"<div class='time-row-label'>{label}</div>", unsafe_allow_html=True)
+    with h_col:
         hour = st.selectbox("Hour", list(range(1, 13)), index=default_hour_12 - 1,
                              key=f"{key_prefix}_hour", label_visibility="collapsed")
-    with c2:
-        st.caption("Minute")
-        minute = st.selectbox("Minute", [f"{m:02d}" for m in range(60)], index=default_minute,
+    with m_col:
+        minute = st.selectbox("Min", [f"{m:02d}" for m in range(60)], index=default_minute,
                                key=f"{key_prefix}_min", label_visibility="collapsed")
-    with c3:
-        st.caption("AM/PM")
+    with p_col:
         period = st.selectbox("AM/PM", ["AM", "PM"], index=0 if default_period == "AM" else 1,
                                key=f"{key_prefix}_period", label_visibility="collapsed")
     hour_24 = hour % 12
@@ -854,13 +927,15 @@ def render_answer_key_tab():
 
     if total_q == 100:
         st.info("ℹ️ Questions 1-50 are shown first (in two columns of 25). "
-                 "Scroll down and click **Next: 51-100** to enter the second half.")
+                 "Scroll down and click **Next: 51-100** to enter the second half. "
+                 "Your Q1-50 answers stay saved while you fill in 51-100.")
     else:
         st.info("ℹ️ Questions are shown in two columns: 1-20 and 21-40, on the same page.")
 
     if st.session_state.get("mentor_answer_total_q") != total_q:
+        st.session_state["mentor_answers"] = {}
         for q in range(1, 101):
-            st.session_state.pop(_answer_key(q), None)
+            st.session_state.pop(f"ans_q_{q}", None)
         st.session_state["mentor_answer_total_q"] = total_q
         st.session_state["mentor_answer_page"] = 1
 
@@ -869,10 +944,8 @@ def render_answer_key_tab():
     st.markdown("#### ② Exam Details")
     exam_name = st.text_input("Exam name", placeholder="e.g. Physics Model Test - 3")
     d = st.date_input("Exam date", value=date.today())
-    st.markdown("**Start time**")
-    start_t = _time_input_12h("mentor_start_t", default_hour_24=9, default_minute=0)
-    st.markdown("**End time**")
-    end_t = _time_input_12h("mentor_end_t", default_hour_24=9, default_minute=30)
+    start_t = _time_input_12h("Start time", "mentor_start_t", default_hour_24=9, default_minute=0)
+    end_t = _time_input_12h("End time", "mentor_end_t", default_hour_24=9, default_minute=30)
 
     st.divider()
 
@@ -899,8 +972,9 @@ def render_answer_key_tab():
     tool_col1, tool_col2 = st.columns(2)
     with tool_col1:
         if st.button("🗑️ Clear All", use_container_width=True):
+            st.session_state["mentor_answers"] = {}
             for q in range(1, total_q + 1):
-                st.session_state.pop(_answer_key(q), None)
+                st.session_state.pop(f"ans_q_{q}", None)
             st.rerun()
     with tool_col2:
         with st.popover("⌨️ Fill Quickly with Text", use_container_width=True):
@@ -910,8 +984,10 @@ def render_answer_key_tab():
                 if len(cleaned) != total_q or any(c not in "ABCD" for c in cleaned):
                     st.error(f"You must enter exactly {total_q} A/B/C/D characters.")
                 else:
+                    store = _answers_store()
                     for i, c in enumerate(cleaned):
-                        st.session_state[_answer_key(i + 1)] = c
+                        store[i + 1] = c
+                        st.session_state.pop(f"ans_q_{i + 1}", None)
                     st.rerun()
 
     _inject_bubble_grid_css()
@@ -967,8 +1043,9 @@ def render_answer_key_tab():
                     total_q, answer_string,
                     negative_marking=negative_marking, negative_marks_value=negative_value,
                 )
+                st.session_state["mentor_answers"] = {}
                 for q in range(1, total_q + 1):
-                    st.session_state.pop(_answer_key(q), None)
+                    st.session_state.pop(f"ans_q_{q}", None)
                 clear_all_caches()
             st.success(f"✅ Answer key for '{exam_name}' saved! Key ID: {key_id}")
 
@@ -1033,7 +1110,7 @@ def page_mentor_students():
             with c1:
                 status = "🔴 Disabled" if disabled else "🟢 Active"
                 st.markdown(f"**{row['name']}** &nbsp; {status}")
-                st.caption(f"📱 {row['phone']} · Tests: {tests_taken} · Avg: {avg_score}%")
+                st.caption(f"📱 {sh.format_bd_phone(row['phone'])} · Tests: {tests_taken} · Avg: {avg_score}%")
             with c2:
                 toggle_label = "Enable" if disabled else "Disable"
                 if st.button(toggle_label, key=f"toggle_{sid}", use_container_width=True):
@@ -1139,7 +1216,7 @@ def page_mentor_results():
 
 
 # =========================================================================
-# Mentor: OMR Sheet Setup (calibration) - kept from original
+# Mentor: OMR Sheet Setup (calibration)
 # =========================================================================
 
 def page_mentor_calibration():
@@ -1230,10 +1307,14 @@ def page_mentor_calibration():
 def page_mentor_settings():
     st.subheader("🔑 Change Mentor Password")
     st.caption("This password is for you (the mentor) only.")
-    current_pw = st.text_input("Current password", type="password", key="cur_pw")
-    new_pw1 = st.text_input("New password", type="password", key="new_pw1")
+    with st.form(key="mentor_pw_form", clear_on_submit=False):
+        current_pw = st.text_input("Current password", type="password", key="cur_pw")
+        new_pw1 = st.text_input("New password", type="password", key="new_pw1")
+        new_pw2 = st.text_input("Re-enter new password", type="password", key="new_pw2")
+        submitted = st.form_submit_button("✅ Update Password", type="primary")
+
     if new_pw1:
-        score, label, tips = sh.password_strength(new_pw1)
+        score, label, _tips = sh.password_strength(new_pw1)
         colors = ["#ef4444", "#ef4444", "#f59e0b", "#10b981", "#059669"]
         st.markdown(
             f"<div class='strength-bar'><div class='strength-fill' "
@@ -1241,8 +1322,8 @@ def page_mentor_settings():
             f"<small>Password strength: <b>{label}</b></small>",
             unsafe_allow_html=True,
         )
-    new_pw2 = st.text_input("Re-enter new password", type="password", key="new_pw2")
-    if st.button("✅ Update Password", type="primary"):
+
+    if submitted:
         if current_pw != sh.get_mentor_password():
             st.error("Current password is incorrect.")
         elif not new_pw1:
@@ -1269,8 +1350,10 @@ def is_mentor():
     if st.session_state.get("mentor_authed"):
         return True
     st.markdown("### 👨‍🏫 Mentor Login")
-    pw = st.text_input("Mentor password", type="password", key="mentor_pw")
-    if st.button("Mentor Login", type="primary"):
+    with st.form(key="mentor_login_form", clear_on_submit=False):
+        pw = st.text_input("Mentor password", type="password", key="mentor_pw")
+        submitted = st.form_submit_button("Mentor Login", type="primary")
+    if submitted:
         if pw == sh.get_mentor_password():
             st.session_state["mentor_authed"] = True
             st.rerun()
@@ -1295,6 +1378,8 @@ def page_mentor():
         return
 
     current = st.session_state.get("mentor_page", "m_dashboard")
+
+    # ---- Desktop: full nav row ----
     with st.container(key="top_nav"):
         cols = st.columns(len(MENTOR_NAV))
         for col, (page_key, label) in zip(cols, MENTOR_NAV):
@@ -1303,6 +1388,22 @@ def page_mentor():
                              type="primary" if current == page_key else "secondary"):
                     st.session_state["mentor_page"] = page_key
                     st.rerun()
+
+    # ---- Mobile: hamburger with the same links + profile-style icon spot ----
+    with st.container(key="mobile_top_bar"):
+        c1, c2, c3 = st.columns([1, 3, 1])
+        with c1:
+            with st.popover("☰"):
+                for page_key, label in MENTOR_NAV:
+                    if st.button(label, key=f"mmnav_pop_{page_key}", use_container_width=True):
+                        st.session_state["mentor_page"] = page_key
+                        st.rerun()
+        with c3:
+            if st.button("🚪", key="mobile_mentor_logout_btn", use_container_width=True,
+                         help="Log out of Mentor Panel"):
+                st.session_state["mentor_authed"] = False
+                go_to("home")
+
     st.write("")
 
     if current == "m_dashboard":
@@ -1334,8 +1435,14 @@ def main():
     if not check_app_password():
         return
 
-    with st.spinner("Connecting..."):
-        sh.init_sheets()
+    # Only run the sheet-initialization/spinner once per browser session -
+    # not on every single click/rerun. Re-running init_sheets() on every
+    # interaction was one of the causes of the extra delay/flicker on
+    # mobile (a "Connecting..." spinner flashing on every tap).
+    if not st.session_state.get("_sheets_ready"):
+        with st.spinner("Connecting..."):
+            sh.init_sheets()
+        st.session_state["_sheets_ready"] = True
 
     restore_page_from_url()
 
@@ -1360,8 +1467,9 @@ def main():
         page_student_auth()
         return
 
-    # Logged-in student pages keep a small, unobtrusive mentor entry point
-    # in the top-right corner (previous behaviour, restyled).
+    # Logged-in student pages keep a small, quiet mentor entry point in the
+    # top-right corner on desktop (hidden on mobile - mobile gets its own
+    # compact hamburger/profile bar inside render_top_nav instead).
     top_col1, top_col2 = st.columns([4, 1])
     with top_col2:
         with st.container(key="mentor_entry_wrap"):
