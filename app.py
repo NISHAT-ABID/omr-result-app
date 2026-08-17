@@ -201,6 +201,13 @@ def inject_global_css():
         }
         .omr-bubble.correct { background:#22c55e; border-color:#22c55e; color:#fff; opacity:1; }
         .omr-bubble.wrong { background:#ef4444; border-color:#ef4444; color:#fff; opacity:1; }
+        .dt-star { color:#ef4444; font-weight:800; margin-left:2px; }
+        .double-touch-note {
+            margin-top:10px; padding:10px 12px; border-radius:10px;
+            background: rgba(239,68,68,0.10); border:1px solid rgba(239,68,68,0.35);
+            font-size:13px;
+        }
+        .double-touch-note b { color:#ef4444; }
 
         .strength-bar { height:6px; border-radius:4px; background:rgba(128,128,128,0.2); overflow:hidden; margin-top:4px; }
         .strength-fill { height:100%; border-radius:4px; }
@@ -734,27 +741,48 @@ def page_home():
 
 def render_omr_review(rows):
     """rows = omr_scanner.build_review_rows() output, already filtered to
-    wrong + skipped only."""
+    wrong + skipped only. A row with given == "MULTI" means the student
+    touched 2+ bubbles on that question (double-touch) - it's always
+    scored as wrong (marks deducted under negative marking) even if the
+    correct answer happened to be one of the touched bubbles.
+    """
     if not rows:
         st.success("🎉 No wrong or skipped answers!")
         return
+
+    double_touch_qs = []
     html = ["<div>"]
     for row in rows:
         q, given, correct_ans, status = row["q"], row["given"], row["correct"], row["status"]
+        is_double = (given == "MULTI")
+        if is_double:
+            double_touch_qs.append(q)
+
         tag = "<span class='omr-tag wrong-tag'>Wrong</span>" if status == "wrong" else "<span class='omr-tag skip-tag'>Skipped</span>"
         bubbles = ""
         for opt in ["A", "B", "C", "D"]:
             cls = "omr-bubble"
             if opt == correct_ans:
                 cls += " correct"
-            elif status == "wrong" and opt == given:
+            elif status == "wrong" and not is_double and opt == given:
                 cls += " wrong"
             bubbles += f"<span class='{cls}'>{opt}</span>"
+
+        q_label = f"Q{q}<span class='dt-star'>*</span>" if is_double else f"Q{q}"
         html.append(
-            f"<div class='omr-row'><span class='omr-qnum'>Q{q}</span>{tag}<span>{bubbles}</span></div>"
+            f"<div class='omr-row'><span class='omr-qnum'>{q_label}</span>{tag}<span>{bubbles}</span></div>"
         )
     html.append("</div>")
     st.markdown("".join(html), unsafe_allow_html=True)
+
+    if double_touch_qs:
+        qs_text = ", ".join(f"{q}*" for q in double_touch_qs)
+        word = "question" if len(double_touch_qs) == 1 else "questions"
+        st.markdown(
+            f"<div class='double-touch-note'>⚠️ <b>{qs_text}</b> - double touch on this {word}, "
+            "marks deducted.</div>",
+            unsafe_allow_html=True,
+        )
 
 
 def render_result_detail(result_row, key_row):
@@ -886,18 +914,20 @@ def page_tests_results():
 
                     points_info = omr_scanner.calibration_points_info(total_q)
                     calib_points = st.session_state.get("submit_calib_points", [])
+                    total_points = len(points_info)
 
                     st.markdown("#### 🎯 Calibrate Your Sheet")
                     st.caption(
-                        "Tap the exact CENTER of these 4 bubbles on YOUR photo above, in order. "
-                        "This has to be done for every submission since every photo is a little "
-                        "different - it's what makes the reading accurate."
+                        f"Tap the exact CENTER of these {total_points} bubbles on YOUR photo above, "
+                        "in order (a top AND bottom point for every question block, so the reading "
+                        "stays accurate even if the sheet is a little curved, folded, or tilted in "
+                        "the photo)."
                     )
 
-                    if len(calib_points) < 4:
+                    if len(calib_points) < total_points:
                         step = points_info[len(calib_points)]
                         st.markdown(
-                            f"<span class='calib-step-badge'>Step {len(calib_points) + 1} of 4</span> "
+                            f"<span class='calib-step-badge'>Step {len(calib_points) + 1} of {total_points}</span> "
                             f"&nbsp; Now tap: **{step['full']}**",
                             unsafe_allow_html=True,
                         )
@@ -908,8 +938,8 @@ def page_tests_results():
                                 calib_points.append(pt)
                                 st.session_state["submit_calib_points"] = calib_points
                                 st.rerun()
-                    else:
-                        st.success("✅ All 4 points marked!")
+                 else:
+                        st.success(f"✅ All {total_points} points marked!")
                         chip_html = "".join(
                             f"<span class='calib-point-chip'>{info['short']}: {pt}</span>"
                             for info, pt in zip(points_info, calib_points)
@@ -935,8 +965,8 @@ def page_tests_results():
                                     st.warning("You've already submitted this test.")
                                 else:
                                     calibration = {
-                                        "p1": calib_points[0], "p2": calib_points[1],
-                                        "p3": calib_points[2], "p4": calib_points[3],
+                                        info["key"]: pt
+                                        for info, pt in zip(points_info, calib_points)
                                     }
                                     grid = omr_scanner.build_grid(calibration, total_questions=active_now["total_questions"])
                                     radius = omr_scanner.compute_bubble_radius(img_bgr)
@@ -1874,8 +1904,6 @@ def page_mentor_calibration():
     total_q = next(tq for tq, label in CALIB_LAYOUT_OPTIONS if label == layout_choice)
     layout_key = str(total_q)
 
-    # Reset in-progress click points if the mentor switches which layout
-    # they're setting up, so points from one layout never leak into another.
     if st.session_state.get("calib_active_layout") != total_q:
         st.session_state["calib_active_layout"] = total_q
         st.session_state["calib_points"] = []
@@ -1904,7 +1932,9 @@ def page_mentor_calibration():
 
     st.markdown(
         f"Upload a **straight, clear photo of a blank {layout_choice.split(' ', 1)[1]} OMR sheet**, "
-        "then click 4 points on the image below in this order:"
+        f"then click these {len(points_info)} points on the image below in this order "
+        "(a top and bottom point for every question block keeps the reading accurate even "
+        "if the sheet isn't perfectly flat in the photo):"
     )
     for i, info in enumerate(points_info, start=1):
         st.markdown(f"{i}. **{info['full']}**")
@@ -1916,20 +1946,14 @@ def page_mentor_calibration():
         return
 
     image = Image.open(uploaded).convert("RGB")
-    # Same EXIF-orientation fix as the student flow, so a sideways phone
-    # photo doesn't throw off where the clicked points land.
     image = ImageOps.exif_transpose(image)
     img_bgr = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
 
-    # NOTE: detect_and_warp() was removed here on purpose. It tries to find
-    # the sheet's 4-corner outline automatically, but on real phone photos
-    # it sometimes locks onto the wrong rectangle (e.g. just one printed
-    # block instead of the whole sheet), which crops the image down to a
-    # tiny section - exactly the bug reported. The student submission flow
-    # never used detect_and_warp either (it just resizes the original,
-    # oriented photo) and works reliably, so we do the same thing here for
-    # consistency. This calibration is reference-only (never used for
-    # actual scoring), so skipping the perspective-warp is perfectly fine.
+    # detect_and_warp() is intentionally NOT used here anymore - it sometimes
+    # locked onto the wrong rectangle (e.g. just one printed block) and
+    # cropped the image down to a tiny section. The student flow never used
+    # it either and works reliably, so we just resize the original photo
+    # for display instead. This calibration is reference-only.
     warped_display_bgr = omr_scanner.resize_max_dim(
         img_bgr, max_dim=omr_scanner.STUDENT_DISPLAY_MAX_DIM
     )
@@ -1941,7 +1965,7 @@ def page_mentor_calibration():
 
     current_step = len(st.session_state["calib_points"])
 
-    if current_step < 4:
+    if current_step < len(points_info):
         st.info(f"Now click: **{points_info[current_step]['full']}**")
         coords = streamlit_image_coordinates(warped_pil, key=f"calib_img_{total_q}")
         if coords is not None:
@@ -1950,7 +1974,7 @@ def page_mentor_calibration():
                 st.session_state["calib_points"].append(pt)
                 st.rerun()
     else:
-        st.success("All 4 points have been clicked!")
+        st.success(f"All {len(points_info)} points have been clicked!")
         pts = st.session_state["calib_points"]
         for info, pt in zip(points_info, pts):
             st.write(f"- {info['short']}: {pt}")
@@ -1962,9 +1986,9 @@ def page_mentor_calibration():
         with col2:
             if st.button("💾 Save Setup", type="primary", key=f"calib_save_{total_q}"):
                 layout_calibration = {
-                    "p1": pts[0], "p2": pts[1], "p3": pts[2], "p4": pts[3],
-                    "total_questions": total_q,
+                    info["key"]: pt for info, pt in zip(points_info, pts)
                 }
+                layout_calibration["total_questions"] = total_q
                 updated_calibration = dict(all_calibration)
                 updated_calibration[layout_key] = layout_calibration
                 with st.spinner("Saving..."):
