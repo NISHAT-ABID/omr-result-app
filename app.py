@@ -36,7 +36,7 @@ def inject_global_css():
         """
         <style>
         .block-container {
-            padding-top: 1.0rem;
+            padding-top: 2.6rem;
             padding-bottom: 3.0rem;
             max-width: 1180px;
         }
@@ -562,8 +562,12 @@ def render_top_nav(current_page):
                 st.session_state["student_mobile_menu_open"] = not is_open
                 st.rerun()
         with c3:
-            if st.button("👤", key="mobile_profile_btn", help="Profile"):
-                go_to("profile")
+            # Only show the profile shortcut when the menu is CLOSED - once
+            # open, the menu list below already has "Profile" in it, so
+            # keeping this icon too was a redundant, confusing duplicate.
+            if not is_open:
+                if st.button("👤", key="mobile_profile_btn", help="Profile"):
+                    go_to("profile")
 
     if st.session_state.get("student_mobile_menu_open", False):
         st.markdown("<div class='mobile-menu-card'>", unsafe_allow_html=True)
@@ -1783,6 +1787,12 @@ def page_mentor_settings():
                 st.success("Password changed! Please log in again with the new password.")
                 st.rerun()
 
+    st.divider()
+    st.caption("You can also log out of the Mentor Panel from here.")
+    if st.button("🚪 Log Out of Mentor Panel", key="mentor_settings_logout", use_container_width=True):
+        st.session_state["mentor_authed"] = False
+        go_to("home")
+
 
 # =========================================================================
 # Mentor Panel
@@ -1847,9 +1857,17 @@ def page_mentor():
                 st.session_state["mentor_mobile_menu_open"] = not is_open
                 st.rerun()
         with c3:
-            if st.button("🚪", key="mobile_mentor_logout_btn", help="Log out of Mentor Panel"):
-                st.session_state["mentor_authed"] = False
-                go_to("home")
+            # Only show the Settings shortcut when the menu is CLOSED - once
+            # open, "⚙️ Settings" is already in the list below, so keeping
+            # both was a redundant, confusing duplicate. Settings itself has
+            # both the password-change form and Log Out, matching the PC
+            # experience (a Settings nav item, not a bare logout icon).
+            if not is_open:
+                if st.button("⚙️", key="mobile_mentor_settings_btn", help="Settings"):
+                    st.session_state["mentor_page"] = "m_settings"
+                    st.session_state.pop("mentor_analysis_sid", None)
+                    st.session_state.pop("mentor_analysis_view_key_id", None)
+                    go_to("mentor")
 
     if st.session_state.get("mentor_mobile_menu_open", False):
         st.markdown("<div class='mobile-menu-card'>", unsafe_allow_html=True)
