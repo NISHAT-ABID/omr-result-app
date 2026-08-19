@@ -40,51 +40,84 @@ def inject_global_css():
             padding-bottom: 3.0rem;
             max-width: 1180px;
         }
-        * { transition: background-color .15s ease, color .15s ease, opacity .15s ease; }
+        * { transition: background-color .15s ease, color .15s ease, opacity .15s ease, box-shadow .15s ease; }
+
+        /* ---- Med Venture brand tokens ---- */
+        :root {
+            --mv-teal: #14b8a6;
+            --mv-teal-dark: #0d9488;
+            --mv-cyan: #22d3ee;
+            --mv-surface: rgba(20,184,166,0.055);
+            --mv-surface-strong: rgba(20,184,166,0.11);
+            --mv-border: rgba(20,184,166,0.22);
+            --mv-glow: rgba(20,184,166,0.18);
+        }
+        html[data-theme="dark"] {
+            --mv-surface: rgba(20,184,166,0.10);
+            --mv-surface-strong: rgba(20,184,166,0.20);
+            --mv-border: rgba(45,212,191,0.38);
+            --mv-glow: rgba(45,212,191,0.30);
+        }
+
+        /* Whole-app wash so the theme reads immediately, in both modes */
+        .stApp {
+            background-image:
+                radial-gradient(circle at 12% 0%, rgba(20,184,166,0.10), transparent 42%),
+                radial-gradient(circle at 100% 15%, rgba(34,211,238,0.08), transparent 40%);
+            background-attachment: fixed;
+        }
+        html[data-theme="dark"] .stApp {
+            background-image:
+                radial-gradient(circle at 12% 0%, rgba(45,212,191,0.16), transparent 42%),
+                radial-gradient(circle at 100% 15%, rgba(34,211,238,0.12), transparent 40%);
+        }
 
         /* ---- App accent color override (teal, Med Venture brand) ---- */
         button[kind="primary"], .stButton>button[kind="primary"], .stFormSubmitButton>button[kind="primary"] {
-            background-color: #0d9488 !important;
-            border-color: #0d9488 !important;
+            background: linear-gradient(135deg, var(--mv-teal-dark), var(--mv-teal)) !important;
+            border-color: var(--mv-teal-dark) !important;
             color: #fff !important;
+            box-shadow: 0 3px 12px var(--mv-glow) !important;
         }
         button[kind="primary"]:hover, .stButton>button[kind="primary"]:hover, .stFormSubmitButton>button[kind="primary"]:hover {
-            background-color: #0f766e !important;
-            border-color: #0f766e !important;
+            filter: brightness(1.08);
+            box-shadow: 0 5px 18px var(--mv-glow) !important;
         }
-        input[type="radio"], input[type="checkbox"] { accent-color: #0d9488 !important; }
+        input[type="radio"], input[type="checkbox"] { accent-color: var(--mv-teal) !important; }
         div[role="radiogroup"] label[data-baseweb="radio"] div:first-child,
         [data-testid="stRadio"] label span[data-testid] {
-            border-color: #0d9488 !important;
+            border-color: var(--mv-teal) !important;
         }
         div[data-baseweb="radio"] div[aria-checked="true"] {
-            border-color: #0d9488 !important;
-            background-color: #0d9488 !important;
+            border-color: var(--mv-teal) !important;
+            background-color: var(--mv-teal) !important;
         }
-        .stProgress > div > div > div > div { background-color: #0d9488 !important; }
+        .stProgress > div > div > div > div {
+            background: linear-gradient(90deg, var(--mv-teal-dark), var(--mv-cyan)) !important;
+        }
+        .stTabs [data-baseweb="tab-highlight"] { background-color: var(--mv-teal) !important; }
+        .stTabs [data-baseweb="tab"][aria-selected="true"] { color: var(--mv-teal) !important; }
+        [data-testid="stFileUploaderDropzone"] { border-color: var(--mv-border) !important; }
 
-        /* ---- Brand logo / wordmark ---- */
+        /* ---- Brand logo / wordmark (icon-based, no letterform) ---- */
         .mv-logo-wrap {
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 10px;
+            gap: 11px;
             margin-bottom: 4px;
         }
         .mv-logo-mark {
-            width: 40px;
-            height: 40px;
-            border-radius: 11px;
-            background: linear-gradient(135deg, #0d9488, #14b8a6);
+            width: 42px;
+            height: 42px;
+            border-radius: 12px;
+            background: linear-gradient(135deg, var(--mv-teal-dark), var(--mv-teal) 55%, var(--mv-cyan));
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 19px;
-            font-weight: 800;
-            color: #fff;
-            letter-spacing: -0.5px;
-            box-shadow: 0 4px 14px rgba(13,148,136,0.35);
+            box-shadow: 0 4px 16px var(--mv-glow);
         }
+        .mv-logo-mark svg { width: 22px; height: 22px; display: block; }
         .mv-logo-text {
             font-size: 25px;
             font-weight: 800;
@@ -92,7 +125,12 @@ def inject_global_css():
             color: var(--text-color, inherit);
             line-height: 1.15;
         }
-        .mv-logo-text .mv-accent { color: #0d9488; }
+        .mv-logo-text .mv-accent {
+            background: linear-gradient(90deg, var(--mv-teal-dark), var(--mv-cyan));
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
         .mv-logo-tagline {
             text-align: center;
             font-size: 12.5px;
@@ -104,11 +142,43 @@ def inject_global_css():
         .mv-inline-logo {
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 9px;
             margin-bottom: 14px;
         }
-        .mv-inline-logo .mv-logo-mark { width: 30px; height: 30px; font-size: 14px; border-radius: 9px; }
+        .mv-inline-logo .mv-logo-mark { width: 32px; height: 32px; border-radius: 10px; }
+        .mv-inline-logo .mv-logo-mark svg { width: 17px; height: 17px; }
         .mv-inline-logo .mv-logo-text { font-size: 17px; }
+
+        /* ---- Auth (login/signup) shell ---- */
+        .st-key-auth_shell {
+            max-width: 480px;
+            margin: 0 auto 10px;
+        }
+        .st-key-auth_shell > div {
+            padding: 26px 26px 14px;
+            border-radius: 20px;
+            border: 1px solid var(--mv-border);
+            background: var(--mv-surface);
+            box-shadow: 0 8px 30px var(--mv-glow);
+        }
+        .auth-shell-top-bar {
+            height: 4px;
+            width: 64px;
+            margin: 0 auto 18px;
+            border-radius: 999px;
+            background: linear-gradient(90deg, var(--mv-teal-dark), var(--mv-cyan));
+        }
+        .st-key-app_pw_shell {
+            max-width: 420px;
+            margin: 10px auto 0;
+        }
+        .st-key-app_pw_shell > div {
+            padding: 30px 28px;
+            border-radius: 20px;
+            border: 1px solid var(--mv-border);
+            background: var(--mv-surface);
+            box-shadow: 0 8px 30px var(--mv-glow);
+        }
 
         /* ---- Desktop navigation ---- */
         .st-key-top_nav { margin-bottom: 10px; }
@@ -117,7 +187,7 @@ def inject_global_css():
             width: 100%;
             min-height: 40px;
             border-radius: 999px !important;
-            border: 1px solid rgba(13,148,136,0.22) !important;
+            border: 1px solid var(--mv-border) !important;
             padding: 7px 8px !important;
             font-size: 13px !important;
             white-space: nowrap !important;
@@ -149,14 +219,14 @@ def inject_global_css():
             justify-content: center !important;
             font-size: 17px !important;
             margin: 0 auto !important;
-            border: 1px solid rgba(13,148,136,0.22) !important;
+            border: 1px solid var(--mv-border) !important;
         }
         .mobile-menu-card {
             margin: 6px 0 14px;
             padding: 10px;
-            border: 1px solid rgba(13,148,136,0.18);
+            border: 1px solid var(--mv-border);
             border-radius: 14px;
-            background: rgba(13,148,136,0.045);
+            background: var(--mv-surface);
         }
         .mobile-menu-card button {
             border-radius: 10px !important;
@@ -188,12 +258,12 @@ def inject_global_css():
 
         /* ---- Generic cards ---- */
         .app-card {
-            border: 1px solid rgba(13,148,136,0.16);
+            border: 1px solid var(--mv-border);
             border-radius: 16px;
             padding: 16px 18px;
             margin-bottom: 14px;
-            background: rgba(13,148,136,0.035);
-            box-shadow: 0 1px 3px rgba(15,23,42,0.04);
+            background: var(--mv-surface);
+            box-shadow: 0 2px 10px var(--mv-glow);
         }
         .app-card h4 { margin-top: 0; }
         .metric-row { display: flex; gap: 10px; flex-wrap: wrap; }
@@ -201,18 +271,18 @@ def inject_global_css():
             flex: 1 1 150px;
             border-radius: 13px;
             padding: 12px 14px;
-            background: rgba(13,148,136,0.07);
-            border: 1px solid rgba(13,148,136,0.16);
+            background: var(--mv-surface-strong);
+            border: 1px solid var(--mv-border);
         }
         .metric-box .label { font-size: 12px; opacity: .7; margin-bottom: 2px; }
-        .metric-box .value { font-size: 22px; font-weight: 700; color: #0f766e; }
+        .metric-box .value { font-size: 22px; font-weight: 700; color: var(--mv-teal); }
 
         .analysis-test-card {
-            border: 1px solid rgba(13,148,136,0.15);
+            border: 1px solid var(--mv-border);
             border-radius: 13px;
             padding: 12px 14px;
             margin-bottom: 9px;
-            background: rgba(13,148,136,0.02);
+            background: var(--mv-surface);
         }
         .analysis-subtle { opacity: .68; font-size: 12px; }
         .analysis-title { font-weight: 700; font-size: 15px; }
@@ -224,30 +294,31 @@ def inject_global_css():
         .rank-gold { background:#fde68a; color:#78350f; }
         .rank-silver { background:#e5e7eb; color:#374151; }
         .rank-bronze { background:#fbcfe8; color:#831843; }
-        .rank-you { background:#99f6e4; color:#134e4a; }
+        .rank-you { background: var(--mv-surface-strong); color: var(--mv-teal); border: 1px solid var(--mv-border); }
 
         .lb-row {
             display:flex; align-items:center; gap:10px; padding:10px 12px;
-            border-radius:10px; margin-bottom:6px; border:1px solid rgba(13,148,136,0.10);
+            border-radius:10px; margin-bottom:6px; border:1px solid var(--mv-border);
+            background: var(--mv-surface);
             flex-wrap: wrap;
         }
-        .lb-row.me { background: rgba(13,148,136,0.12); border-color: rgba(13,148,136,0.4); }
+        .lb-row.me { background: var(--mv-surface-strong); border-color: var(--mv-teal); }
 
         /* ---- OMR review bubbles ---- */
         .omr-row {
             display:flex; align-items:center; gap:10px; padding:8px 4px;
-            border-bottom:1px solid rgba(13,148,136,0.13);
+            border-bottom:1px solid var(--mv-border);
         }
         .omr-qnum { width:44px; font-weight:700; font-size:13px; opacity:.8; }
         .omr-tag { font-size:11px; padding:2px 8px; border-radius:999px; margin-right:8px; font-weight:600; }
         .omr-tag.wrong-tag { background:#fee2e2; color:#991b1b; }
         .omr-tag.skip-tag { background:#e5e7eb; color:#374151; }
         .omr-bubble {
-            width:26px; height:26px; border-radius:50%; border:2px solid rgba(13,148,136,0.3);
+            width:26px; height:26px; border-radius:50%; border:2px solid var(--mv-border);
             display:inline-flex; align-items:center; justify-content:center;
             font-size:11px; font-weight:700; margin-right:6px; opacity:.85;
         }
-        .omr-bubble.correct { background:#0d9488; border-color:#0d9488; color:#fff; opacity:1; }
+        .omr-bubble.correct { background: var(--mv-teal-dark); border-color: var(--mv-teal-dark); color:#fff; opacity:1; }
         .omr-bubble.wrong { background:#ef4444; border-color:#ef4444; color:#fff; opacity:1; }
         .dt-star { color:#ef4444; font-weight:800; margin-left:2px; }
         .double-touch-note {
@@ -257,18 +328,18 @@ def inject_global_css():
         }
         .double-touch-note b { color:#ef4444; }
 
-        .strength-bar { height:6px; border-radius:4px; background:rgba(13,148,136,0.15); overflow:hidden; margin-top:4px; }
+        .strength-bar { height:6px; border-radius:4px; background: var(--mv-surface-strong); overflow:hidden; margin-top:4px; }
         .strength-fill { height:100%; border-radius:4px; }
         .time-row-label { font-weight:600; padding-top:6px; font-size:14px; }
 
         .bd-phone-prefix {
-            border: 1px solid rgba(13,148,136,0.3);
+            border: 1px solid var(--mv-border);
             border-radius: 8px;
             padding: 9px 6px;
             text-align: center;
             font-weight: 600;
-            opacity: .85;
-            background: rgba(13,148,136,0.06);
+            opacity: .9;
+            background: var(--mv-surface-strong);
             white-space: nowrap;
         }
         div[class*="_phone_row"] { width: 100% !important; }
@@ -300,11 +371,12 @@ def inject_global_css():
         /* ---- Student per-submission calibration ---- */
         .calib-step-badge {
             display:inline-block; padding:4px 12px; border-radius:999px;
-            background:#99f6e4; color:#134e4a; font-weight:700; font-size:13px;
+            background: var(--mv-surface-strong); color: var(--mv-teal); border: 1px solid var(--mv-border);
+            font-weight:700; font-size:13px;
         }
         .calib-point-chip {
             display:inline-block; padding:4px 10px; border-radius:999px;
-            background:rgba(13,148,136,0.15); color:#0f766e; font-weight:600;
+            background: var(--mv-surface-strong); color: var(--mv-teal); font-weight:600;
             font-size:12px; margin:2px 4px 2px 0;
         }
 
@@ -329,16 +401,24 @@ def inject_global_css():
     )
 
 
+MV_LOGO_ICON_SVG = """
+<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M3 12.5h3.4l1.8-5.2 3.4 10.4 2.2-8 1.6 2.8H21"
+          stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
+"""
+
+
 def render_brand_logo(inline=False, with_tagline=True):
-    """Minimal text-based Med Venture wordmark: a small rounded 'M' mark
-    plus the app name, and a soft tagline underneath. Used at the top of
-    the login screen (full size) and can optionally render as a compact
-    inline version for other headers."""
+    """Minimal, icon-based Med Venture mark (a small pulse/vital-line glyph
+    on a teal-to-cyan tile - no letterform) plus the wordmark, and a soft
+    tagline underneath. Used at the top of the login screen (full size) and
+    can optionally render as a compact inline version for other headers."""
     if inline:
         st.markdown(
-            """
+            f"""
             <div class="mv-inline-logo">
-                <div class="mv-logo-mark">M</div>
+                <div class="mv-logo-mark">{MV_LOGO_ICON_SVG}</div>
                 <div class="mv-logo-text">The <span class="mv-accent">Med</span> Venture</div>
             </div>
             """,
@@ -347,9 +427,9 @@ def render_brand_logo(inline=False, with_tagline=True):
         return
 
     st.markdown(
-        """
+        f"""
         <div class="mv-logo-wrap">
-            <div class="mv-logo-mark">M</div>
+            <div class="mv-logo-mark">{MV_LOGO_ICON_SVG}</div>
             <div class="mv-logo-text">The <span class="mv-accent">Med</span> Venture</div>
         </div>
         """,
@@ -468,12 +548,12 @@ def check_app_password():
         return True
 
     render_brand_logo()
-    st.markdown(
-        "<p style='text-align:center; color:gray;'>Enter the access password to continue</p>",
-        unsafe_allow_html=True,
-    )
-    _, mid, _ = st.columns([1, 2, 1])
-    with mid:
+    with st.container(key="app_pw_shell"):
+        st.markdown("<div class='auth-shell-top-bar'></div>", unsafe_allow_html=True)
+        st.markdown(
+            "<p style='text-align:center; opacity:.65;'>Enter the access password to continue</p>",
+            unsafe_allow_html=True,
+        )
         with st.form(key="app_pw_form", clear_on_submit=False):
             pw = st.text_input("Password", type="password", label_visibility="collapsed",
                                 placeholder="Access password")
@@ -537,8 +617,10 @@ def student_session_is_valid():
 
 def page_student_auth():
     render_brand_logo()
-    st.markdown("<h2 style='text-align:center;'>🎓 Student Login</h2>", unsafe_allow_html=True)
-    tab_login, tab_signup, tab_forgot = st.tabs(["Log In", "Sign Up", "Forgot Password"])
+    auth_shell = st.container(key="auth_shell")
+    auth_shell.markdown("<div class='auth-shell-top-bar'></div>", unsafe_allow_html=True)
+    auth_shell.markdown("<h2 style='text-align:center;'>🎓 Student Login</h2>", unsafe_allow_html=True)
+    tab_login, tab_signup, tab_forgot = auth_shell.tabs(["Log In", "Sign Up", "Forgot Password"])
 
     with tab_login:
         # Wrapped in a real st.form: this both (a) lets the browser detect
@@ -2133,9 +2215,11 @@ def page_mentor_settings():
 def is_mentor():
     if st.session_state.get("mentor_authed"):
         return True
-    render_brand_logo(inline=True)
-    st.markdown("### 🔑 Mentor Login")
-    with st.form(key="mentor_login_form", clear_on_submit=False):
+    render_brand_logo()
+    mentor_shell = st.container(key="app_pw_shell")
+    mentor_shell.markdown("<div class='auth-shell-top-bar'></div>", unsafe_allow_html=True)
+    mentor_shell.markdown("<h3 style='text-align:center;'>🔑 Mentor Login</h3>", unsafe_allow_html=True)
+    with mentor_shell.form(key="mentor_login_form", clear_on_submit=False):
         pw = st.text_input("Mentor password", type="password", key="mentor_pw")
         submitted = st.form_submit_button("Log In", type="primary", use_container_width=True)
     if submitted:
