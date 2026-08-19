@@ -84,15 +84,32 @@ def inject_global_css():
         }
 
         /* ---- App accent color override (teal, Med Venture brand) ---- */
-        button[kind="primary"], .stButton>button[kind="primary"], .stFormSubmitButton>button[kind="primary"] {
+        button[kind="primary"],
+        button[data-testid="baseButton-primary"],
+        button[data-testid="stBaseButton-primary"],
+        .stButton button[kind="primary"],
+        .stFormSubmitButton button[kind="primary"],
+        .stDownloadButton button[kind="primary"] {
             background: linear-gradient(135deg, var(--mv-teal-dark), var(--mv-teal)) !important;
             border-color: var(--mv-teal-dark) !important;
             color: #fff !important;
             box-shadow: 0 3px 12px var(--mv-glow) !important;
         }
-        button[kind="primary"]:hover, .stButton>button[kind="primary"]:hover, .stFormSubmitButton>button[kind="primary"]:hover {
+        button[kind="primary"]:hover,
+        button[data-testid="baseButton-primary"]:hover,
+        button[data-testid="stBaseButton-primary"]:hover,
+        .stButton button[kind="primary"]:hover,
+        .stFormSubmitButton button[kind="primary"]:hover,
+        .stDownloadButton button[kind="primary"]:hover {
             filter: brightness(1.08);
             box-shadow: 0 5px 18px var(--mv-glow) !important;
+        }
+        button[kind="primary"]:focus,
+        button[data-testid="baseButton-primary"]:focus,
+        button[data-testid="stBaseButton-primary"]:focus {
+            box-shadow: 0 0 0 0.18rem var(--mv-glow) !important;
+            border-color: var(--mv-teal-dark) !important;
+            color: #fff !important;
         }
         input[type="radio"], input[type="checkbox"] { accent-color: var(--mv-teal) !important; }
         div[role="radiogroup"] label[data-baseweb="radio"] div:first-child,
@@ -219,11 +236,21 @@ def inject_global_css():
             align-items: center !important;
             width: 100% !important;
             max-width: 100% !important;
+            margin: 0 !important;
         }
+        /* Streamlit gives its own columns a small negative left-margin +
+           matching padding (its internal "gap" trick). Once we force our
+           own width/flex here, that leftover negative margin was making
+           the row a bit WIDER than its parent - just enough to push the
+           right-hand icon column past the edge of the phone screen, where
+           it now sits invisible instead of scrollable. Zeroing margin AND
+           padding on every column removes that extra, unaccounted width. */
         .st-key-mobile_top_bar div[data-testid="column"] {
             width: auto !important;
             min-width: 0 !important;
             max-width: 100% !important;
+            margin: 0 !important;
+            padding: 0 !important;
         }
         /* Lock the two icon columns (☰ on the left, 👤/⚙️ on the right) to
            a fixed, small width so they never get squeezed or shoved past
@@ -392,24 +419,32 @@ def inject_global_css():
             gap: 8px !important;
             width: 100% !important;
             max-width: 100% !important;
+            margin: 0 !important;
         }
+        /* Same fix as the mobile top bar: strip Streamlit's own negative
+           margin/padding "gap" trick on each column so the row's real
+           width never exceeds its parent card - that extra width was
+           what shoved the digit box out past the +880 box / off the
+           card at high zoom or on narrow phones. */
         div[class*="_phone_row"] div[data-testid="column"] {
             width: auto !important;
             min-width: 0 !important;
             max-width: 100% !important;
+            margin: 0 !important;
+            padding: 0 !important;
         }
-        div[class*="_phone_row"] div[data-testid="column"]:first-child {
+        div[class*="_phone_row"] div[data-testid="column"]:nth-child(1) {
             flex: 0 0 68px !important;
             max-width: 68px !important;
             min-width: 68px !important;
         }
-        div[class*="_phone_row"] div[data-testid="column"]:last-child {
+        div[class*="_phone_row"] div[data-testid="column"]:nth-child(2) {
             flex: 1 1 0% !important;
             min-width: 0 !important;
             max-width: 100% !important;
         }
-        div[class*="_phone_row"] div[data-testid="column"]:last-child .stTextInput,
-        div[class*="_phone_row"] div[data-testid="column"]:last-child input {
+        div[class*="_phone_row"] div[data-testid="column"]:nth-child(2) .stTextInput,
+        div[class*="_phone_row"] div[data-testid="column"]:nth-child(2) input {
             width: 100% !important;
             max-width: 100% !important;
             box-sizing: border-box !important;
@@ -437,9 +472,10 @@ def inject_global_css():
             .lb-row { font-size: 13px; }
             .analysis-test-card { padding: 11px 12px; }
             .bd-phone-prefix { padding: 9px 3px; font-size: 13px; }
-            div[class*="_phone_row"] div[data-testid="column"]:first-child {
+            div[class*="_phone_row"] div[data-testid="column"]:nth-child(1) {
                 flex: 0 0 58px !important;
                 max-width: 58px !important;
+                min-width: 58px !important;
             }
         }
         </style>
