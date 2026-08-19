@@ -25,7 +25,43 @@ from streamlit_image_coordinates import streamlit_image_coordinates
 import omr_scanner
 import sheets_helper as sh
 
-st.set_page_config(page_title="The Med Venture", page_icon="🩺", layout="wide")
+st.set_page_config(page_title="The Med Venture — by Bushra", page_icon="🩺", layout="wide")
+
+# =========================================================================
+# Brand — The Med Venture (by Bushra)
+# A small, reusable logo mark + header block used on the entry screens.
+# Pure presentation: no session/state/logic lives here.
+# =========================================================================
+
+LOGO_SVG = """
+<svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:block;">
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="#123C39"/>
+  <path d="M32 15 L32 49 M15 32 L49 32" stroke="#F1F4F0" stroke-width="7" stroke-linecap="round"/>
+  <circle cx="47" cy="47" r="6.5" fill="#C4432E"/>
+  <circle cx="47" cy="47" r="2.2" fill="#F1F4F0"/>
+</svg>
+"""
+
+
+def render_brand_header(subtitle=None, size=44):
+    sub = f" · {subtitle}" if subtitle else ""
+    st.markdown(
+        f"""
+        <div style="display:flex; align-items:center; justify-content:center; gap:12px; margin:6px 0 2px;">
+            <div style="width:{size}px; height:{size}px; flex:none;">{LOGO_SVG}</div>
+            <div style="text-align:left; line-height:1.15;">
+                <div style="font-family:'Fraunces',Georgia,serif; font-weight:600; font-size:{int(size*0.62)}px; color:#123C39; letter-spacing:-0.01em;">
+                    The Med Venture
+                </div>
+                <div style="font-family:'IBM Plex Sans',sans-serif; font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:#7C8B83;">
+                    by Bushra{sub}
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
 
 # =========================================================================
 # Global styling - one shared stylesheet for the whole app (mobile + desktop)
@@ -34,179 +70,61 @@ st.set_page_config(page_title="The Med Venture", page_icon="🩺", layout="wide"
 def inject_global_css():
     st.markdown(
         """
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
         <style>
+        :root {
+            --mv-bg: #F1F4F0;
+            --mv-ink: #14201C;
+            --mv-primary: #123C39;
+            --mv-primary-hover: #1E5C55;
+            --mv-primary-soft: #DCEBE0;
+            --mv-accent: #C4432E;
+            --mv-accent-soft: #F4DCD5;
+            --mv-muted: #7C8B83;
+            --mv-border: rgba(18,60,57,0.16);
+            --mv-card-bg: rgba(18,60,57,0.035);
+            --serif: 'Fraunces', Georgia, serif;
+            --sans: 'IBM Plex Sans', -apple-system, sans-serif;
+            --mono: 'IBM Plex Mono', 'Courier New', monospace;
+        }
+
+        html, body, [class*="css"] { font-family: var(--sans); }
+        h1, h2, h3 { font-family: var(--serif) !important; letter-spacing: -0.01em; color: var(--mv-ink); }
+        h4, h5, h6 { font-family: var(--sans) !important; color: var(--mv-ink); }
+        .metric-box .value, [data-testid="stMetricValue"], .rank-badge,
+        .vitals-marks, code, .stCodeBlock, .analysis-title, table.wrong-table, .omr-qnum {
+            font-family: var(--mono) !important;
+        }
+
         .block-container {
             padding-top: 2.6rem;
             padding-bottom: 3.0rem;
             max-width: 1180px;
         }
-        * { transition: background-color .15s ease, color .15s ease, opacity .15s ease, box-shadow .15s ease; }
+        * { transition: background-color .15s ease, color .15s ease, opacity .15s ease; }
 
-        /* Every element is sized WITH its padding/border included. Without
-           this, "width: 100%" elements (like the phone-number input and
-           the mobile icon buttons) add their padding on top of 100%, which
-           is what was pushing them outside their card / off the right
-           edge of the screen at high browser zoom and on narrow phones. */
-        *, *::before, *::after { box-sizing: border-box !important; }
-        html, body, .stApp, [data-testid="stAppViewContainer"], [data-testid="stMain"] {
-            overflow-x: hidden !important;
-            max-width: 100vw;
-        }
-
-        /* ---- Med Venture brand tokens ---- */
-        :root {
-            --mv-teal: #14b8a6;
-            --mv-teal-dark: #0d9488;
-            --mv-cyan: #22d3ee;
-            --mv-surface: rgba(20,184,166,0.055);
-            --mv-surface-strong: rgba(20,184,166,0.11);
-            --mv-border: rgba(20,184,166,0.22);
-            --mv-glow: rgba(20,184,166,0.18);
-        }
-        html[data-theme="dark"] {
-            --mv-surface: rgba(20,184,166,0.10);
-            --mv-surface-strong: rgba(20,184,166,0.20);
-            --mv-border: rgba(45,212,191,0.38);
-            --mv-glow: rgba(45,212,191,0.30);
-        }
-
-        /* Whole-app wash so the theme reads immediately, in both modes */
-        .stApp {
-            background-image:
-                radial-gradient(circle at 12% 0%, rgba(20,184,166,0.10), transparent 42%),
-                radial-gradient(circle at 100% 15%, rgba(34,211,238,0.08), transparent 40%);
-            background-attachment: fixed;
-        }
-        html[data-theme="dark"] .stApp {
-            background-image:
-                radial-gradient(circle at 12% 0%, rgba(45,212,191,0.16), transparent 42%),
-                radial-gradient(circle at 100% 15%, rgba(34,211,238,0.12), transparent 40%);
-        }
-
-        /* ---- App accent color override (teal, Med Venture brand) ---- */
-        button[kind="primary"],
-        button[data-testid="baseButton-primary"],
-        button[data-testid="stBaseButton-primary"],
-        .stButton button[kind="primary"],
-        .stFormSubmitButton button[kind="primary"],
-        .stDownloadButton button[kind="primary"] {
-            background: linear-gradient(135deg, var(--mv-teal-dark), var(--mv-teal)) !important;
-            border-color: var(--mv-teal-dark) !important;
-            color: #fff !important;
-            box-shadow: 0 3px 12px var(--mv-glow) !important;
-        }
-        button[kind="primary"]:hover,
-        button[data-testid="baseButton-primary"]:hover,
-        button[data-testid="stBaseButton-primary"]:hover,
-        .stButton button[kind="primary"]:hover,
-        .stFormSubmitButton button[kind="primary"]:hover,
-        .stDownloadButton button[kind="primary"]:hover {
-            filter: brightness(1.08);
-            box-shadow: 0 5px 18px var(--mv-glow) !important;
-        }
-        button[kind="primary"]:focus,
-        button[data-testid="baseButton-primary"]:focus,
-        button[data-testid="stBaseButton-primary"]:focus {
-            box-shadow: 0 0 0 0.18rem var(--mv-glow) !important;
-            border-color: var(--mv-teal-dark) !important;
+        /* ---- App accent color: Med Venture deep teal (was default blue) ---- */
+        button[kind="primary"], .stButton>button[kind="primary"], .stFormSubmitButton>button[kind="primary"] {
+            background-color: var(--mv-primary) !important;
+            border-color: var(--mv-primary) !important;
             color: #fff !important;
         }
-        input[type="radio"], input[type="checkbox"] { accent-color: var(--mv-teal) !important; }
+        button[kind="primary"]:hover, .stButton>button[kind="primary"]:hover, .stFormSubmitButton>button[kind="primary"]:hover {
+            background-color: var(--mv-primary-hover) !important;
+            border-color: var(--mv-primary-hover) !important;
+        }
+        input[type="radio"], input[type="checkbox"] { accent-color: var(--mv-primary) !important; }
         div[role="radiogroup"] label[data-baseweb="radio"] div:first-child,
         [data-testid="stRadio"] label span[data-testid] {
-            border-color: var(--mv-teal) !important;
+            border-color: var(--mv-primary) !important;
         }
         div[data-baseweb="radio"] div[aria-checked="true"] {
-            border-color: var(--mv-teal) !important;
-            background-color: var(--mv-teal) !important;
+            border-color: var(--mv-primary) !important;
+            background-color: var(--mv-primary) !important;
         }
-        .stProgress > div > div > div > div {
-            background: linear-gradient(90deg, var(--mv-teal-dark), var(--mv-cyan)) !important;
-        }
-        .stTabs [data-baseweb="tab-highlight"] { background-color: var(--mv-teal) !important; }
-        .stTabs [data-baseweb="tab"][aria-selected="true"] { color: var(--mv-teal) !important; }
-        [data-testid="stFileUploaderDropzone"] { border-color: var(--mv-border) !important; }
-
-        /* ---- Brand logo / wordmark (icon-based, no letterform) ---- */
-        .mv-logo-wrap {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 11px;
-            margin-bottom: 4px;
-        }
-        .mv-logo-mark {
-            width: 42px;
-            height: 42px;
-            border-radius: 12px;
-            background: linear-gradient(135deg, var(--mv-teal-dark), var(--mv-teal) 55%, var(--mv-cyan));
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            box-shadow: 0 4px 16px var(--mv-glow);
-        }
-        .mv-logo-mark svg { width: 22px; height: 22px; display: block; }
-        .mv-logo-text {
-            font-size: 25px;
-            font-weight: 800;
-            letter-spacing: -0.4px;
-            color: var(--text-color, inherit);
-            line-height: 1.15;
-        }
-        .mv-logo-text .mv-accent {
-            background: linear-gradient(90deg, var(--mv-teal-dark), var(--mv-cyan));
-            -webkit-background-clip: text;
-            background-clip: text;
-            color: transparent;
-        }
-        .mv-logo-tagline {
-            text-align: center;
-            font-size: 12.5px;
-            opacity: .6;
-            margin-top: -2px;
-            margin-bottom: 18px;
-            letter-spacing: .2px;
-        }
-        .mv-inline-logo {
-            display: flex;
-            align-items: center;
-            gap: 9px;
-            margin-bottom: 14px;
-        }
-        .mv-inline-logo .mv-logo-mark { width: 32px; height: 32px; border-radius: 10px; }
-        .mv-inline-logo .mv-logo-mark svg { width: 17px; height: 17px; }
-        .mv-inline-logo .mv-logo-text { font-size: 17px; }
-
-        /* ---- Auth (login/signup) shell ---- */
-        .st-key-auth_shell {
-            max-width: 480px;
-            margin: 0 auto 10px;
-        }
-        .st-key-auth_shell > div {
-            padding: 26px 26px 14px;
-            border-radius: 20px;
-            border: 1px solid var(--mv-border);
-            background: var(--mv-surface);
-            box-shadow: 0 8px 30px var(--mv-glow);
-        }
-        .auth-shell-top-bar {
-            height: 4px;
-            width: 64px;
-            margin: 0 auto 18px;
-            border-radius: 999px;
-            background: linear-gradient(90deg, var(--mv-teal-dark), var(--mv-cyan));
-        }
-        .st-key-app_pw_shell {
-            max-width: 420px;
-            margin: 10px auto 0;
-        }
-        .st-key-app_pw_shell > div {
-            padding: 30px 28px;
-            border-radius: 20px;
-            border: 1px solid var(--mv-border);
-            background: var(--mv-surface);
-            box-shadow: 0 8px 30px var(--mv-glow);
-        }
+        .stProgress > div > div > div > div { background-color: var(--mv-primary) !important; }
 
         /* ---- Desktop navigation ---- */
         .st-key-top_nav { margin-bottom: 10px; }
@@ -215,7 +133,7 @@ def inject_global_css():
             width: 100%;
             min-height: 40px;
             border-radius: 999px !important;
-            border: 1px solid var(--mv-border) !important;
+            border: 1px solid rgba(128,128,128,0.25) !important;
             padding: 7px 8px !important;
             font-size: 13px !important;
             white-space: nowrap !important;
@@ -223,11 +141,7 @@ def inject_global_css():
         .st-key-top_nav button[kind="primary"] { border: none !important; }
 
         /* ---- Mobile top bar + custom expandable menu ---- */
-        .st-key-mobile_top_bar { display: none; width: 100% !important; max-width: 100% !important; }
-        .st-key-mobile_top_bar > div {
-            width: 100% !important;
-            max-width: 100% !important;
-        }
+        .st-key-mobile_top_bar { display: none; }
         .st-key-mobile_top_bar div[data-testid="stHorizontalBlock"] {
             display: flex !important;
             flex-direction: row !important;
@@ -235,34 +149,9 @@ def inject_global_css():
             gap: 8px;
             align-items: center !important;
             width: 100% !important;
-            max-width: 100% !important;
-            margin: 0 !important;
         }
-        /* Streamlit gives its own columns a small negative left-margin +
-           matching padding (its internal "gap" trick). Once we force our
-           own width/flex here, that leftover negative margin was making
-           the row a bit WIDER than its parent - just enough to push the
-           right-hand icon column past the edge of the phone screen, where
-           it now sits invisible instead of scrollable. Zeroing margin AND
-           padding on every column removes that extra, unaccounted width. */
         .st-key-mobile_top_bar div[data-testid="column"] {
             width: auto !important;
-            min-width: 0 !important;
-            max-width: 100% !important;
-            margin: 0 !important;
-            padding: 0 !important;
-        }
-        /* Lock the two icon columns (☰ on the left, 👤/⚙️ on the right) to
-           a fixed, small width so they never get squeezed or shoved past
-           the right edge of the phone screen - only the middle spacer
-           column is allowed to flex/shrink. */
-        .st-key-mobile_top_bar div[data-testid="column"]:first-child,
-        .st-key-mobile_top_bar div[data-testid="column"]:last-child {
-            flex: 0 0 44px !important;
-            max-width: 44px !important;
-        }
-        .st-key-mobile_top_bar div[data-testid="column"]:nth-child(2) {
-            flex: 1 1 auto !important;
             min-width: 0 !important;
         }
         .st-key-mobile_top_bar button {
@@ -276,15 +165,14 @@ def inject_global_css():
             justify-content: center !important;
             font-size: 17px !important;
             margin: 0 auto !important;
-            border: 1px solid var(--mv-border) !important;
-            box-sizing: border-box !important;
+            border: 1px solid rgba(128,128,128,0.25) !important;
         }
         .mobile-menu-card {
             margin: 6px 0 14px;
             padding: 10px;
-            border: 1px solid var(--mv-border);
+            border: 1px solid rgba(128,128,128,0.22);
             border-radius: 14px;
-            background: var(--mv-surface);
+            background: rgba(127,127,127,0.045);
         }
         .mobile-menu-card button {
             border-radius: 10px !important;
@@ -297,15 +185,15 @@ def inject_global_css():
         /* ---- Mentor entry point ---- */
         .st-key-mentor_entry_login button {
             background: transparent !important;
-            color: #b45309 !important;
-            border: 1px solid rgba(180,83,9,0.45) !important;
+            color: var(--mv-accent) !important;
+            border: 1px solid rgba(196,67,46,0.45) !important;
             border-radius: 999px !important;
             font-weight: 600 !important;
             font-size: 11px !important;
             padding: 4px 10px !important;
             box-shadow: none !important;
         }
-        .st-key-mentor_entry_login button:hover { background: rgba(180,83,9,0.08) !important; }
+        .st-key-mentor_entry_login button:hover { background: rgba(196,67,46,0.08) !important; }
         .mentor-entry-caption {
             text-align: center;
             opacity: .65;
@@ -317,30 +205,29 @@ def inject_global_css():
         /* ---- Generic cards ---- */
         .app-card {
             border: 1px solid var(--mv-border);
-            border-radius: 16px;
+            border-radius: 14px;
             padding: 16px 18px;
             margin-bottom: 14px;
-            background: var(--mv-surface);
-            box-shadow: 0 2px 10px var(--mv-glow);
+            background: var(--mv-card-bg);
         }
         .app-card h4 { margin-top: 0; }
         .metric-row { display: flex; gap: 10px; flex-wrap: wrap; }
         .metric-box {
             flex: 1 1 150px;
-            border-radius: 13px;
+            border-radius: 12px;
             padding: 12px 14px;
-            background: var(--mv-surface-strong);
+            background: rgba(18,60,57,0.055);
             border: 1px solid var(--mv-border);
         }
         .metric-box .label { font-size: 12px; opacity: .7; margin-bottom: 2px; }
-        .metric-box .value { font-size: 22px; font-weight: 700; color: var(--mv-teal); }
+        .metric-box .value { font-size: 22px; font-weight: 700; }
 
         .analysis-test-card {
-            border: 1px solid var(--mv-border);
-            border-radius: 13px;
+            border: 1px solid rgba(128,128,128,0.18);
+            border-radius: 12px;
             padding: 12px 14px;
             margin-bottom: 9px;
-            background: var(--mv-surface);
+            background: rgba(127,127,127,0.025);
         }
         .analysis-subtle { opacity: .68; font-size: 12px; }
         .analysis-title { font-weight: 700; font-size: 15px; }
@@ -352,31 +239,30 @@ def inject_global_css():
         .rank-gold { background:#fde68a; color:#78350f; }
         .rank-silver { background:#e5e7eb; color:#374151; }
         .rank-bronze { background:#fbcfe8; color:#831843; }
-        .rank-you { background: var(--mv-surface-strong); color: var(--mv-teal); border: 1px solid var(--mv-border); }
+        .rank-you { background: var(--mv-primary-soft); color: var(--mv-primary); }
 
         .lb-row {
             display:flex; align-items:center; gap:10px; padding:10px 12px;
-            border-radius:10px; margin-bottom:6px; border:1px solid var(--mv-border);
-            background: var(--mv-surface);
+            border-radius:10px; margin-bottom:6px; border:1px solid rgba(18,60,57,0.10);
             flex-wrap: wrap;
         }
-        .lb-row.me { background: var(--mv-surface-strong); border-color: var(--mv-teal); }
+        .lb-row.me { background: rgba(18,60,57,0.08); border-color: rgba(18,60,57,0.35); }
 
         /* ---- OMR review bubbles ---- */
         .omr-row {
             display:flex; align-items:center; gap:10px; padding:8px 4px;
-            border-bottom:1px solid var(--mv-border);
+            border-bottom:1px solid rgba(128,128,128,0.15);
         }
         .omr-qnum { width:44px; font-weight:700; font-size:13px; opacity:.8; }
         .omr-tag { font-size:11px; padding:2px 8px; border-radius:999px; margin-right:8px; font-weight:600; }
         .omr-tag.wrong-tag { background:#fee2e2; color:#991b1b; }
         .omr-tag.skip-tag { background:#e5e7eb; color:#374151; }
         .omr-bubble {
-            width:26px; height:26px; border-radius:50%; border:2px solid var(--mv-border);
+            width:26px; height:26px; border-radius:50%; border:2px solid rgba(128,128,128,0.35);
             display:inline-flex; align-items:center; justify-content:center;
             font-size:11px; font-weight:700; margin-right:6px; opacity:.85;
         }
-        .omr-bubble.correct { background: var(--mv-teal-dark); border-color: var(--mv-teal-dark); color:#fff; opacity:1; }
+        .omr-bubble.correct { background:#22c55e; border-color:#22c55e; color:#fff; opacity:1; }
         .omr-bubble.wrong { background:#ef4444; border-color:#ef4444; color:#fff; opacity:1; }
         .dt-star { color:#ef4444; font-weight:800; margin-left:2px; }
         .double-touch-note {
@@ -386,31 +272,21 @@ def inject_global_css():
         }
         .double-touch-note b { color:#ef4444; }
 
-        .strength-bar { height:6px; border-radius:4px; background: var(--mv-surface-strong); overflow:hidden; margin-top:4px; }
+        .strength-bar { height:6px; border-radius:4px; background:rgba(128,128,128,0.2); overflow:hidden; margin-top:4px; }
         .strength-fill { height:100%; border-radius:4px; }
         .time-row-label { font-weight:600; padding-top:6px; font-size:14px; }
 
         .bd-phone-prefix {
-            border: 1px solid var(--mv-border);
+            border: 1px solid rgba(128,128,128,0.35);
             border-radius: 8px;
             padding: 9px 6px;
             text-align: center;
             font-weight: 600;
-            opacity: .9;
-            background: var(--mv-surface-strong);
+            opacity: .85;
+            background: rgba(127,127,127,0.06);
             white-space: nowrap;
         }
-        div[class*="_phone_row"] {
-            width: 100% !important;
-            max-width: 100% !important;
-        }
-        /* Streamlit nests an extra wrapper div inside a keyed container -
-           that wrapper also needs to be capped at 100%, or it can stretch
-           past the card and drag the input box out with it. */
-        div[class*="_phone_row"] > div {
-            width: 100% !important;
-            max-width: 100% !important;
-        }
+        div[class*="_phone_row"] { width: 100% !important; }
         div[class*="_phone_row"] div[data-testid="stHorizontalBlock"] {
             display: flex !important;
             flex-direction: row !important;
@@ -418,47 +294,32 @@ def inject_global_css():
             align-items: center !important;
             gap: 8px !important;
             width: 100% !important;
-            max-width: 100% !important;
-            margin: 0 !important;
         }
-        /* Same fix as the mobile top bar: strip Streamlit's own negative
-           margin/padding "gap" trick on each column so the row's real
-           width never exceeds its parent card - that extra width was
-           what shoved the digit box out past the +880 box / off the
-           card at high zoom or on narrow phones. */
         div[class*="_phone_row"] div[data-testid="column"] {
             width: auto !important;
             min-width: 0 !important;
-            max-width: 100% !important;
-            margin: 0 !important;
-            padding: 0 !important;
         }
-        div[class*="_phone_row"] div[data-testid="column"]:nth-child(1) {
+        div[class*="_phone_row"] div[data-testid="column"]:first-child {
             flex: 0 0 68px !important;
             max-width: 68px !important;
-            min-width: 68px !important;
         }
-        div[class*="_phone_row"] div[data-testid="column"]:nth-child(2) {
+        div[class*="_phone_row"] div[data-testid="column"]:last-child {
             flex: 1 1 0% !important;
             min-width: 0 !important;
-            max-width: 100% !important;
         }
-        div[class*="_phone_row"] div[data-testid="column"]:nth-child(2) .stTextInput,
-        div[class*="_phone_row"] div[data-testid="column"]:nth-child(2) input {
+        div[class*="_phone_row"] div[data-testid="column"]:last-child .stTextInput,
+        div[class*="_phone_row"] div[data-testid="column"]:last-child input {
             width: 100% !important;
-            max-width: 100% !important;
-            box-sizing: border-box !important;
         }
 
         /* ---- Student per-submission calibration ---- */
         .calib-step-badge {
             display:inline-block; padding:4px 12px; border-radius:999px;
-            background: var(--mv-surface-strong); color: var(--mv-teal); border: 1px solid var(--mv-border);
-            font-weight:700; font-size:13px;
+            background: var(--mv-primary-soft); color: var(--mv-primary); font-weight:700; font-size:13px;
         }
         .calib-point-chip {
             display:inline-block; padding:4px 10px; border-radius:999px;
-            background: var(--mv-surface-strong); color: var(--mv-teal); font-weight:600;
+            background:rgba(34,197,94,0.15); color:#15803d; font-weight:600;
             font-size:12px; margin:2px 4px 2px 0;
         }
 
@@ -472,54 +333,15 @@ def inject_global_css():
             .lb-row { font-size: 13px; }
             .analysis-test-card { padding: 11px 12px; }
             .bd-phone-prefix { padding: 9px 3px; font-size: 13px; }
-            div[class*="_phone_row"] div[data-testid="column"]:nth-child(1) {
+            div[class*="_phone_row"] div[data-testid="column"]:first-child {
                 flex: 0 0 58px !important;
                 max-width: 58px !important;
-                min-width: 58px !important;
             }
         }
         </style>
         """,
         unsafe_allow_html=True,
     )
-
-
-MV_LOGO_ICON_SVG = """
-<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <path d="M3 12.5h3.4l1.8-5.2 3.4 10.4 2.2-8 1.6 2.8H21"
-          stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-</svg>
-"""
-
-
-def render_brand_logo(inline=False, with_tagline=True):
-    """Minimal, icon-based Med Venture mark (a small pulse/vital-line glyph
-    on a teal-to-cyan tile - no letterform) plus the wordmark, and a soft
-    tagline underneath. Used at the top of the login screen (full size) and
-    can optionally render as a compact inline version for other headers."""
-    if inline:
-        st.markdown(
-            f"""
-            <div class="mv-inline-logo">
-                <div class="mv-logo-mark">{MV_LOGO_ICON_SVG}</div>
-                <div class="mv-logo-text">The <span class="mv-accent">Med</span> Venture</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        return
-
-    st.markdown(
-        f"""
-        <div class="mv-logo-wrap">
-            <div class="mv-logo-mark">{MV_LOGO_ICON_SVG}</div>
-            <div class="mv-logo-text">The <span class="mv-accent">Med</span> Venture</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    if with_tagline:
-        st.markdown("<p class='mv-logo-tagline'>by Bushra</p>", unsafe_allow_html=True)
 
 
 MOTIVATIONS = [
@@ -630,13 +452,14 @@ def check_app_password():
     if st.session_state.get("authed"):
         return True
 
-    render_brand_logo()
-    with st.container(key="app_pw_shell"):
-        st.markdown("<div class='auth-shell-top-bar'></div>", unsafe_allow_html=True)
-        st.markdown(
-            "<p style='text-align:center; opacity:.65;'>Enter the access password to continue</p>",
-            unsafe_allow_html=True,
-        )
+    render_brand_header("Medical Admission Prep", size=56)
+    st.markdown(
+        "<p style='text-align:center; color:var(--mv-muted); font-family:var(--sans);'>"
+        "Enter the access password to continue</p>",
+        unsafe_allow_html=True,
+    )
+    _, mid, _ = st.columns([1, 2, 1])
+    with mid:
         with st.form(key="app_pw_form", clear_on_submit=False):
             pw = st.text_input("Password", type="password", label_visibility="collapsed",
                                 placeholder="Access password")
@@ -699,11 +522,9 @@ def student_session_is_valid():
 
 
 def page_student_auth():
-    render_brand_logo()
-    auth_shell = st.container(key="auth_shell")
-    auth_shell.markdown("<div class='auth-shell-top-bar'></div>", unsafe_allow_html=True)
-    auth_shell.markdown("<h2 style='text-align:center;'>🎓 Student Login</h2>", unsafe_allow_html=True)
-    tab_login, tab_signup, tab_forgot = auth_shell.tabs(["Log In", "Sign Up", "Forgot Password"])
+    render_brand_header(size=34)
+    st.markdown("<h2 style='text-align:center;'>🎓 Student Login</h2>", unsafe_allow_html=True)
+    tab_login, tab_signup, tab_forgot = st.tabs(["Log In", "Sign Up", "Forgot Password"])
 
     with tab_login:
         # Wrapped in a real st.form: this both (a) lets the browser detect
@@ -845,8 +666,6 @@ STUDENT_NAV = [
 
 
 def render_top_nav(current_page):
-    render_brand_logo(inline=True)
-
     # Desktop: all navigation options stay visible on laptop/desktop.
     with st.container(key="top_nav"):
         cols = st.columns(len(STUDENT_NAV))
@@ -1506,7 +1325,7 @@ def render_leaderboard_rows(df, mode, sid=None):
             trend_html = "<span style='opacity:.4;'>—</span>"
             if trend is not None and pd.notna(trend):
                 arrow = "↑" if trend >= 0 else "↓"
-                color = "#0d9488" if trend >= 0 else "#ef4444"
+                color = "#22c55e" if trend >= 0 else "#ef4444"
                 trend_html = f"<span style='color:{color}; font-weight:700;'>{arrow} {abs(trend)}%</span>"
             st.markdown(
                 f"""
@@ -1584,8 +1403,8 @@ def render_leaderboard(sid=None, key_suffix="student"):
                 f"""
                 <div class='app-card' style='margin-top:6px; display:flex; gap:22px; flex-wrap:wrap; align-items:center;'>
                     <div>🏅 <b>Your Rank</b><br><span style='font-size:20px; font-weight:700;'>#{rank}</span></div>
-                    <div>🎯 <b>Best Score</b><br><span style='font-size:20px; font-weight:700; color:#0d9488;'>{m['best_score']}</span></div>
-                    <div>📈 <b>Average Score</b><br><span style='font-size:20px; font-weight:700; color:#0f766e;'>{m['avg_percent']}%</span></div>
+                    <div>🎯 <b>Best Score</b><br><span style='font-size:20px; font-weight:700; color:#22c55e;'>{m['best_score']}</span></div>
+                    <div>📈 <b>Average Score</b><br><span style='font-size:20px; font-weight:700; color:#3b82f6;'>{m['avg_percent']}%</span></div>
                     <div>✅ <b>Accuracy</b><br><span style='font-size:20px; font-weight:700;'>{m['accuracy']}%</span></div>
                 </div>
                 """,
@@ -1677,7 +1496,7 @@ def _inject_bubble_grid_css():
         .st-key-answer_bubble_grid div[data-testid="stRadio"] > label { display: none; }
         .st-key-answer_bubble_grid div[role="radiogroup"] { gap: 6px; }
         .st-key-answer_bubble_grid div[role="radiogroup"] label {
-            border: 1px solid rgba(13,148,136,0.3);
+            border: 1px solid rgba(128,128,128,0.35);
             border-radius: 999px;
             padding: 2px 10px 2px 6px;
             margin-right: 0 !important;
@@ -2298,11 +2117,9 @@ def page_mentor_settings():
 def is_mentor():
     if st.session_state.get("mentor_authed"):
         return True
-    render_brand_logo()
-    mentor_shell = st.container(key="app_pw_shell")
-    mentor_shell.markdown("<div class='auth-shell-top-bar'></div>", unsafe_allow_html=True)
-    mentor_shell.markdown("<h3 style='text-align:center;'>🔑 Mentor Login</h3>", unsafe_allow_html=True)
-    with mentor_shell.form(key="mentor_login_form", clear_on_submit=False):
+    render_brand_header(size=34)
+    st.markdown("### 🔑 Mentor Login")
+    with st.form(key="mentor_login_form", clear_on_submit=False):
         pw = st.text_input("Mentor password", type="password", key="mentor_pw")
         submitted = st.form_submit_button("Log In", type="primary", use_container_width=True)
     if submitted:
@@ -2333,7 +2150,6 @@ def page_mentor():
     if not is_mentor():
         return
 
-    render_brand_logo(inline=True)
     st.header("👨‍🏫 Mentor Panel")
 
     current = st.session_state.get("mentor_page", "m_dashboard")
