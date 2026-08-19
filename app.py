@@ -25,7 +25,7 @@ from streamlit_image_coordinates import streamlit_image_coordinates
 import omr_scanner
 import sheets_helper as sh
 
-st.set_page_config(page_title="OMR Result App", page_icon="📝", layout="wide")
+st.set_page_config(page_title="The Med Venture", page_icon="🩺", layout="wide")
 
 # =========================================================================
 # Global styling - one shared stylesheet for the whole app (mobile + desktop)
@@ -42,26 +42,73 @@ def inject_global_css():
         }
         * { transition: background-color .15s ease, color .15s ease, opacity .15s ease; }
 
-        /* ---- App accent color override (blue instead of default orange/red) ---- */
+        /* ---- App accent color override (teal, Med Venture brand) ---- */
         button[kind="primary"], .stButton>button[kind="primary"], .stFormSubmitButton>button[kind="primary"] {
-            background-color: #2563eb !important;
-            border-color: #2563eb !important;
+            background-color: #0d9488 !important;
+            border-color: #0d9488 !important;
             color: #fff !important;
         }
         button[kind="primary"]:hover, .stButton>button[kind="primary"]:hover, .stFormSubmitButton>button[kind="primary"]:hover {
-            background-color: #1d4ed8 !important;
-            border-color: #1d4ed8 !important;
+            background-color: #0f766e !important;
+            border-color: #0f766e !important;
         }
-        input[type="radio"], input[type="checkbox"] { accent-color: #2563eb !important; }
+        input[type="radio"], input[type="checkbox"] { accent-color: #0d9488 !important; }
         div[role="radiogroup"] label[data-baseweb="radio"] div:first-child,
         [data-testid="stRadio"] label span[data-testid] {
-            border-color: #2563eb !important;
+            border-color: #0d9488 !important;
         }
         div[data-baseweb="radio"] div[aria-checked="true"] {
-            border-color: #2563eb !important;
-            background-color: #2563eb !important;
+            border-color: #0d9488 !important;
+            background-color: #0d9488 !important;
         }
-        .stProgress > div > div > div > div { background-color: #2563eb !important; }
+        .stProgress > div > div > div > div { background-color: #0d9488 !important; }
+
+        /* ---- Brand logo / wordmark ---- */
+        .mv-logo-wrap {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 4px;
+        }
+        .mv-logo-mark {
+            width: 40px;
+            height: 40px;
+            border-radius: 11px;
+            background: linear-gradient(135deg, #0d9488, #14b8a6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 19px;
+            font-weight: 800;
+            color: #fff;
+            letter-spacing: -0.5px;
+            box-shadow: 0 4px 14px rgba(13,148,136,0.35);
+        }
+        .mv-logo-text {
+            font-size: 25px;
+            font-weight: 800;
+            letter-spacing: -0.4px;
+            color: var(--text-color, inherit);
+            line-height: 1.15;
+        }
+        .mv-logo-text .mv-accent { color: #0d9488; }
+        .mv-logo-tagline {
+            text-align: center;
+            font-size: 12.5px;
+            opacity: .6;
+            margin-top: -2px;
+            margin-bottom: 18px;
+            letter-spacing: .2px;
+        }
+        .mv-inline-logo {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 14px;
+        }
+        .mv-inline-logo .mv-logo-mark { width: 30px; height: 30px; font-size: 14px; border-radius: 9px; }
+        .mv-inline-logo .mv-logo-text { font-size: 17px; }
 
         /* ---- Desktop navigation ---- */
         .st-key-top_nav { margin-bottom: 10px; }
@@ -70,7 +117,7 @@ def inject_global_css():
             width: 100%;
             min-height: 40px;
             border-radius: 999px !important;
-            border: 1px solid rgba(128,128,128,0.25) !important;
+            border: 1px solid rgba(13,148,136,0.22) !important;
             padding: 7px 8px !important;
             font-size: 13px !important;
             white-space: nowrap !important;
@@ -102,14 +149,14 @@ def inject_global_css():
             justify-content: center !important;
             font-size: 17px !important;
             margin: 0 auto !important;
-            border: 1px solid rgba(128,128,128,0.25) !important;
+            border: 1px solid rgba(13,148,136,0.22) !important;
         }
         .mobile-menu-card {
             margin: 6px 0 14px;
             padding: 10px;
-            border: 1px solid rgba(128,128,128,0.22);
+            border: 1px solid rgba(13,148,136,0.18);
             border-radius: 14px;
-            background: rgba(127,127,127,0.045);
+            background: rgba(13,148,136,0.045);
         }
         .mobile-menu-card button {
             border-radius: 10px !important;
@@ -141,30 +188,31 @@ def inject_global_css():
 
         /* ---- Generic cards ---- */
         .app-card {
-            border: 1px solid rgba(128,128,128,0.25);
-            border-radius: 14px;
+            border: 1px solid rgba(13,148,136,0.16);
+            border-radius: 16px;
             padding: 16px 18px;
             margin-bottom: 14px;
-            background: rgba(127,127,127,0.04);
+            background: rgba(13,148,136,0.035);
+            box-shadow: 0 1px 3px rgba(15,23,42,0.04);
         }
         .app-card h4 { margin-top: 0; }
         .metric-row { display: flex; gap: 10px; flex-wrap: wrap; }
         .metric-box {
             flex: 1 1 150px;
-            border-radius: 12px;
+            border-radius: 13px;
             padding: 12px 14px;
-            background: rgba(127,127,127,0.06);
-            border: 1px solid rgba(128,128,128,0.18);
+            background: rgba(13,148,136,0.07);
+            border: 1px solid rgba(13,148,136,0.16);
         }
         .metric-box .label { font-size: 12px; opacity: .7; margin-bottom: 2px; }
-        .metric-box .value { font-size: 22px; font-weight: 700; }
+        .metric-box .value { font-size: 22px; font-weight: 700; color: #0f766e; }
 
         .analysis-test-card {
-            border: 1px solid rgba(128,128,128,0.18);
-            border-radius: 12px;
+            border: 1px solid rgba(13,148,136,0.15);
+            border-radius: 13px;
             padding: 12px 14px;
             margin-bottom: 9px;
-            background: rgba(127,127,127,0.025);
+            background: rgba(13,148,136,0.02);
         }
         .analysis-subtle { opacity: .68; font-size: 12px; }
         .analysis-title { font-weight: 700; font-size: 15px; }
@@ -176,30 +224,30 @@ def inject_global_css():
         .rank-gold { background:#fde68a; color:#78350f; }
         .rank-silver { background:#e5e7eb; color:#374151; }
         .rank-bronze { background:#fbcfe8; color:#831843; }
-        .rank-you { background:#bfdbfe; color:#1e3a8a; }
+        .rank-you { background:#99f6e4; color:#134e4a; }
 
         .lb-row {
             display:flex; align-items:center; gap:10px; padding:10px 12px;
-            border-radius:10px; margin-bottom:6px; border:1px solid rgba(128,128,128,0.12);
+            border-radius:10px; margin-bottom:6px; border:1px solid rgba(13,148,136,0.10);
             flex-wrap: wrap;
         }
-        .lb-row.me { background: rgba(59,130,246,0.12); border-color: rgba(59,130,246,0.4); }
+        .lb-row.me { background: rgba(13,148,136,0.12); border-color: rgba(13,148,136,0.4); }
 
         /* ---- OMR review bubbles ---- */
         .omr-row {
             display:flex; align-items:center; gap:10px; padding:8px 4px;
-            border-bottom:1px solid rgba(128,128,128,0.15);
+            border-bottom:1px solid rgba(13,148,136,0.13);
         }
         .omr-qnum { width:44px; font-weight:700; font-size:13px; opacity:.8; }
         .omr-tag { font-size:11px; padding:2px 8px; border-radius:999px; margin-right:8px; font-weight:600; }
         .omr-tag.wrong-tag { background:#fee2e2; color:#991b1b; }
         .omr-tag.skip-tag { background:#e5e7eb; color:#374151; }
         .omr-bubble {
-            width:26px; height:26px; border-radius:50%; border:2px solid rgba(128,128,128,0.35);
+            width:26px; height:26px; border-radius:50%; border:2px solid rgba(13,148,136,0.3);
             display:inline-flex; align-items:center; justify-content:center;
             font-size:11px; font-weight:700; margin-right:6px; opacity:.85;
         }
-        .omr-bubble.correct { background:#22c55e; border-color:#22c55e; color:#fff; opacity:1; }
+        .omr-bubble.correct { background:#0d9488; border-color:#0d9488; color:#fff; opacity:1; }
         .omr-bubble.wrong { background:#ef4444; border-color:#ef4444; color:#fff; opacity:1; }
         .dt-star { color:#ef4444; font-weight:800; margin-left:2px; }
         .double-touch-note {
@@ -209,18 +257,18 @@ def inject_global_css():
         }
         .double-touch-note b { color:#ef4444; }
 
-        .strength-bar { height:6px; border-radius:4px; background:rgba(128,128,128,0.2); overflow:hidden; margin-top:4px; }
+        .strength-bar { height:6px; border-radius:4px; background:rgba(13,148,136,0.15); overflow:hidden; margin-top:4px; }
         .strength-fill { height:100%; border-radius:4px; }
         .time-row-label { font-weight:600; padding-top:6px; font-size:14px; }
 
         .bd-phone-prefix {
-            border: 1px solid rgba(128,128,128,0.35);
+            border: 1px solid rgba(13,148,136,0.3);
             border-radius: 8px;
             padding: 9px 6px;
             text-align: center;
             font-weight: 600;
             opacity: .85;
-            background: rgba(127,127,127,0.06);
+            background: rgba(13,148,136,0.06);
             white-space: nowrap;
         }
         div[class*="_phone_row"] { width: 100% !important; }
@@ -252,11 +300,11 @@ def inject_global_css():
         /* ---- Student per-submission calibration ---- */
         .calib-step-badge {
             display:inline-block; padding:4px 12px; border-radius:999px;
-            background:#dbeafe; color:#1e3a8a; font-weight:700; font-size:13px;
+            background:#99f6e4; color:#134e4a; font-weight:700; font-size:13px;
         }
         .calib-point-chip {
             display:inline-block; padding:4px 10px; border-radius:999px;
-            background:rgba(34,197,94,0.15); color:#15803d; font-weight:600;
+            background:rgba(13,148,136,0.15); color:#0f766e; font-weight:600;
             font-size:12px; margin:2px 4px 2px 0;
         }
 
@@ -279,6 +327,36 @@ def inject_global_css():
         """,
         unsafe_allow_html=True,
     )
+
+
+def render_brand_logo(inline=False, with_tagline=True):
+    """Minimal text-based Med Venture wordmark: a small rounded 'M' mark
+    plus the app name, and a soft tagline underneath. Used at the top of
+    the login screen (full size) and can optionally render as a compact
+    inline version for other headers."""
+    if inline:
+        st.markdown(
+            """
+            <div class="mv-inline-logo">
+                <div class="mv-logo-mark">M</div>
+                <div class="mv-logo-text">The <span class="mv-accent">Med</span> Venture</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        return
+
+    st.markdown(
+        """
+        <div class="mv-logo-wrap">
+            <div class="mv-logo-mark">M</div>
+            <div class="mv-logo-text">The <span class="mv-accent">Med</span> Venture</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    if with_tagline:
+        st.markdown("<p class='mv-logo-tagline'>by Bushra</p>", unsafe_allow_html=True)
 
 
 MOTIVATIONS = [
@@ -389,8 +467,8 @@ def check_app_password():
     if st.session_state.get("authed"):
         return True
 
+    render_brand_logo()
     st.markdown(
-        "<h1 style='text-align:center;'>📝 OMR Result App</h1>"
         "<p style='text-align:center; color:gray;'>Enter the access password to continue</p>",
         unsafe_allow_html=True,
     )
@@ -458,6 +536,7 @@ def student_session_is_valid():
 
 
 def page_student_auth():
+    render_brand_logo()
     st.markdown("<h2 style='text-align:center;'>🎓 Student Login</h2>", unsafe_allow_html=True)
     tab_login, tab_signup, tab_forgot = st.tabs(["Log In", "Sign Up", "Forgot Password"])
 
@@ -601,6 +680,8 @@ STUDENT_NAV = [
 
 
 def render_top_nav(current_page):
+    render_brand_logo(inline=True)
+
     # Desktop: all navigation options stay visible on laptop/desktop.
     with st.container(key="top_nav"):
         cols = st.columns(len(STUDENT_NAV))
@@ -1260,7 +1341,7 @@ def render_leaderboard_rows(df, mode, sid=None):
             trend_html = "<span style='opacity:.4;'>—</span>"
             if trend is not None and pd.notna(trend):
                 arrow = "↑" if trend >= 0 else "↓"
-                color = "#22c55e" if trend >= 0 else "#ef4444"
+                color = "#0d9488" if trend >= 0 else "#ef4444"
                 trend_html = f"<span style='color:{color}; font-weight:700;'>{arrow} {abs(trend)}%</span>"
             st.markdown(
                 f"""
@@ -1338,8 +1419,8 @@ def render_leaderboard(sid=None, key_suffix="student"):
                 f"""
                 <div class='app-card' style='margin-top:6px; display:flex; gap:22px; flex-wrap:wrap; align-items:center;'>
                     <div>🏅 <b>Your Rank</b><br><span style='font-size:20px; font-weight:700;'>#{rank}</span></div>
-                    <div>🎯 <b>Best Score</b><br><span style='font-size:20px; font-weight:700; color:#22c55e;'>{m['best_score']}</span></div>
-                    <div>📈 <b>Average Score</b><br><span style='font-size:20px; font-weight:700; color:#3b82f6;'>{m['avg_percent']}%</span></div>
+                    <div>🎯 <b>Best Score</b><br><span style='font-size:20px; font-weight:700; color:#0d9488;'>{m['best_score']}</span></div>
+                    <div>📈 <b>Average Score</b><br><span style='font-size:20px; font-weight:700; color:#0f766e;'>{m['avg_percent']}%</span></div>
                     <div>✅ <b>Accuracy</b><br><span style='font-size:20px; font-weight:700;'>{m['accuracy']}%</span></div>
                 </div>
                 """,
@@ -1431,7 +1512,7 @@ def _inject_bubble_grid_css():
         .st-key-answer_bubble_grid div[data-testid="stRadio"] > label { display: none; }
         .st-key-answer_bubble_grid div[role="radiogroup"] { gap: 6px; }
         .st-key-answer_bubble_grid div[role="radiogroup"] label {
-            border: 1px solid rgba(128,128,128,0.35);
+            border: 1px solid rgba(13,148,136,0.3);
             border-radius: 999px;
             padding: 2px 10px 2px 6px;
             margin-right: 0 !important;
@@ -2052,6 +2133,7 @@ def page_mentor_settings():
 def is_mentor():
     if st.session_state.get("mentor_authed"):
         return True
+    render_brand_logo(inline=True)
     st.markdown("### 🔑 Mentor Login")
     with st.form(key="mentor_login_form", clear_on_submit=False):
         pw = st.text_input("Mentor password", type="password", key="mentor_pw")
@@ -2084,6 +2166,7 @@ def page_mentor():
     if not is_mentor():
         return
 
+    render_brand_logo(inline=True)
     st.header("👨‍🏫 Mentor Panel")
 
     current = st.session_state.get("mentor_page", "m_dashboard")
