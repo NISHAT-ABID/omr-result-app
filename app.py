@@ -42,6 +42,17 @@ def inject_global_css():
         }
         * { transition: background-color .15s ease, color .15s ease, opacity .15s ease, box-shadow .15s ease; }
 
+        /* Every element is sized WITH its padding/border included. Without
+           this, "width: 100%" elements (like the phone-number input and
+           the mobile icon buttons) add their padding on top of 100%, which
+           is what was pushing them outside their card / off the right
+           edge of the screen at high browser zoom and on narrow phones. */
+        *, *::before, *::after { box-sizing: border-box !important; }
+        html, body, .stApp, [data-testid="stAppViewContainer"], [data-testid="stMain"] {
+            overflow-x: hidden !important;
+            max-width: 100vw;
+        }
+
         /* ---- Med Venture brand tokens ---- */
         :root {
             --mv-teal: #14b8a6;
@@ -195,7 +206,11 @@ def inject_global_css():
         .st-key-top_nav button[kind="primary"] { border: none !important; }
 
         /* ---- Mobile top bar + custom expandable menu ---- */
-        .st-key-mobile_top_bar { display: none; }
+        .st-key-mobile_top_bar { display: none; width: 100% !important; max-width: 100% !important; }
+        .st-key-mobile_top_bar > div {
+            width: 100% !important;
+            max-width: 100% !important;
+        }
         .st-key-mobile_top_bar div[data-testid="stHorizontalBlock"] {
             display: flex !important;
             flex-direction: row !important;
@@ -203,9 +218,24 @@ def inject_global_css():
             gap: 8px;
             align-items: center !important;
             width: 100% !important;
+            max-width: 100% !important;
         }
         .st-key-mobile_top_bar div[data-testid="column"] {
             width: auto !important;
+            min-width: 0 !important;
+            max-width: 100% !important;
+        }
+        /* Lock the two icon columns (☰ on the left, 👤/⚙️ on the right) to
+           a fixed, small width so they never get squeezed or shoved past
+           the right edge of the phone screen - only the middle spacer
+           column is allowed to flex/shrink. */
+        .st-key-mobile_top_bar div[data-testid="column"]:first-child,
+        .st-key-mobile_top_bar div[data-testid="column"]:last-child {
+            flex: 0 0 44px !important;
+            max-width: 44px !important;
+        }
+        .st-key-mobile_top_bar div[data-testid="column"]:nth-child(2) {
+            flex: 1 1 auto !important;
             min-width: 0 !important;
         }
         .st-key-mobile_top_bar button {
@@ -220,6 +250,7 @@ def inject_global_css():
             font-size: 17px !important;
             margin: 0 auto !important;
             border: 1px solid var(--mv-border) !important;
+            box-sizing: border-box !important;
         }
         .mobile-menu-card {
             margin: 6px 0 14px;
@@ -342,7 +373,17 @@ def inject_global_css():
             background: var(--mv-surface-strong);
             white-space: nowrap;
         }
-        div[class*="_phone_row"] { width: 100% !important; }
+        div[class*="_phone_row"] {
+            width: 100% !important;
+            max-width: 100% !important;
+        }
+        /* Streamlit nests an extra wrapper div inside a keyed container -
+           that wrapper also needs to be capped at 100%, or it can stretch
+           past the card and drag the input box out with it. */
+        div[class*="_phone_row"] > div {
+            width: 100% !important;
+            max-width: 100% !important;
+        }
         div[class*="_phone_row"] div[data-testid="stHorizontalBlock"] {
             display: flex !important;
             flex-direction: row !important;
@@ -350,22 +391,28 @@ def inject_global_css():
             align-items: center !important;
             gap: 8px !important;
             width: 100% !important;
+            max-width: 100% !important;
         }
         div[class*="_phone_row"] div[data-testid="column"] {
             width: auto !important;
             min-width: 0 !important;
+            max-width: 100% !important;
         }
         div[class*="_phone_row"] div[data-testid="column"]:first-child {
             flex: 0 0 68px !important;
             max-width: 68px !important;
+            min-width: 68px !important;
         }
         div[class*="_phone_row"] div[data-testid="column"]:last-child {
             flex: 1 1 0% !important;
             min-width: 0 !important;
+            max-width: 100% !important;
         }
         div[class*="_phone_row"] div[data-testid="column"]:last-child .stTextInput,
         div[class*="_phone_row"] div[data-testid="column"]:last-child input {
             width: 100% !important;
+            max-width: 100% !important;
+            box-sizing: border-box !important;
         }
 
         /* ---- Student per-submission calibration ---- */
