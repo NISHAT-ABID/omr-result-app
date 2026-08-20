@@ -43,20 +43,41 @@ LOGO_SVG = """
 """
 
 
-def render_brand_header(subtitle=None, size=44):
-    sub = f" · {subtitle}" if subtitle else ""
+def render_hero(eyebrow, heading_html=None, tagline=None, compact=False, pulse=True):
+    """Full hero-style entry header - mirrors the Med Venture web app's
+    role-selection screen: dotted background, logo, eyebrow badge, big
+    serif heading, optional tagline, and the animated pulse-line. Used on
+    every entry/gate screen (password gate, student login, mentor login)
+    so the whole app opens the same way the web app does. Presentation
+    only - no session/state/logic lives here."""
+    logo_size = 40 if compact else 52
+    heading = heading_html or "The Med <span style='color:var(--mv-accent);font-style:italic;'>Venture</span>"
+    tag_html = (
+        f"<p style='font-family:var(--sans);color:var(--mv-muted);font-size:14px;"
+        f"max-width:420px;margin:8px auto 0;line-height:1.55;'>{tagline}</p>"
+        if tagline else ""
+    )
+    pulse_html = f"""
+        <svg viewBox="0 0 400 40" preserveAspectRatio="none"
+             style="width:100%;max-width:260px;height:24px;color:var(--mv-accent);opacity:.6;margin:16px auto 2px;display:block;">
+            <path d="M0,20 L110,20 L128,4 L145,36 L162,20 L400,20" fill="none"
+                  stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        """ if pulse else ""
     st.markdown(
         f"""
-        <div style="display:flex; align-items:center; justify-content:center; gap:12px; margin:6px 0 2px;">
-            <div style="width:{size}px; height:{size}px; flex:none;">{LOGO_SVG}</div>
-            <div style="text-align:left; line-height:1.15;">
-                <div style="font-family:'Fraunces',Georgia,serif; font-weight:600; font-size:{int(size*0.62)}px; color:#123C39; letter-spacing:-0.01em;">
-                    The Med Venture
-                </div>
-                <div style="font-family:'IBM Plex Sans',sans-serif; font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:#7C8B83;">
-                    by Bushra{sub}
-                </div>
-            </div>
+        <div class="mv-hero">
+            <div style="width:{logo_size}px;height:{logo_size}px;margin:0 auto 14px;">{LOGO_SVG}</div>
+            <div class="mv-hero-badge">{eyebrow}</div>
+            <h1 style="font-family:var(--serif);font-weight:600;
+                       font-size:{'24px' if compact else 'clamp(26px,5vw,36px)'};
+                       margin:0 0 2px;letter-spacing:-0.01em;color:var(--mv-ink);line-height:1.12;">
+                {heading}
+            </h1>
+            <div style="font-family:var(--sans);font-size:11px;letter-spacing:.08em;
+                        text-transform:uppercase;color:var(--mv-muted);margin-top:2px;">by Bushra</div>
+            {tag_html}
+            {pulse_html}
         </div>
         """,
         unsafe_allow_html=True,
@@ -114,6 +135,7 @@ def inject_global_css():
             --mv-muted: #7C8B83;
             --mv-border: rgba(18,60,57,0.16);
             --mv-card-bg: rgba(18,60,57,0.035);
+            --surface: #FFFFFF;
             --serif: 'Fraunces', Georgia, serif;
             --sans: 'IBM Plex Sans', -apple-system, sans-serif;
             --mono: 'IBM Plex Mono', 'Courier New', monospace;
@@ -127,8 +149,76 @@ def inject_global_css():
             font-family: var(--mono) !important;
         }
 
+        /* ---- App-wide background (matches the web app's body color) ---- */
+        .stApp { background: var(--mv-bg); }
+        [data-testid="stHeader"] { background: transparent; }
+
+        /* ---- Hero entry screens (password gate / student login / mentor
+           login) - dotted radial background + centered badge + heading,
+           same look as the web app's role-selection screen. ---- */
+        .mv-hero {
+            text-align: center;
+            padding: 34px 16px 22px;
+            margin: -1rem -1rem 20px;
+            background-image: radial-gradient(rgba(18,60,57,0.08) 1.3px, transparent 1.3px);
+            background-size: 18px 18px;
+            border-radius: 0 0 22px 22px;
+        }
+        .mv-hero-badge {
+            display: inline-flex; align-items: center; gap: 6px;
+            font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+            color: var(--mv-primary); background: var(--mv-primary-soft);
+            padding: 5px 14px; border-radius: 999px; margin-bottom: 16px;
+        }
+
+        /* ---- Panel-style cards: solid white surface + soft shadow,
+           matching the web app's .panel / .exam-card look (replaces the
+           old flat translucent-tint card look everywhere). ---- */
+        .app-card, div[data-testid="stExpander"], div[data-testid="stForm"] {
+            background: var(--surface, #FFFFFF) !important;
+            border: 1px solid var(--mv-border) !important;
+            border-radius: 14px !important;
+            box-shadow: 0 1px 2px rgba(18,32,28,0.05), 0 6px 18px rgba(18,32,28,0.05) !important;
+        }
+        div[data-testid="stForm"] { padding: 6px 4px !important; }
+
+        /* ---- Buttons: rounded 10px like the web app's .btn, secondary
+           buttons get a teal outline instead of Streamlit's flat gray. ---- */
+        .stButton > button, .stFormSubmitButton > button, .stDownloadButton > button {
+            border-radius: 10px !important;
+            font-weight: 600 !important;
+        }
+        button:not([kind="primary"]) {
+            border: 1.4px solid var(--mv-primary) !important;
+            color: var(--mv-primary) !important;
+            background: transparent !important;
+        }
+        button:not([kind="primary"]):hover {
+            background: var(--mv-primary-soft) !important;
+        }
+
+        /* ---- Tabs: pill tab-bar like the web app's .tabbar/.tabbtn ---- */
+        [data-baseweb="tab-list"] {
+            background: rgba(18,60,57,0.06) !important;
+            border-radius: 11px !important;
+            padding: 4px !important;
+            gap: 2px !important;
+        }
+        [data-baseweb="tab-list"] button[data-baseweb="tab"] {
+            border-radius: 8px !important;
+            font-family: var(--sans) !important;
+            font-weight: 600 !important;
+            font-size: 13.5px !important;
+        }
+        [data-baseweb="tab-list"] button[aria-selected="true"] {
+            background: #FFFFFF !important;
+            box-shadow: 0 1px 3px rgba(18,32,28,.12) !important;
+        }
+        [data-baseweb="tab-highlight"] { background-color: transparent !important; }
+        [data-baseweb="tab-border"] { display: none !important; }
+
         .block-container {
-            padding-top: 2.6rem;
+            padding-top: 1.2rem;
             padding-bottom: 3.0rem;
             max-width: 1180px;
         }
@@ -356,6 +446,7 @@ def inject_global_css():
             .block-container { max-width: 100%; padding-left: 1rem; padding-right: 1rem; }
             .st-key-top_nav { display: none !important; }
             .st-key-mobile_top_bar { display: block !important; }
+            .mv-hero { margin: -1rem -1rem 16px; padding: 26px 12px 18px; }
         }
         @media (max-width: 640px) {
             .metric-box { flex: 1 1 45%; }
@@ -366,6 +457,11 @@ def inject_global_css():
                 flex: 0 0 58px !important;
                 max-width: 58px !important;
             }
+            .mv-hero { padding: 22px 10px 14px; border-radius: 0 0 16px 16px; }
+            .app-card, div[data-testid="stForm"] { padding: 14px !important; }
+        }
+        @media (min-width: 1400px) {
+            .block-container { max-width: 1280px; }
         }
 
         /* ---- Themed spinner (recolors Streamlit's built-in spinner to
@@ -497,12 +593,7 @@ def check_app_password():
     if st.session_state.get("authed"):
         return True
 
-    render_brand_header("Medical Admission Prep", size=56)
-    st.markdown(
-        "<p style='text-align:center; color:var(--mv-muted); font-family:var(--sans);'>"
-        "Enter the access password to continue</p>",
-        unsafe_allow_html=True,
-    )
+    render_hero("Medical Admission Prep", tagline="Enter your access password to continue")
     _, mid, _ = st.columns([1, 2, 1])
     with mid:
         with st.form(key="app_pw_form", clear_on_submit=False):
@@ -567,8 +658,7 @@ def student_session_is_valid():
 
 
 def page_student_auth():
-    render_brand_header(size=34)
-    st.markdown("<h2 style='text-align:center;'>🎓 Student Login</h2>", unsafe_allow_html=True)
+    render_hero("Student Portal", heading_html="Student Login", compact=True, pulse=False)
     tab_login, tab_signup, tab_forgot = st.tabs(["Log In", "Sign Up", "Forgot Password"])
 
     with tab_login:
@@ -2162,8 +2252,7 @@ def page_mentor_settings():
 def is_mentor():
     if st.session_state.get("mentor_authed"):
         return True
-    render_brand_header(size=34)
-    st.markdown("### 🔑 Mentor Login")
+    render_hero("Mentor Portal", heading_html="Mentor Login", compact=True, pulse=False)
     with st.form(key="mentor_login_form", clear_on_submit=False):
         pw = st.text_input("Mentor password", type="password", key="mentor_pw")
         submitted = st.form_submit_button("Log In", type="primary", use_container_width=True)
