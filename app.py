@@ -64,24 +64,27 @@ def render_hero(eyebrow, heading_html=None, tagline=None, compact=False, pulse=T
                   stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
         """ if pulse else ""
-    st.markdown(
-        f"""
-        <div class="mv-hero">
-            <div style="width:{logo_size}px;height:{logo_size}px;margin:0 auto 14px;">{LOGO_SVG}</div>
-            <div class="mv-hero-badge">{eyebrow}</div>
-            <h1 style="font-family:var(--serif);font-weight:600;
-                       font-size:{'24px' if compact else 'clamp(26px,5vw,36px)'};
-                       margin:0 0 2px;letter-spacing:-0.01em;color:var(--mv-ink);line-height:1.12;">
-                {heading}
-            </h1>
-            <div style="font-family:var(--sans);font-size:11px;letter-spacing:.08em;
-                        text-transform:uppercase;color:var(--mv-muted);margin-top:2px;">by Bushra</div>
-            {tag_html}
-            {pulse_html}
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    parts = [
+        '<div class="mv-hero">',
+        f'<div style="width:{logo_size}px;height:{logo_size}px;margin:0 auto 14px;">{LOGO_SVG}</div>',
+        f'<div class="mv-hero-badge">{eyebrow}</div>',
+        f'<h1 style="font-family:var(--serif);font-weight:600;'
+        f'font-size:{"24px" if compact else "clamp(26px,5vw,36px)"};'
+        f'margin:0 0 2px;letter-spacing:-0.01em;color:var(--mv-ink);line-height:1.12;">{heading}</h1>',
+        '<div style="font-family:var(--sans);font-size:11px;letter-spacing:.08em;'
+        'text-transform:uppercase;color:var(--mv-muted);margin-top:2px;">by Bushra</div>',
+    ]
+    if tag_html:
+        parts.append(tag_html)
+    if pulse_html:
+        parts.append(pulse_html)
+    parts.append("</div>")
+    # Joined with no newlines between parts - a blank/whitespace-only line
+    # inside a raw HTML block makes Streamlit's markdown parser treat what
+    # follows as plain text instead of HTML (that's what was leaking a
+    # literal "</div>" onto the page whenever tag_html/pulse_html were
+    # empty), so this avoids the bug entirely rather than working around it.
+    st.markdown("".join(parts), unsafe_allow_html=True)
 
 
 def render_boot_loading_screen(message="Connecting..."):
@@ -125,20 +128,39 @@ def inject_global_css():
         <style>
         @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
         :root {
-            --mv-bg: #F1F4F0;
-            --mv-ink: #14201C;
-            --mv-primary: #123C39;
-            --mv-primary-hover: #1E5C55;
-            --mv-primary-soft: #DCEBE0;
+            --mv-bg: var(--background-color, #F1F4F0);
+            --mv-surface: var(--secondary-background-color, #FFFFFF);
+            --mv-ink: var(--text-color, #14201C);
+            --mv-primary: #1A5C54;
+            --mv-primary-hover: #123C39;
+            --mv-primary-soft: rgba(26,92,84,0.14);
             --mv-accent: #C4432E;
-            --mv-accent-soft: #F4DCD5;
+            --mv-accent-soft: rgba(196,67,46,0.14);
             --mv-muted: #7C8B83;
-            --mv-border: rgba(18,60,57,0.16);
-            --mv-card-bg: rgba(18,60,57,0.035);
-            --surface: #FFFFFF;
+            --mv-border: rgba(124,139,131,0.28);
+            --mv-card-bg: rgba(124,139,131,0.06);
+            --mv-dot: rgba(124,139,131,0.22);
+            --surface: var(--mv-surface);
             --serif: 'Fraunces', Georgia, serif;
             --sans: 'IBM Plex Sans', -apple-system, sans-serif;
             --mono: 'IBM Plex Mono', 'Courier New', monospace;
+        }
+        /* Brighten the brand teal/coral a touch in dark mode so they stay
+           readable against a dark surface instead of looking muddy. This
+           follows the browser/OS color scheme, which is what most
+           Streamlit dark-mode setups end up rendering with. */
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --mv-primary: #4FB3A2;
+                --mv-primary-hover: #6FC9BA;
+                --mv-primary-soft: rgba(79,179,162,0.20);
+                --mv-accent: #E17A63;
+                --mv-accent-soft: rgba(225,122,99,0.18);
+                --mv-muted: #9BAAA2;
+                --mv-border: rgba(230,240,235,0.16);
+                --mv-card-bg: rgba(230,240,235,0.05);
+                --mv-dot: rgba(230,240,235,0.14);
+            }
         }
 
         html, body, [class*="css"] { font-family: var(--sans); }
@@ -160,7 +182,7 @@ def inject_global_css():
             text-align: center;
             padding: 34px 16px 22px;
             margin: -1rem -1rem 20px;
-            background-image: radial-gradient(rgba(18,60,57,0.08) 1.3px, transparent 1.3px);
+            background-image: radial-gradient(var(--mv-dot) 1.3px, transparent 1.3px);
             background-size: 18px 18px;
             border-radius: 0 0 22px 22px;
         }
@@ -171,35 +193,50 @@ def inject_global_css():
             padding: 5px 14px; border-radius: 999px; margin-bottom: 16px;
         }
 
-        /* ---- Panel-style cards: solid white surface + soft shadow,
-           matching the web app's .panel / .exam-card look (replaces the
-           old flat translucent-tint card look everywhere). ---- */
+        /* ---- Panel-style cards: theme-adaptive surface + soft shadow +
+           hover lift, matching the web app's .panel / .exam-card look. ---- */
         .app-card, div[data-testid="stExpander"], div[data-testid="stForm"] {
-            background: var(--surface, #FFFFFF) !important;
+            background: var(--mv-surface) !important;
             border: 1px solid var(--mv-border) !important;
             border-radius: 14px !important;
             box-shadow: 0 1px 2px rgba(18,32,28,0.05), 0 6px 18px rgba(18,32,28,0.05) !important;
+            transition: box-shadow .2s ease, transform .2s ease !important;
         }
-        div[data-testid="stForm"] { padding: 6px 4px !important; }
+        div[data-testid="stForm"] { padding: 22px 20px !important; }
+        .app-card:hover {
+            box-shadow: 0 2px 4px rgba(18,32,28,0.07), 0 10px 26px rgba(18,32,28,0.09) !important;
+            transform: translateY(-1px);
+        }
 
-        /* ---- Buttons: rounded 10px like the web app's .btn, secondary
-           buttons get a teal outline instead of Streamlit's flat gray. ---- */
+        /* ---- Buttons: rounded 10px like the web app's .btn. Secondary
+           styling is scoped the same way the primary-button rule below is
+           (.stButton>button / .stFormSubmitButton>button), never a bare
+           "button" selector, so it can never accidentally win over a
+           primary button. ---- */
         .stButton > button, .stFormSubmitButton > button, .stDownloadButton > button {
             border-radius: 10px !important;
             font-weight: 600 !important;
+            transition: transform .12s ease, box-shadow .12s ease, background-color .15s ease !important;
         }
-        button:not([kind="primary"]) {
+        .stButton > button:hover, .stFormSubmitButton > button:hover, .stDownloadButton > button:hover {
+            transform: translateY(-1px);
+        }
+        .stButton > button:not([kind="primary"]),
+        .stFormSubmitButton > button:not([kind="primary"]),
+        .stDownloadButton > button {
             border: 1.4px solid var(--mv-primary) !important;
             color: var(--mv-primary) !important;
             background: transparent !important;
         }
-        button:not([kind="primary"]):hover {
+        .stButton > button:not([kind="primary"]):hover,
+        .stFormSubmitButton > button:not([kind="primary"]):hover,
+        .stDownloadButton > button:hover {
             background: var(--mv-primary-soft) !important;
         }
 
         /* ---- Tabs: pill tab-bar like the web app's .tabbar/.tabbtn ---- */
         [data-baseweb="tab-list"] {
-            background: rgba(18,60,57,0.06) !important;
+            background: var(--mv-card-bg) !important;
             border-radius: 11px !important;
             padding: 4px !important;
             gap: 2px !important;
@@ -209,11 +246,14 @@ def inject_global_css():
             font-family: var(--sans) !important;
             font-weight: 600 !important;
             font-size: 13.5px !important;
+            color: var(--mv-muted) !important;
         }
         [data-baseweb="tab-list"] button[aria-selected="true"] {
-            background: #FFFFFF !important;
+            background: var(--mv-surface) !important;
+            color: var(--mv-primary) !important;
             box-shadow: 0 1px 3px rgba(18,32,28,.12) !important;
         }
+        [data-baseweb="tab-list"] button[aria-selected="true"] p { color: var(--mv-primary) !important; }
         [data-baseweb="tab-highlight"] { background-color: transparent !important; }
         [data-baseweb="tab-border"] { display: none !important; }
 
@@ -305,20 +345,67 @@ def inject_global_css():
         .st-key-mentor_entry_login button {
             background: transparent !important;
             color: var(--mv-accent) !important;
-            border: 1px solid rgba(196,67,46,0.45) !important;
+            border: 1.4px solid var(--mv-accent) !important;
             border-radius: 999px !important;
             font-weight: 600 !important;
             font-size: 11px !important;
             padding: 4px 10px !important;
             box-shadow: none !important;
         }
-        .st-key-mentor_entry_login button:hover { background: rgba(196,67,46,0.08) !important; }
+        .st-key-mentor_entry_login button:hover { background: var(--mv-accent-soft) !important; }
         .mentor-entry-caption {
             text-align: center;
             opacity: .65;
             font-size: 12px;
             margin-top: 22px;
             margin-bottom: 6px;
+        }
+
+        /* ---- Test History table: keeps its 8 columns on one row and
+           becomes horizontally swipeable on narrow screens instead of
+           Streamlit's default behaviour of stacking every column into a
+           tall vertical list (unreadable on a phone). ---- */
+        .st-key-test_history_table {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            padding-bottom: 6px;
+        }
+        .st-key-test_history_table div[data-testid="stHorizontalBlock"] {
+            display: flex !important;
+            flex-direction: row !important;
+            flex-wrap: nowrap !important;
+            align-items: center !important;
+            gap: 6px !important;
+            min-width: 620px;
+        }
+        .st-key-test_history_table div[data-testid="column"] {
+            min-width: 0 !important;
+            width: auto !important;
+        }
+        .st-key-test_history_table div[data-testid="column"]:nth-child(1) { flex: 0 0 165px !important; }
+        .st-key-test_history_table div[data-testid="column"]:nth-child(2) { flex: 0 0 85px !important; }
+        .st-key-test_history_table div[data-testid="column"]:nth-child(3),
+        .st-key-test_history_table div[data-testid="column"]:nth-child(4),
+        .st-key-test_history_table div[data-testid="column"]:nth-child(5),
+        .st-key-test_history_table div[data-testid="column"]:nth-child(6),
+        .st-key-test_history_table div[data-testid="column"]:nth-child(7) { flex: 0 0 58px !important; }
+        .st-key-test_history_table div[data-testid="column"]:nth-child(8) { flex: 0 0 56px !important; }
+        .st-key-test_history_table p, .st-key-test_history_table div[data-testid="stMarkdownContainer"] p {
+            font-size: 13px !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .st-key-test_history_table .stButton > button {
+            padding: 4px 8px !important; font-size: 12px !important; min-height: 30px !important;
+        }
+        @media (max-width: 640px) {
+            .st-key-test_history_table div[data-testid="stHorizontalBlock"] { min-width: 560px; }
+            .st-key-test_history_table div[data-testid="column"]:nth-child(1) { flex-basis: 130px !important; }
+        }
+
+        /* ---- Input focus glow (nice subtle brand touch) ---- */
+        .stTextInput input:focus, .stNumberInput input:focus,
+        .stDateInput input:focus, .stTextArea textarea:focus {
+            border-color: var(--mv-primary) !important;
+            box-shadow: 0 0 0 3px var(--mv-primary-soft) !important;
         }
 
         /* ---- Generic cards ---- */
@@ -396,21 +483,25 @@ def inject_global_css():
         .time-row-label { font-weight:600; padding-top:6px; font-size:14px; }
 
         .bd-phone-prefix {
-            border: 1px solid rgba(128,128,128,0.35);
-            border-radius: 8px;
-            padding: 9px 6px;
-            text-align: center;
+            border: 1.4px solid var(--mv-border);
+            border-radius: 9px;
+            height: 46px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-sizing: border-box;
             font-weight: 600;
-            opacity: .85;
-            background: rgba(127,127,127,0.06);
+            color: var(--mv-primary);
+            background: var(--mv-primary-soft);
             white-space: nowrap;
         }
         div[class*="_phone_row"] { width: 100% !important; }
+        div[class*="_phone_row"] label { display: none !important; }
         div[class*="_phone_row"] div[data-testid="stHorizontalBlock"] {
             display: flex !important;
             flex-direction: row !important;
             flex-wrap: nowrap !important;
-            align-items: center !important;
+            align-items: stretch !important;
             gap: 8px !important;
             width: 100% !important;
         }
@@ -429,6 +520,11 @@ def inject_global_css():
         div[class*="_phone_row"] div[data-testid="column"]:last-child .stTextInput,
         div[class*="_phone_row"] div[data-testid="column"]:last-child input {
             width: 100% !important;
+        }
+        div[class*="_phone_row"] div[data-testid="column"]:last-child .stTextInput > div,
+        div[class*="_phone_row"] div[data-testid="column"]:last-child input {
+            height: 46px !important;
+            box-sizing: border-box !important;
         }
 
         /* ---- Student per-submission calibration ---- */
@@ -1206,24 +1302,25 @@ def page_tests_results():
         return
 
     my_results = my_results.sort_values("timestamp", ascending=False)
-    header_cols = st.columns([2.4, 1.3, 0.9, 0.9, 0.9, 0.9, 0.9, 0.8])
-    for c, label in zip(header_cols, ["Exam", "Date", "Total", "Correct", "Wrong", "Skipped", "Marks", ""]):
-        c.markdown(f"**{label}**")
+    with st.container(key="test_history_table"):
+        header_cols = st.columns([2.4, 1.3, 0.9, 0.9, 0.9, 0.9, 0.9, 0.8])
+        for c, label in zip(header_cols, ["Exam", "Date", "Total", "Correct", "Wrong", "Skipped", "Marks", ""]):
+            c.markdown(f"**{label}**")
 
-    for _, row in my_results.iterrows():
-        key_match = keys_df[keys_df["key_id"] == row["key_id"]]
-        exam_name = key_match.iloc[0]["exam_name"] if not key_match.empty and key_match.iloc[0]["exam_name"] else row["key_id"]
-        cols = st.columns([2.4, 1.3, 0.9, 0.9, 0.9, 0.9, 0.9, 0.8])
-        cols[0].write(exam_name)
-        cols[1].write(str(row["timestamp"]).split(" ")[0])
-        cols[2].write(int(row["total"]))
-        cols[3].write(int(row["correct"]))
-        cols[4].write(int(row["wrong_count"]))
-        cols[5].write(int(row["skipped"]))
-        cols[6].write(row["marks"])
-        if cols[7].button("View", key=f"view_{row['key_id']}"):
-            st.session_state["view_key_id"] = row["key_id"]
-            st.rerun()
+        for _, row in my_results.iterrows():
+            key_match = keys_df[keys_df["key_id"] == row["key_id"]]
+            exam_name = key_match.iloc[0]["exam_name"] if not key_match.empty and key_match.iloc[0]["exam_name"] else row["key_id"]
+            cols = st.columns([2.4, 1.3, 0.9, 0.9, 0.9, 0.9, 0.9, 0.8])
+            cols[0].write(exam_name)
+            cols[1].write(str(row["timestamp"]).split(" ")[0])
+            cols[2].write(int(row["total"]))
+            cols[3].write(int(row["correct"]))
+            cols[4].write(int(row["wrong_count"]))
+            cols[5].write(int(row["skipped"]))
+            cols[6].write(row["marks"])
+            if cols[7].button("View", key=f"view_{row['key_id']}"):
+                st.session_state["view_key_id"] = row["key_id"]
+                st.rerun()
 
 
 def _exam_name_from_keys(keys_df, key_id):
