@@ -299,20 +299,42 @@ def inject_global_css():
         }
         .st-key-top_nav button[kind="primary"] { border: none !important; }
 
-        /* ---- Mobile top bar + custom expandable menu ---- */
-        .st-key-mobile_top_bar { display: none; }
+        /* ---- Mobile top bar + custom expandable menu ----
+           Keep the two shortcut buttons pinned inside the viewport. Streamlit
+           column percentages can otherwise retain desktop widths and push the
+           right-hand icon off-screen on narrow phones. */
+        .st-key-mobile_top_bar { display: none; width: 100% !important; max-width: 100% !important; }
+        .st-key-mobile_top_bar > div[data-testid="stVerticalBlockBorderWrapper"],
+        .st-key-mobile_top_bar > div {
+            max-width: 100% !important;
+        }
         .st-key-mobile_top_bar div[data-testid="stHorizontalBlock"] {
             display: flex !important;
             flex-direction: row !important;
             flex-wrap: nowrap !important;
-            gap: 8px;
+            gap: 0 !important;
             align-items: center !important;
+            justify-content: space-between !important;
             width: 100% !important;
+            max-width: 100% !important;
+            min-width: 0 !important;
+            overflow: visible !important;
         }
         .st-key-mobile_top_bar div[data-testid="column"] {
             width: auto !important;
             min-width: 0 !important;
         }
+        .st-key-mobile_top_bar div[data-testid="column"]:first-child,
+        .st-key-mobile_top_bar div[data-testid="column"]:last-child {
+            flex: 0 0 44px !important;
+            max-width: 44px !important;
+        }
+        .st-key-mobile_top_bar div[data-testid="column"]:nth-child(2) {
+            flex: 1 1 auto !important;
+            min-width: 0 !important;
+        }
+        .st-key-mobile_top_bar div[data-testid="column"]:first-child { margin-right: auto !important; }
+        .st-key-mobile_top_bar div[data-testid="column"]:last-child { margin-left: auto !important; }
         .st-key-mobile_top_bar button {
             border-radius: 50% !important;
             width: 40px !important;
@@ -323,7 +345,7 @@ def inject_global_css():
             align-items: center !important;
             justify-content: center !important;
             font-size: 17px !important;
-            margin: 0 auto !important;
+            margin: 0 !important;
             border: 1px solid rgba(128,128,128,0.25) !important;
         }
         .mobile-menu-card {
@@ -486,6 +508,7 @@ def inject_global_css():
             border: 1.4px solid var(--mv-border);
             border-radius: 9px;
             height: 46px;
+            min-width: 0;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -494,6 +517,7 @@ def inject_global_css():
             color: var(--mv-primary);
             background: var(--mv-primary-soft);
             white-space: nowrap;
+            overflow: hidden;
         }
         div[class*="_phone_row"] { width: 100% !important; }
         div[class*="_phone_row"] label { display: none !important; }
@@ -517,9 +541,14 @@ def inject_global_css():
             flex: 1 1 0% !important;
             min-width: 0 !important;
         }
+        div[class*="_phone_row"] div[data-testid="column"]:last-child,
         div[class*="_phone_row"] div[data-testid="column"]:last-child .stTextInput,
+        div[class*="_phone_row"] div[data-testid="column"]:last-child [data-baseweb="input"],
         div[class*="_phone_row"] div[data-testid="column"]:last-child input {
             width: 100% !important;
+            min-width: 0 !important;
+            max-width: 100% !important;
+            box-sizing: border-box !important;
         }
         div[class*="_phone_row"] div[data-testid="column"]:last-child .stTextInput > div,
         div[class*="_phone_row"] div[data-testid="column"]:last-child input {
@@ -1721,58 +1750,96 @@ def page_profile():
 # =========================================================================
 
 def _inject_bubble_grid_css():
+    """UI-only CSS for the mentor answer grid.
+
+    The outer two-column layout is allowed to become a single column on a
+    phone, while each individual question keeps its A/B/C/D choices on one
+    compact row. This prevents the second question column from overflowing
+    off the right edge without changing any answer/session logic.
+    """
     st.markdown(
         """
         <style>
         .st-key-answer_bubble_grid div[data-testid="stRadio"] { margin-bottom: -14px; }
         .st-key-answer_bubble_grid div[data-testid="stRadio"] > label { display: none; }
-        .st-key-answer_bubble_grid div[role="radiogroup"] { gap: 6px; }
+        .st-key-answer_bubble_grid div[role="radiogroup"] {
+            display: flex !important;
+            flex-wrap: nowrap !important;
+            gap: 6px !important;
+            width: 100% !important;
+            min-width: 0 !important;
+        }
         .st-key-answer_bubble_grid div[role="radiogroup"] label {
             border: 1px solid rgba(128,128,128,0.35);
             border-radius: 999px;
             padding: 2px 10px 2px 6px;
             margin-right: 0 !important;
+            min-width: 0 !important;
         }
         .q-num-badge {
             display: inline-block; min-width: 28px; font-weight: 600;
             color: var(--text-color, inherit); opacity: 0.75; padding-top: 6px;
         }
-        /* Force number + options to stay on the SAME row on mobile too -
-           Streamlit stacks st.columns vertically below ~640px by default,
-           which is what was pushing the A/B/C/D options under the question
-           number. Overriding with flex row + nowrap here keeps them side
-           by side on every screen size, matching the desktop look. */
-        .st-key-answer_bubble_grid div[data-testid="stHorizontalBlock"] {
+
+        /* A row wrapper lets us target the INNER question row without also
+           affecting the OUTER two-column grid. */
+        .st-key-answer_bubble_row div[data-testid="stHorizontalBlock"] {
             display: flex !important;
             flex-direction: row !important;
             flex-wrap: nowrap !important;
             align-items: center !important;
             gap: 4px !important;
+            width: 100% !important;
+            min-width: 0 !important;
         }
-        .st-key-answer_bubble_grid div[data-testid="column"] {
+        .st-key-answer_bubble_row div[data-testid="column"] {
             width: auto !important;
             min-width: 0 !important;
         }
-        .st-key-answer_bubble_grid div[data-testid="column"]:first-child {
-            flex: 0 0 26px !important;
+        .st-key-answer_bubble_row div[data-testid="column"]:first-child {
+            flex: 0 0 28px !important;
+            max-width: 28px !important;
         }
-        .st-key-answer_bubble_grid div[data-testid="column"]:last-child {
-            flex: 1 1 auto !important;
+        .st-key-answer_bubble_row div[data-testid="column"]:last-child {
+            flex: 1 1 0 !important;
             min-width: 0 !important;
         }
+
         @media (max-width: 640px) {
-            .st-key-answer_bubble_grid div[role="radiogroup"] { gap: 4px !important; }
-            .st-key-answer_bubble_grid div[role="radiogroup"] label {
-                padding: 2px 6px 2px 4px !important;
-                font-size: 12px !important;
+            /* Stack only the two answer BLOCKS (1-20/21-40 etc.), not the
+               A/B/C/D choices inside each question. */
+            .st-key-answer_bubble_grid > div[data-testid="stVerticalBlock"] > div[data-testid="stHorizontalBlock"] {
+                flex-direction: column !important;
+                flex-wrap: nowrap !important;
+                align-items: stretch !important;
+                gap: 0 !important;
             }
-            .q-num-badge { min-width: 20px; font-size: 13px; }
+            .st-key-answer_bubble_grid > div[data-testid="stVerticalBlock"] > div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+                width: 100% !important;
+                max-width: 100% !important;
+                flex: 1 1 auto !important;
+                min-width: 0 !important;
+            }
+            .st-key-answer_bubble_grid div[role="radiogroup"] {
+                gap: 3px !important;
+            }
+            .st-key-answer_bubble_grid div[role="radiogroup"] label {
+                flex: 1 1 0 !important;
+                justify-content: center !important;
+                padding: 3px 2px !important;
+                font-size: 12px !important;
+                min-width: 0 !important;
+            }
+            .q-num-badge { min-width: 22px; font-size: 13px; }
+            .st-key-answer_bubble_row div[data-testid="column"]:first-child {
+                flex-basis: 24px !important;
+                max-width: 24px !important;
+            }
         }
         </style>
         """,
         unsafe_allow_html=True,
     )
-
 
 def _answers_store():
     """Single dict in session_state holding every question's chosen answer,
@@ -1805,18 +1872,19 @@ def _render_bubble_block(q_start, q_end):
     store = _answers_store()
     options = ["A", "B", "C", "D"]
     for q in range(q_start, q_end + 1):
-        num_col, radio_col = st.columns([0.55, 3], gap="small")
-        widget_key = f"ans_q_{q}"
-        with num_col:
-            st.markdown(f"<div class='q-num-badge'>{q}</div>", unsafe_allow_html=True)
-        with radio_col:
-            current = store.get(q)
-            idx = options.index(current) if current in options else None
-            st.radio(
-                f"Q{q}", options=options, index=idx, horizontal=True,
-                key=widget_key, label_visibility="collapsed",
-                on_change=_on_bubble_change, args=(q, widget_key),
-            )
+        with st.container(key=f"answer_bubble_row_{q}"):
+            num_col, radio_col = st.columns([0.55, 3], gap="small")
+            widget_key = f"ans_q_{q}"
+            with num_col:
+                st.markdown(f"<div class='q-num-badge'>{q}</div>", unsafe_allow_html=True)
+            with radio_col:
+                current = store.get(q)
+                idx = options.index(current) if current in options else None
+                st.radio(
+                    f"Q{q}", options=options, index=idx, horizontal=True,
+                    key=widget_key, label_visibility="collapsed",
+                    on_change=_on_bubble_change, args=(q, widget_key),
+                )
 
 
 def _go_answer_page(page_num):
