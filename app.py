@@ -25,98 +25,7 @@ from streamlit_image_coordinates import streamlit_image_coordinates
 import omr_scanner
 import sheets_helper as sh
 
-st.set_page_config(page_title="The Med Venture — by Bushra", page_icon="🩺", layout="wide")
-
-# =========================================================================
-# Brand — The Med Venture (by Bushra)
-# A small, reusable logo mark + header block used on the entry screens.
-# Pure presentation: no session/state/logic lives here.
-# =========================================================================
-
-LOGO_SVG = """
-<svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:block;">
-  <rect x="2" y="2" width="60" height="60" rx="16" fill="#123C39"/>
-  <path d="M32 15 L32 49 M15 32 L49 32" stroke="#F1F4F0" stroke-width="7" stroke-linecap="round"/>
-  <circle cx="47" cy="47" r="6.5" fill="#C4432E"/>
-  <circle cx="47" cy="47" r="2.2" fill="#F1F4F0"/>
-</svg>
-"""
-
-
-def render_hero(eyebrow, heading_html=None, tagline=None, compact=False, pulse=True):
-    """Full hero-style entry header - mirrors the Med Venture web app's
-    role-selection screen: dotted background, logo, eyebrow badge, big
-    serif heading, optional tagline, and the animated pulse-line. Used on
-    every entry/gate screen (password gate, student login, mentor login)
-    so the whole app opens the same way the web app does. Presentation
-    only - no session/state/logic lives here."""
-    logo_size = 40 if compact else 52
-    heading = heading_html or "The Med <span style='color:var(--mv-accent);font-style:italic;'>Venture</span>"
-    tag_html = (
-        f"<p style='font-family:var(--sans);color:var(--mv-muted);font-size:14px;"
-        f"max-width:420px;margin:8px auto 0;line-height:1.55;'>{tagline}</p>"
-        if tagline else ""
-    )
-    pulse_html = f"""
-        <svg viewBox="0 0 400 40" preserveAspectRatio="none"
-             style="width:100%;max-width:260px;height:24px;color:var(--mv-accent);opacity:.6;margin:16px auto 2px;display:block;">
-            <path d="M0,20 L110,20 L128,4 L145,36 L162,20 L400,20" fill="none"
-                  stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-        """ if pulse else ""
-    parts = [
-        '<div class="mv-hero">',
-        f'<div style="width:{logo_size}px;height:{logo_size}px;margin:0 auto 14px;">{LOGO_SVG}</div>',
-        f'<div class="mv-hero-badge">{eyebrow}</div>',
-        f'<h1 style="font-family:var(--serif);font-weight:600;'
-        f'font-size:{"24px" if compact else "clamp(26px,5vw,36px)"};'
-        f'margin:0 0 2px;letter-spacing:-0.01em;color:var(--mv-ink);line-height:1.12;">{heading}</h1>',
-        '<div style="font-family:var(--sans);font-size:11px;letter-spacing:.08em;'
-        'text-transform:uppercase;color:var(--mv-muted);margin-top:2px;">by Bushra</div>',
-    ]
-    if tag_html:
-        parts.append(tag_html)
-    if pulse_html:
-        parts.append(pulse_html)
-    parts.append("</div>")
-    # Joined with no newlines between parts - a blank/whitespace-only line
-    # inside a raw HTML block makes Streamlit's markdown parser treat what
-    # follows as plain text instead of HTML (that's what was leaking a
-    # literal "</div>" onto the page whenever tag_html/pulse_html were
-    # empty), so this avoids the bug entirely rather than working around it.
-    st.markdown("".join(parts), unsafe_allow_html=True)
-
-
-def render_boot_loading_screen(message="Connecting..."):
-    """Full-screen branded loading state, shown only while the app talks to
-    Google Sheets for the first time in a session. Presentation only - the
-    actual init_sheets() call and the '_sheets_ready' flag it guards are
-    unchanged; this just replaces the plain default st.spinner() with the
-    same pulse-line hero look used on the Med Venture web app."""
-    st.markdown(
-        f"""
-        <div style="text-align:center; padding:76px 20px 30px;">
-            <div style="width:60px; height:60px; margin:0 auto 16px;">{LOGO_SVG}</div>
-            <div style="font-family:'Fraunces',Georgia,serif; font-weight:600; font-size:25px; color:#123C39; margin-bottom:2px;">
-                The Med Venture
-            </div>
-            <div style="font-family:'IBM Plex Sans',sans-serif; font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:#7C8B83; margin-bottom:26px;">
-                by Bushra
-            </div>
-            <svg class="mv-boot-pulse" viewBox="0 0 400 40" preserveAspectRatio="none"
-                 style="width:100%; max-width:260px; height:26px; color:#C4432E;">
-                <path d="M0,20 L110,20 L128,4 L145,36 L162,20 L400,20" fill="none"
-                      stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"
-                      style="stroke-dasharray:520; stroke-dashoffset:520;"/>
-            </svg>
-            <div style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#7C8B83; margin-top:16px; letter-spacing:.05em;">
-                {message}
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
+st.set_page_config(page_title="The Med Venture", page_icon="🩺", layout="wide")
 
 # =========================================================================
 # Global styling - one shared stylesheet for the whole app (mobile + desktop)
@@ -126,164 +35,178 @@ def inject_global_css():
     st.markdown(
         """
         <style>
-        @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
-        :root {
-            --mv-bg: var(--background-color, #F1F4F0);
-            --mv-surface: var(--secondary-background-color, #FFFFFF);
-            --mv-ink: var(--text-color, #14201C);
-            --mv-primary: #1A5C54;
-            --mv-primary-hover: #123C39;
-            --mv-primary-soft: rgba(26,92,84,0.14);
-            --mv-accent: #C4432E;
-            --mv-accent-soft: rgba(196,67,46,0.14);
-            --mv-muted: #7C8B83;
-            --mv-border: rgba(124,139,131,0.28);
-            --mv-card-bg: rgba(124,139,131,0.06);
-            --mv-dot: rgba(124,139,131,0.22);
-            --surface: var(--mv-surface);
-            --serif: 'Fraunces', Georgia, serif;
-            --sans: 'IBM Plex Sans', -apple-system, sans-serif;
-            --mono: 'IBM Plex Mono', 'Courier New', monospace;
-        }
-        /* Brighten the brand teal/coral a touch in dark mode so they stay
-           readable against a dark surface instead of looking muddy. This
-           follows the browser/OS color scheme, which is what most
-           Streamlit dark-mode setups end up rendering with. */
-        @media (prefers-color-scheme: dark) {
-            :root {
-                --mv-primary: #4FB3A2;
-                --mv-primary-hover: #6FC9BA;
-                --mv-primary-soft: rgba(79,179,162,0.20);
-                --mv-accent: #E17A63;
-                --mv-accent-soft: rgba(225,122,99,0.18);
-                --mv-muted: #9BAAA2;
-                --mv-border: rgba(230,240,235,0.16);
-                --mv-card-bg: rgba(230,240,235,0.05);
-                --mv-dot: rgba(230,240,235,0.14);
-            }
-        }
-
-        html, body, [class*="css"] { font-family: var(--sans); }
-        h1, h2, h3 { font-family: var(--serif) !important; letter-spacing: -0.01em; color: var(--mv-ink); }
-        h4, h5, h6 { font-family: var(--sans) !important; color: var(--mv-ink); }
-        .metric-box .value, [data-testid="stMetricValue"], .rank-badge,
-        .vitals-marks, code, .stCodeBlock, .analysis-title, table.wrong-table, .omr-qnum {
-            font-family: var(--mono) !important;
-        }
-
-        /* ---- App-wide background (matches the web app's body color) ---- */
-        .stApp { background: var(--mv-bg); }
-        [data-testid="stHeader"] { background: transparent; }
-
-        /* ---- Hero entry screens (password gate / student login / mentor
-           login) - dotted radial background + centered badge + heading,
-           same look as the web app's role-selection screen. ---- */
-        .mv-hero {
-            text-align: center;
-            padding: 34px 16px 22px;
-            margin: -1rem -1rem 20px;
-            background-image: radial-gradient(var(--mv-dot) 1.3px, transparent 1.3px);
-            background-size: 18px 18px;
-            border-radius: 0 0 22px 22px;
-        }
-        .mv-hero-badge {
-            display: inline-flex; align-items: center; gap: 6px;
-            font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
-            color: var(--mv-primary); background: var(--mv-primary-soft);
-            padding: 5px 14px; border-radius: 999px; margin-bottom: 16px;
-        }
-
-        /* ---- Panel-style cards: theme-adaptive surface + soft shadow +
-           hover lift, matching the web app's .panel / .exam-card look. ---- */
-        .app-card, div[data-testid="stExpander"], div[data-testid="stForm"] {
-            background: var(--mv-surface) !important;
-            border: 1px solid var(--mv-border) !important;
-            border-radius: 14px !important;
-            box-shadow: 0 1px 2px rgba(18,32,28,0.05), 0 6px 18px rgba(18,32,28,0.05) !important;
-            transition: box-shadow .2s ease, transform .2s ease !important;
-        }
-        div[data-testid="stForm"] { padding: 22px 20px !important; }
-        .app-card:hover {
-            box-shadow: 0 2px 4px rgba(18,32,28,0.07), 0 10px 26px rgba(18,32,28,0.09) !important;
-            transform: translateY(-1px);
-        }
-
-        /* ---- Buttons: rounded 10px like the web app's .btn. Secondary
-           styling is scoped the same way the primary-button rule below is
-           (.stButton>button / .stFormSubmitButton>button), never a bare
-           "button" selector, so it can never accidentally win over a
-           primary button. ---- */
-        .stButton > button, .stFormSubmitButton > button, .stDownloadButton > button {
-            border-radius: 10px !important;
-            font-weight: 600 !important;
-            transition: transform .12s ease, box-shadow .12s ease, background-color .15s ease !important;
-        }
-        .stButton > button:hover, .stFormSubmitButton > button:hover, .stDownloadButton > button:hover {
-            transform: translateY(-1px);
-        }
-        .stButton > button:not([kind="primary"]),
-        .stFormSubmitButton > button:not([kind="primary"]),
-        .stDownloadButton > button {
-            border: 1.4px solid var(--mv-primary) !important;
-            color: var(--mv-primary) !important;
-            background: transparent !important;
-        }
-        .stButton > button:not([kind="primary"]):hover,
-        .stFormSubmitButton > button:not([kind="primary"]):hover,
-        .stDownloadButton > button:hover {
-            background: var(--mv-primary-soft) !important;
-        }
-
-        /* ---- Tabs: pill tab-bar like the web app's .tabbar/.tabbtn ---- */
-        [data-baseweb="tab-list"] {
-            background: var(--mv-card-bg) !important;
-            border-radius: 11px !important;
-            padding: 4px !important;
-            gap: 2px !important;
-        }
-        [data-baseweb="tab-list"] button[data-baseweb="tab"] {
-            border-radius: 8px !important;
-            font-family: var(--sans) !important;
-            font-weight: 600 !important;
-            font-size: 13.5px !important;
-            color: var(--mv-muted) !important;
-        }
-        [data-baseweb="tab-list"] button[aria-selected="true"] {
-            background: var(--mv-surface) !important;
-            color: var(--mv-primary) !important;
-            box-shadow: 0 1px 3px rgba(18,32,28,.12) !important;
-        }
-        [data-baseweb="tab-list"] button[aria-selected="true"] p { color: var(--mv-primary) !important; }
-        [data-baseweb="tab-highlight"] { background-color: transparent !important; }
-        [data-baseweb="tab-border"] { display: none !important; }
-
         .block-container {
-            padding-top: 1.2rem;
+            padding-top: 2.6rem;
             padding-bottom: 3.0rem;
             max-width: 1180px;
         }
-        * { transition: background-color .15s ease, color .15s ease, opacity .15s ease; }
+        * { transition: background-color .15s ease, color .15s ease, opacity .15s ease, box-shadow .15s ease; }
 
-        /* ---- App accent color: Med Venture deep teal (was default blue) ---- */
-        button[kind="primary"], .stButton>button[kind="primary"], .stFormSubmitButton>button[kind="primary"] {
-            background-color: var(--mv-primary) !important;
-            border-color: var(--mv-primary) !important;
+        /* Every element is sized WITH its padding/border included. Without
+           this, "width: 100%" elements (like the phone-number input and
+           the mobile icon buttons) add their padding on top of 100%, which
+           is what was pushing them outside their card / off the right
+           edge of the screen at high browser zoom and on narrow phones. */
+        *, *::before, *::after { box-sizing: border-box !important; }
+        html, body, .stApp, [data-testid="stAppViewContainer"], [data-testid="stMain"] {
+            overflow-x: hidden !important;
+            max-width: 100vw;
+        }
+
+        /* ---- Med Venture brand tokens ---- */
+        :root {
+            --mv-teal: #14b8a6;
+            --mv-teal-dark: #0d9488;
+            --mv-cyan: #22d3ee;
+            --mv-surface: rgba(20,184,166,0.055);
+            --mv-surface-strong: rgba(20,184,166,0.11);
+            --mv-border: rgba(20,184,166,0.22);
+            --mv-glow: rgba(20,184,166,0.18);
+        }
+        html[data-theme="dark"] {
+            --mv-surface: rgba(20,184,166,0.10);
+            --mv-surface-strong: rgba(20,184,166,0.20);
+            --mv-border: rgba(45,212,191,0.38);
+            --mv-glow: rgba(45,212,191,0.30);
+        }
+
+        /* Whole-app wash so the theme reads immediately, in both modes */
+        .stApp {
+            background-image:
+                radial-gradient(circle at 12% 0%, rgba(20,184,166,0.10), transparent 42%),
+                radial-gradient(circle at 100% 15%, rgba(34,211,238,0.08), transparent 40%);
+            background-attachment: fixed;
+        }
+        html[data-theme="dark"] .stApp {
+            background-image:
+                radial-gradient(circle at 12% 0%, rgba(45,212,191,0.16), transparent 42%),
+                radial-gradient(circle at 100% 15%, rgba(34,211,238,0.12), transparent 40%);
+        }
+
+        /* ---- App accent color override (teal, Med Venture brand) ---- */
+        button[kind="primary"],
+        button[data-testid="baseButton-primary"],
+        button[data-testid="stBaseButton-primary"],
+        .stButton button[kind="primary"],
+        .stFormSubmitButton button[kind="primary"],
+        .stDownloadButton button[kind="primary"] {
+            background: linear-gradient(135deg, var(--mv-teal-dark), var(--mv-teal)) !important;
+            border-color: var(--mv-teal-dark) !important;
+            color: #fff !important;
+            box-shadow: 0 3px 12px var(--mv-glow) !important;
+        }
+        button[kind="primary"]:hover,
+        button[data-testid="baseButton-primary"]:hover,
+        button[data-testid="stBaseButton-primary"]:hover,
+        .stButton button[kind="primary"]:hover,
+        .stFormSubmitButton button[kind="primary"]:hover,
+        .stDownloadButton button[kind="primary"]:hover {
+            filter: brightness(1.08);
+            box-shadow: 0 5px 18px var(--mv-glow) !important;
+        }
+        button[kind="primary"]:focus,
+        button[data-testid="baseButton-primary"]:focus,
+        button[data-testid="stBaseButton-primary"]:focus {
+            box-shadow: 0 0 0 0.18rem var(--mv-glow) !important;
+            border-color: var(--mv-teal-dark) !important;
             color: #fff !important;
         }
-        button[kind="primary"]:hover, .stButton>button[kind="primary"]:hover, .stFormSubmitButton>button[kind="primary"]:hover {
-            background-color: var(--mv-primary-hover) !important;
-            border-color: var(--mv-primary-hover) !important;
-        }
-        input[type="radio"], input[type="checkbox"] { accent-color: var(--mv-primary) !important; }
+        input[type="radio"], input[type="checkbox"] { accent-color: var(--mv-teal) !important; }
         div[role="radiogroup"] label[data-baseweb="radio"] div:first-child,
         [data-testid="stRadio"] label span[data-testid] {
-            border-color: var(--mv-primary) !important;
+            border-color: var(--mv-teal) !important;
         }
         div[data-baseweb="radio"] div[aria-checked="true"] {
-            border-color: var(--mv-primary) !important;
-            background-color: var(--mv-primary) !important;
+            border-color: var(--mv-teal) !important;
+            background-color: var(--mv-teal) !important;
         }
-        .stProgress > div > div > div > div { background-color: var(--mv-primary) !important; }
+        .stProgress > div > div > div > div {
+            background: linear-gradient(90deg, var(--mv-teal-dark), var(--mv-cyan)) !important;
+        }
+        .stTabs [data-baseweb="tab-highlight"] { background-color: var(--mv-teal) !important; }
+        .stTabs [data-baseweb="tab"][aria-selected="true"] { color: var(--mv-teal) !important; }
+        [data-testid="stFileUploaderDropzone"] { border-color: var(--mv-border) !important; }
+
+        /* ---- Brand logo / wordmark (icon-based, no letterform) ---- */
+        .mv-logo-wrap {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 11px;
+            margin-bottom: 4px;
+        }
+        .mv-logo-mark {
+            width: 42px;
+            height: 42px;
+            border-radius: 12px;
+            background: linear-gradient(135deg, var(--mv-teal-dark), var(--mv-teal) 55%, var(--mv-cyan));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 16px var(--mv-glow);
+        }
+        .mv-logo-mark svg { width: 22px; height: 22px; display: block; }
+        .mv-logo-text {
+            font-size: 25px;
+            font-weight: 800;
+            letter-spacing: -0.4px;
+            color: var(--text-color, inherit);
+            line-height: 1.15;
+        }
+        .mv-logo-text .mv-accent {
+            background: linear-gradient(90deg, var(--mv-teal-dark), var(--mv-cyan));
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+        .mv-logo-tagline {
+            text-align: center;
+            font-size: 12.5px;
+            opacity: .6;
+            margin-top: -2px;
+            margin-bottom: 18px;
+            letter-spacing: .2px;
+        }
+        .mv-inline-logo {
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            margin-bottom: 14px;
+        }
+        .mv-inline-logo .mv-logo-mark { width: 32px; height: 32px; border-radius: 10px; }
+        .mv-inline-logo .mv-logo-mark svg { width: 17px; height: 17px; }
+        .mv-inline-logo .mv-logo-text { font-size: 17px; }
+
+        /* ---- Auth (login/signup) shell ---- */
+        .st-key-auth_shell {
+            max-width: 480px;
+            margin: 0 auto 10px;
+        }
+        .st-key-auth_shell > div {
+            padding: 26px 26px 14px;
+            border-radius: 20px;
+            border: 1px solid var(--mv-border);
+            background: var(--mv-surface);
+            box-shadow: 0 8px 30px var(--mv-glow);
+        }
+        .auth-shell-top-bar {
+            height: 4px;
+            width: 64px;
+            margin: 0 auto 18px;
+            border-radius: 999px;
+            background: linear-gradient(90deg, var(--mv-teal-dark), var(--mv-cyan));
+        }
+        .st-key-app_pw_shell {
+            max-width: 420px;
+            margin: 10px auto 0;
+        }
+        .st-key-app_pw_shell > div {
+            padding: 30px 28px;
+            border-radius: 20px;
+            border: 1px solid var(--mv-border);
+            background: var(--mv-surface);
+            box-shadow: 0 8px 30px var(--mv-glow);
+        }
 
         /* ---- Desktop navigation ---- */
         .st-key-top_nav { margin-bottom: 10px; }
@@ -292,38 +215,47 @@ def inject_global_css():
             width: 100%;
             min-height: 40px;
             border-radius: 999px !important;
-            border: 1px solid rgba(128,128,128,0.25) !important;
+            border: 1px solid var(--mv-border) !important;
             padding: 7px 8px !important;
             font-size: 13px !important;
             white-space: nowrap !important;
         }
         .st-key-top_nav button[kind="primary"] { border: none !important; }
 
-        /* ---- Mobile top bar + custom expandable menu ----
-           Keep the two shortcut buttons pinned inside the viewport. Streamlit
-           column percentages can otherwise retain desktop widths and push the
-           right-hand icon off-screen on narrow phones. */
+        /* ---- Mobile top bar + custom expandable menu ---- */
         .st-key-mobile_top_bar { display: none; width: 100% !important; max-width: 100% !important; }
-        .st-key-mobile_top_bar > div[data-testid="stVerticalBlockBorderWrapper"],
         .st-key-mobile_top_bar > div {
+            width: 100% !important;
             max-width: 100% !important;
         }
         .st-key-mobile_top_bar div[data-testid="stHorizontalBlock"] {
             display: flex !important;
             flex-direction: row !important;
             flex-wrap: nowrap !important;
-            gap: 0 !important;
+            gap: 8px;
             align-items: center !important;
-            justify-content: space-between !important;
             width: 100% !important;
             max-width: 100% !important;
-            min-width: 0 !important;
-            overflow: visible !important;
+            margin: 0 !important;
         }
+        /* Streamlit gives its own columns a small negative left-margin +
+           matching padding (its internal "gap" trick). Once we force our
+           own width/flex here, that leftover negative margin was making
+           the row a bit WIDER than its parent - just enough to push the
+           right-hand icon column past the edge of the phone screen, where
+           it now sits invisible instead of scrollable. Zeroing margin AND
+           padding on every column removes that extra, unaccounted width. */
         .st-key-mobile_top_bar div[data-testid="column"] {
             width: auto !important;
             min-width: 0 !important;
+            max-width: 100% !important;
+            margin: 0 !important;
+            padding: 0 !important;
         }
+        /* Lock the two icon columns (☰ on the left, 👤/⚙️ on the right) to
+           a fixed, small width so they never get squeezed or shoved past
+           the right edge of the phone screen - only the middle spacer
+           column is allowed to flex/shrink. */
         .st-key-mobile_top_bar div[data-testid="column"]:first-child,
         .st-key-mobile_top_bar div[data-testid="column"]:last-child {
             flex: 0 0 44px !important;
@@ -333,8 +265,6 @@ def inject_global_css():
             flex: 1 1 auto !important;
             min-width: 0 !important;
         }
-        .st-key-mobile_top_bar div[data-testid="column"]:first-child { margin-right: auto !important; }
-        .st-key-mobile_top_bar div[data-testid="column"]:last-child { margin-left: auto !important; }
         .st-key-mobile_top_bar button {
             border-radius: 50% !important;
             width: 40px !important;
@@ -345,15 +275,16 @@ def inject_global_css():
             align-items: center !important;
             justify-content: center !important;
             font-size: 17px !important;
-            margin: 0 !important;
-            border: 1px solid rgba(128,128,128,0.25) !important;
+            margin: 0 auto !important;
+            border: 1px solid var(--mv-border) !important;
+            box-sizing: border-box !important;
         }
         .mobile-menu-card {
             margin: 6px 0 14px;
             padding: 10px;
-            border: 1px solid rgba(128,128,128,0.22);
+            border: 1px solid var(--mv-border);
             border-radius: 14px;
-            background: rgba(127,127,127,0.045);
+            background: var(--mv-surface);
         }
         .mobile-menu-card button {
             border-radius: 10px !important;
@@ -366,15 +297,15 @@ def inject_global_css():
         /* ---- Mentor entry point ---- */
         .st-key-mentor_entry_login button {
             background: transparent !important;
-            color: var(--mv-accent) !important;
-            border: 1.4px solid var(--mv-accent) !important;
+            color: #b45309 !important;
+            border: 1px solid rgba(180,83,9,0.45) !important;
             border-radius: 999px !important;
             font-weight: 600 !important;
             font-size: 11px !important;
             padding: 4px 10px !important;
             box-shadow: none !important;
         }
-        .st-key-mentor_entry_login button:hover { background: var(--mv-accent-soft) !important; }
+        .st-key-mentor_entry_login button:hover { background: rgba(180,83,9,0.08) !important; }
         .mentor-entry-caption {
             text-align: center;
             opacity: .65;
@@ -383,79 +314,33 @@ def inject_global_css():
             margin-bottom: 6px;
         }
 
-        /* ---- Test History table: keeps its 8 columns on one row and
-           becomes horizontally swipeable on narrow screens instead of
-           Streamlit's default behaviour of stacking every column into a
-           tall vertical list (unreadable on a phone). ---- */
-        .st-key-test_history_table {
-            overflow-x: auto;
-            -webkit-overflow-scrolling: touch;
-            padding-bottom: 6px;
-        }
-        .st-key-test_history_table div[data-testid="stHorizontalBlock"] {
-            display: flex !important;
-            flex-direction: row !important;
-            flex-wrap: nowrap !important;
-            align-items: center !important;
-            gap: 6px !important;
-            min-width: 620px;
-        }
-        .st-key-test_history_table div[data-testid="column"] {
-            min-width: 0 !important;
-            width: auto !important;
-        }
-        .st-key-test_history_table div[data-testid="column"]:nth-child(1) { flex: 0 0 165px !important; }
-        .st-key-test_history_table div[data-testid="column"]:nth-child(2) { flex: 0 0 85px !important; }
-        .st-key-test_history_table div[data-testid="column"]:nth-child(3),
-        .st-key-test_history_table div[data-testid="column"]:nth-child(4),
-        .st-key-test_history_table div[data-testid="column"]:nth-child(5),
-        .st-key-test_history_table div[data-testid="column"]:nth-child(6),
-        .st-key-test_history_table div[data-testid="column"]:nth-child(7) { flex: 0 0 58px !important; }
-        .st-key-test_history_table div[data-testid="column"]:nth-child(8) { flex: 0 0 56px !important; }
-        .st-key-test_history_table p, .st-key-test_history_table div[data-testid="stMarkdownContainer"] p {
-            font-size: 13px !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-        }
-        .st-key-test_history_table .stButton > button {
-            padding: 4px 8px !important; font-size: 12px !important; min-height: 30px !important;
-        }
-        @media (max-width: 640px) {
-            .st-key-test_history_table div[data-testid="stHorizontalBlock"] { min-width: 560px; }
-            .st-key-test_history_table div[data-testid="column"]:nth-child(1) { flex-basis: 130px !important; }
-        }
-
-        /* ---- Input focus glow (nice subtle brand touch) ---- */
-        .stTextInput input:focus, .stNumberInput input:focus,
-        .stDateInput input:focus, .stTextArea textarea:focus {
-            border-color: var(--mv-primary) !important;
-            box-shadow: 0 0 0 3px var(--mv-primary-soft) !important;
-        }
-
         /* ---- Generic cards ---- */
         .app-card {
             border: 1px solid var(--mv-border);
-            border-radius: 14px;
+            border-radius: 16px;
             padding: 16px 18px;
             margin-bottom: 14px;
-            background: var(--mv-card-bg);
+            background: var(--mv-surface);
+            box-shadow: 0 2px 10px var(--mv-glow);
         }
         .app-card h4 { margin-top: 0; }
         .metric-row { display: flex; gap: 10px; flex-wrap: wrap; }
         .metric-box {
             flex: 1 1 150px;
-            border-radius: 12px;
+            border-radius: 13px;
             padding: 12px 14px;
-            background: rgba(18,60,57,0.055);
+            background: var(--mv-surface-strong);
             border: 1px solid var(--mv-border);
         }
         .metric-box .label { font-size: 12px; opacity: .7; margin-bottom: 2px; }
-        .metric-box .value { font-size: 22px; font-weight: 700; }
+        .metric-box .value { font-size: 22px; font-weight: 700; color: var(--mv-teal); }
 
         .analysis-test-card {
-            border: 1px solid rgba(128,128,128,0.18);
-            border-radius: 12px;
+            border: 1px solid var(--mv-border);
+            border-radius: 13px;
             padding: 12px 14px;
             margin-bottom: 9px;
-            background: rgba(127,127,127,0.025);
+            background: var(--mv-surface);
         }
         .analysis-subtle { opacity: .68; font-size: 12px; }
         .analysis-title { font-weight: 700; font-size: 15px; }
@@ -467,30 +352,31 @@ def inject_global_css():
         .rank-gold { background:#fde68a; color:#78350f; }
         .rank-silver { background:#e5e7eb; color:#374151; }
         .rank-bronze { background:#fbcfe8; color:#831843; }
-        .rank-you { background: var(--mv-primary-soft); color: var(--mv-primary); }
+        .rank-you { background: var(--mv-surface-strong); color: var(--mv-teal); border: 1px solid var(--mv-border); }
 
         .lb-row {
             display:flex; align-items:center; gap:10px; padding:10px 12px;
-            border-radius:10px; margin-bottom:6px; border:1px solid rgba(18,60,57,0.10);
+            border-radius:10px; margin-bottom:6px; border:1px solid var(--mv-border);
+            background: var(--mv-surface);
             flex-wrap: wrap;
         }
-        .lb-row.me { background: rgba(18,60,57,0.08); border-color: rgba(18,60,57,0.35); }
+        .lb-row.me { background: var(--mv-surface-strong); border-color: var(--mv-teal); }
 
         /* ---- OMR review bubbles ---- */
         .omr-row {
             display:flex; align-items:center; gap:10px; padding:8px 4px;
-            border-bottom:1px solid rgba(128,128,128,0.15);
+            border-bottom:1px solid var(--mv-border);
         }
         .omr-qnum { width:44px; font-weight:700; font-size:13px; opacity:.8; }
         .omr-tag { font-size:11px; padding:2px 8px; border-radius:999px; margin-right:8px; font-weight:600; }
         .omr-tag.wrong-tag { background:#fee2e2; color:#991b1b; }
         .omr-tag.skip-tag { background:#e5e7eb; color:#374151; }
         .omr-bubble {
-            width:26px; height:26px; border-radius:50%; border:2px solid rgba(128,128,128,0.35);
+            width:26px; height:26px; border-radius:50%; border:2px solid var(--mv-border);
             display:inline-flex; align-items:center; justify-content:center;
             font-size:11px; font-weight:700; margin-right:6px; opacity:.85;
         }
-        .omr-bubble.correct { background:#22c55e; border-color:#22c55e; color:#fff; opacity:1; }
+        .omr-bubble.correct { background: var(--mv-teal-dark); border-color: var(--mv-teal-dark); color:#fff; opacity:1; }
         .omr-bubble.wrong { background:#ef4444; border-color:#ef4444; color:#fff; opacity:1; }
         .dt-star { color:#ef4444; font-weight:800; margin-left:2px; }
         .double-touch-note {
@@ -500,70 +386,79 @@ def inject_global_css():
         }
         .double-touch-note b { color:#ef4444; }
 
-        .strength-bar { height:6px; border-radius:4px; background:rgba(128,128,128,0.2); overflow:hidden; margin-top:4px; }
+        .strength-bar { height:6px; border-radius:4px; background: var(--mv-surface-strong); overflow:hidden; margin-top:4px; }
         .strength-fill { height:100%; border-radius:4px; }
         .time-row-label { font-weight:600; padding-top:6px; font-size:14px; }
 
         .bd-phone-prefix {
-            border: 1.4px solid var(--mv-border);
-            border-radius: 9px;
-            height: 46px;
-            min-width: 0;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            box-sizing: border-box;
+            border: 1px solid var(--mv-border);
+            border-radius: 8px;
+            padding: 9px 6px;
+            text-align: center;
             font-weight: 600;
-            color: var(--mv-primary);
-            background: var(--mv-primary-soft);
+            opacity: .9;
+            background: var(--mv-surface-strong);
             white-space: nowrap;
-            overflow: hidden;
         }
-        div[class*="_phone_row"] { width: 100% !important; }
-        div[class*="_phone_row"] label { display: none !important; }
+        div[class*="_phone_row"] {
+            width: 100% !important;
+            max-width: 100% !important;
+        }
+        /* Streamlit nests an extra wrapper div inside a keyed container -
+           that wrapper also needs to be capped at 100%, or it can stretch
+           past the card and drag the input box out with it. */
+        div[class*="_phone_row"] > div {
+            width: 100% !important;
+            max-width: 100% !important;
+        }
         div[class*="_phone_row"] div[data-testid="stHorizontalBlock"] {
             display: flex !important;
             flex-direction: row !important;
             flex-wrap: nowrap !important;
-            align-items: stretch !important;
+            align-items: center !important;
             gap: 8px !important;
             width: 100% !important;
+            max-width: 100% !important;
+            margin: 0 !important;
         }
+        /* Same fix as the mobile top bar: strip Streamlit's own negative
+           margin/padding "gap" trick on each column so the row's real
+           width never exceeds its parent card - that extra width was
+           what shoved the digit box out past the +880 box / off the
+           card at high zoom or on narrow phones. */
         div[class*="_phone_row"] div[data-testid="column"] {
             width: auto !important;
             min-width: 0 !important;
+            max-width: 100% !important;
+            margin: 0 !important;
+            padding: 0 !important;
         }
-        div[class*="_phone_row"] div[data-testid="column"]:first-child {
+        div[class*="_phone_row"] div[data-testid="column"]:nth-child(1) {
             flex: 0 0 68px !important;
             max-width: 68px !important;
+            min-width: 68px !important;
         }
-        div[class*="_phone_row"] div[data-testid="column"]:last-child {
+        div[class*="_phone_row"] div[data-testid="column"]:nth-child(2) {
             flex: 1 1 0% !important;
             min-width: 0 !important;
-        }
-        div[class*="_phone_row"] div[data-testid="column"]:last-child,
-        div[class*="_phone_row"] div[data-testid="column"]:last-child .stTextInput,
-        div[class*="_phone_row"] div[data-testid="column"]:last-child [data-baseweb="input"],
-        div[class*="_phone_row"] div[data-testid="column"]:last-child input {
-            width: 100% !important;
-            min-width: 0 !important;
             max-width: 100% !important;
-            box-sizing: border-box !important;
         }
-        div[class*="_phone_row"] div[data-testid="column"]:last-child .stTextInput > div,
-        div[class*="_phone_row"] div[data-testid="column"]:last-child input {
-            height: 46px !important;
+        div[class*="_phone_row"] div[data-testid="column"]:nth-child(2) .stTextInput,
+        div[class*="_phone_row"] div[data-testid="column"]:nth-child(2) input {
+            width: 100% !important;
+            max-width: 100% !important;
             box-sizing: border-box !important;
         }
 
         /* ---- Student per-submission calibration ---- */
         .calib-step-badge {
             display:inline-block; padding:4px 12px; border-radius:999px;
-            background: var(--mv-primary-soft); color: var(--mv-primary); font-weight:700; font-size:13px;
+            background: var(--mv-surface-strong); color: var(--mv-teal); border: 1px solid var(--mv-border);
+            font-weight:700; font-size:13px;
         }
         .calib-point-chip {
             display:inline-block; padding:4px 10px; border-radius:999px;
-            background:rgba(34,197,94,0.15); color:#15803d; font-weight:600;
+            background: var(--mv-surface-strong); color: var(--mv-teal); font-weight:600;
             font-size:12px; margin:2px 4px 2px 0;
         }
 
@@ -571,43 +466,60 @@ def inject_global_css():
             .block-container { max-width: 100%; padding-left: 1rem; padding-right: 1rem; }
             .st-key-top_nav { display: none !important; }
             .st-key-mobile_top_bar { display: block !important; }
-            .mv-hero { margin: -1rem -1rem 16px; padding: 26px 12px 18px; }
         }
         @media (max-width: 640px) {
             .metric-box { flex: 1 1 45%; }
             .lb-row { font-size: 13px; }
             .analysis-test-card { padding: 11px 12px; }
             .bd-phone-prefix { padding: 9px 3px; font-size: 13px; }
-            div[class*="_phone_row"] div[data-testid="column"]:first-child {
+            div[class*="_phone_row"] div[data-testid="column"]:nth-child(1) {
                 flex: 0 0 58px !important;
                 max-width: 58px !important;
+                min-width: 58px !important;
             }
-            .mv-hero { padding: 22px 10px 14px; border-radius: 0 0 16px 16px; }
-            .app-card, div[data-testid="stForm"] { padding: 14px !important; }
         }
-        @media (min-width: 1400px) {
-            .block-container { max-width: 1280px; }
-        }
-
-        /* ---- Themed spinner (recolors Streamlit's built-in spinner to
-           match Med Venture instead of the generic default) ---- */
-        [data-testid="stSpinner"] { color: var(--mv-primary) !important; }
-        [data-testid="stSpinner"] svg { color: var(--mv-primary) !important; fill: var(--mv-primary) !important; }
-        [data-testid="stSpinner"] p, [data-testid="stSpinner"] div {
-            font-family: var(--mono) !important; color: var(--mv-muted) !important; font-size: 13px !important;
-        }
-
-        /* ---- Boot loading screen pulse-line animation ---- */
-        @keyframes mv-pulse-draw {
-            0% { stroke-dashoffset: 520; }
-            55% { stroke-dashoffset: 0; }
-            100% { stroke-dashoffset: 0; opacity: 0; }
-        }
-        .mv-boot-pulse path { animation: mv-pulse-draw 1.8s ease-in-out infinite; }
         </style>
         """,
         unsafe_allow_html=True,
     )
+
+
+MV_LOGO_ICON_SVG = """
+<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M3 12.5h3.4l1.8-5.2 3.4 10.4 2.2-8 1.6 2.8H21"
+          stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
+"""
+
+
+def render_brand_logo(inline=False, with_tagline=True):
+    """Minimal, icon-based Med Venture mark (a small pulse/vital-line glyph
+    on a teal-to-cyan tile - no letterform) plus the wordmark, and a soft
+    tagline underneath. Used at the top of the login screen (full size) and
+    can optionally render as a compact inline version for other headers."""
+    if inline:
+        st.markdown(
+            f"""
+            <div class="mv-inline-logo">
+                <div class="mv-logo-mark">{MV_LOGO_ICON_SVG}</div>
+                <div class="mv-logo-text">The <span class="mv-accent">Med</span> Venture</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        return
+
+    st.markdown(
+        f"""
+        <div class="mv-logo-wrap">
+            <div class="mv-logo-mark">{MV_LOGO_ICON_SVG}</div>
+            <div class="mv-logo-text">The <span class="mv-accent">Med</span> Venture</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    if with_tagline:
+        st.markdown("<p class='mv-logo-tagline'>by Bushra</p>", unsafe_allow_html=True)
 
 
 MOTIVATIONS = [
@@ -718,9 +630,13 @@ def check_app_password():
     if st.session_state.get("authed"):
         return True
 
-    render_hero("Medical Admission Prep", tagline="Enter your access password to continue")
-    _, mid, _ = st.columns([1, 2, 1])
-    with mid:
+    render_brand_logo()
+    with st.container(key="app_pw_shell"):
+        st.markdown("<div class='auth-shell-top-bar'></div>", unsafe_allow_html=True)
+        st.markdown(
+            "<p style='text-align:center; opacity:.65;'>Enter the access password to continue</p>",
+            unsafe_allow_html=True,
+        )
         with st.form(key="app_pw_form", clear_on_submit=False):
             pw = st.text_input("Password", type="password", label_visibility="collapsed",
                                 placeholder="Access password")
@@ -783,8 +699,11 @@ def student_session_is_valid():
 
 
 def page_student_auth():
-    render_hero("Student Portal", heading_html="Student Login", compact=True, pulse=False)
-    tab_login, tab_signup, tab_forgot = st.tabs(["Log In", "Sign Up", "Forgot Password"])
+    render_brand_logo()
+    auth_shell = st.container(key="auth_shell")
+    auth_shell.markdown("<div class='auth-shell-top-bar'></div>", unsafe_allow_html=True)
+    auth_shell.markdown("<h2 style='text-align:center;'>🎓 Student Login</h2>", unsafe_allow_html=True)
+    tab_login, tab_signup, tab_forgot = auth_shell.tabs(["Log In", "Sign Up", "Forgot Password"])
 
     with tab_login:
         # Wrapped in a real st.form: this both (a) lets the browser detect
@@ -926,6 +845,8 @@ STUDENT_NAV = [
 
 
 def render_top_nav(current_page):
+    render_brand_logo(inline=True)
+
     # Desktop: all navigation options stay visible on laptop/desktop.
     with st.container(key="top_nav"):
         cols = st.columns(len(STUDENT_NAV))
@@ -1331,25 +1252,24 @@ def page_tests_results():
         return
 
     my_results = my_results.sort_values("timestamp", ascending=False)
-    with st.container(key="test_history_table"):
-        header_cols = st.columns([2.4, 1.3, 0.9, 0.9, 0.9, 0.9, 0.9, 0.8])
-        for c, label in zip(header_cols, ["Exam", "Date", "Total", "Correct", "Wrong", "Skipped", "Marks", ""]):
-            c.markdown(f"**{label}**")
+    header_cols = st.columns([2.4, 1.3, 0.9, 0.9, 0.9, 0.9, 0.9, 0.8])
+    for c, label in zip(header_cols, ["Exam", "Date", "Total", "Correct", "Wrong", "Skipped", "Marks", ""]):
+        c.markdown(f"**{label}**")
 
-        for _, row in my_results.iterrows():
-            key_match = keys_df[keys_df["key_id"] == row["key_id"]]
-            exam_name = key_match.iloc[0]["exam_name"] if not key_match.empty and key_match.iloc[0]["exam_name"] else row["key_id"]
-            cols = st.columns([2.4, 1.3, 0.9, 0.9, 0.9, 0.9, 0.9, 0.8])
-            cols[0].write(exam_name)
-            cols[1].write(str(row["timestamp"]).split(" ")[0])
-            cols[2].write(int(row["total"]))
-            cols[3].write(int(row["correct"]))
-            cols[4].write(int(row["wrong_count"]))
-            cols[5].write(int(row["skipped"]))
-            cols[6].write(row["marks"])
-            if cols[7].button("View", key=f"view_{row['key_id']}"):
-                st.session_state["view_key_id"] = row["key_id"]
-                st.rerun()
+    for _, row in my_results.iterrows():
+        key_match = keys_df[keys_df["key_id"] == row["key_id"]]
+        exam_name = key_match.iloc[0]["exam_name"] if not key_match.empty and key_match.iloc[0]["exam_name"] else row["key_id"]
+        cols = st.columns([2.4, 1.3, 0.9, 0.9, 0.9, 0.9, 0.9, 0.8])
+        cols[0].write(exam_name)
+        cols[1].write(str(row["timestamp"]).split(" ")[0])
+        cols[2].write(int(row["total"]))
+        cols[3].write(int(row["correct"]))
+        cols[4].write(int(row["wrong_count"]))
+        cols[5].write(int(row["skipped"]))
+        cols[6].write(row["marks"])
+        if cols[7].button("View", key=f"view_{row['key_id']}"):
+            st.session_state["view_key_id"] = row["key_id"]
+            st.rerun()
 
 
 def _exam_name_from_keys(keys_df, key_id):
@@ -1586,7 +1506,7 @@ def render_leaderboard_rows(df, mode, sid=None):
             trend_html = "<span style='opacity:.4;'>—</span>"
             if trend is not None and pd.notna(trend):
                 arrow = "↑" if trend >= 0 else "↓"
-                color = "#22c55e" if trend >= 0 else "#ef4444"
+                color = "#0d9488" if trend >= 0 else "#ef4444"
                 trend_html = f"<span style='color:{color}; font-weight:700;'>{arrow} {abs(trend)}%</span>"
             st.markdown(
                 f"""
@@ -1664,8 +1584,8 @@ def render_leaderboard(sid=None, key_suffix="student"):
                 f"""
                 <div class='app-card' style='margin-top:6px; display:flex; gap:22px; flex-wrap:wrap; align-items:center;'>
                     <div>🏅 <b>Your Rank</b><br><span style='font-size:20px; font-weight:700;'>#{rank}</span></div>
-                    <div>🎯 <b>Best Score</b><br><span style='font-size:20px; font-weight:700; color:#22c55e;'>{m['best_score']}</span></div>
-                    <div>📈 <b>Average Score</b><br><span style='font-size:20px; font-weight:700; color:#3b82f6;'>{m['avg_percent']}%</span></div>
+                    <div>🎯 <b>Best Score</b><br><span style='font-size:20px; font-weight:700; color:#0d9488;'>{m['best_score']}</span></div>
+                    <div>📈 <b>Average Score</b><br><span style='font-size:20px; font-weight:700; color:#0f766e;'>{m['avg_percent']}%</span></div>
                     <div>✅ <b>Accuracy</b><br><span style='font-size:20px; font-weight:700;'>{m['accuracy']}%</span></div>
                 </div>
                 """,
@@ -1750,96 +1670,58 @@ def page_profile():
 # =========================================================================
 
 def _inject_bubble_grid_css():
-    """UI-only CSS for the mentor answer grid.
-
-    The outer two-column layout is allowed to become a single column on a
-    phone, while each individual question keeps its A/B/C/D choices on one
-    compact row. This prevents the second question column from overflowing
-    off the right edge without changing any answer/session logic.
-    """
     st.markdown(
         """
         <style>
         .st-key-answer_bubble_grid div[data-testid="stRadio"] { margin-bottom: -14px; }
         .st-key-answer_bubble_grid div[data-testid="stRadio"] > label { display: none; }
-        .st-key-answer_bubble_grid div[role="radiogroup"] {
-            display: flex !important;
-            flex-wrap: nowrap !important;
-            gap: 6px !important;
-            width: 100% !important;
-            min-width: 0 !important;
-        }
+        .st-key-answer_bubble_grid div[role="radiogroup"] { gap: 6px; }
         .st-key-answer_bubble_grid div[role="radiogroup"] label {
-            border: 1px solid rgba(128,128,128,0.35);
+            border: 1px solid rgba(13,148,136,0.3);
             border-radius: 999px;
             padding: 2px 10px 2px 6px;
             margin-right: 0 !important;
-            min-width: 0 !important;
         }
         .q-num-badge {
             display: inline-block; min-width: 28px; font-weight: 600;
             color: var(--text-color, inherit); opacity: 0.75; padding-top: 6px;
         }
-
-        /* A row wrapper lets us target the INNER question row without also
-           affecting the OUTER two-column grid. */
-        .st-key-answer_bubble_row div[data-testid="stHorizontalBlock"] {
+        /* Force number + options to stay on the SAME row on mobile too -
+           Streamlit stacks st.columns vertically below ~640px by default,
+           which is what was pushing the A/B/C/D options under the question
+           number. Overriding with flex row + nowrap here keeps them side
+           by side on every screen size, matching the desktop look. */
+        .st-key-answer_bubble_grid div[data-testid="stHorizontalBlock"] {
             display: flex !important;
             flex-direction: row !important;
             flex-wrap: nowrap !important;
             align-items: center !important;
             gap: 4px !important;
-            width: 100% !important;
-            min-width: 0 !important;
         }
-        .st-key-answer_bubble_row div[data-testid="column"] {
+        .st-key-answer_bubble_grid div[data-testid="column"] {
             width: auto !important;
             min-width: 0 !important;
         }
-        .st-key-answer_bubble_row div[data-testid="column"]:first-child {
-            flex: 0 0 28px !important;
-            max-width: 28px !important;
+        .st-key-answer_bubble_grid div[data-testid="column"]:first-child {
+            flex: 0 0 26px !important;
         }
-        .st-key-answer_bubble_row div[data-testid="column"]:last-child {
-            flex: 1 1 0 !important;
+        .st-key-answer_bubble_grid div[data-testid="column"]:last-child {
+            flex: 1 1 auto !important;
             min-width: 0 !important;
         }
-
         @media (max-width: 640px) {
-            /* Stack only the two answer BLOCKS (1-20/21-40 etc.), not the
-               A/B/C/D choices inside each question. */
-            .st-key-answer_bubble_grid > div[data-testid="stVerticalBlock"] > div[data-testid="stHorizontalBlock"] {
-                flex-direction: column !important;
-                flex-wrap: nowrap !important;
-                align-items: stretch !important;
-                gap: 0 !important;
-            }
-            .st-key-answer_bubble_grid > div[data-testid="stVerticalBlock"] > div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
-                width: 100% !important;
-                max-width: 100% !important;
-                flex: 1 1 auto !important;
-                min-width: 0 !important;
-            }
-            .st-key-answer_bubble_grid div[role="radiogroup"] {
-                gap: 3px !important;
-            }
+            .st-key-answer_bubble_grid div[role="radiogroup"] { gap: 4px !important; }
             .st-key-answer_bubble_grid div[role="radiogroup"] label {
-                flex: 1 1 0 !important;
-                justify-content: center !important;
-                padding: 3px 2px !important;
+                padding: 2px 6px 2px 4px !important;
                 font-size: 12px !important;
-                min-width: 0 !important;
             }
-            .q-num-badge { min-width: 22px; font-size: 13px; }
-            .st-key-answer_bubble_row div[data-testid="column"]:first-child {
-                flex-basis: 24px !important;
-                max-width: 24px !important;
-            }
+            .q-num-badge { min-width: 20px; font-size: 13px; }
         }
         </style>
         """,
         unsafe_allow_html=True,
     )
+
 
 def _answers_store():
     """Single dict in session_state holding every question's chosen answer,
@@ -1872,19 +1754,18 @@ def _render_bubble_block(q_start, q_end):
     store = _answers_store()
     options = ["A", "B", "C", "D"]
     for q in range(q_start, q_end + 1):
-        with st.container(key=f"answer_bubble_row_{q}"):
-            num_col, radio_col = st.columns([0.55, 3], gap="small")
-            widget_key = f"ans_q_{q}"
-            with num_col:
-                st.markdown(f"<div class='q-num-badge'>{q}</div>", unsafe_allow_html=True)
-            with radio_col:
-                current = store.get(q)
-                idx = options.index(current) if current in options else None
-                st.radio(
-                    f"Q{q}", options=options, index=idx, horizontal=True,
-                    key=widget_key, label_visibility="collapsed",
-                    on_change=_on_bubble_change, args=(q, widget_key),
-                )
+        num_col, radio_col = st.columns([0.55, 3], gap="small")
+        widget_key = f"ans_q_{q}"
+        with num_col:
+            st.markdown(f"<div class='q-num-badge'>{q}</div>", unsafe_allow_html=True)
+        with radio_col:
+            current = store.get(q)
+            idx = options.index(current) if current in options else None
+            st.radio(
+                f"Q{q}", options=options, index=idx, horizontal=True,
+                key=widget_key, label_visibility="collapsed",
+                on_change=_on_bubble_change, args=(q, widget_key),
+            )
 
 
 def _go_answer_page(page_num):
@@ -2417,8 +2298,11 @@ def page_mentor_settings():
 def is_mentor():
     if st.session_state.get("mentor_authed"):
         return True
-    render_hero("Mentor Portal", heading_html="Mentor Login", compact=True, pulse=False)
-    with st.form(key="mentor_login_form", clear_on_submit=False):
+    render_brand_logo()
+    mentor_shell = st.container(key="app_pw_shell")
+    mentor_shell.markdown("<div class='auth-shell-top-bar'></div>", unsafe_allow_html=True)
+    mentor_shell.markdown("<h3 style='text-align:center;'>🔑 Mentor Login</h3>", unsafe_allow_html=True)
+    with mentor_shell.form(key="mentor_login_form", clear_on_submit=False):
         pw = st.text_input("Mentor password", type="password", key="mentor_pw")
         submitted = st.form_submit_button("Log In", type="primary", use_container_width=True)
     if submitted:
@@ -2449,6 +2333,7 @@ def page_mentor():
     if not is_mentor():
         return
 
+    render_brand_logo(inline=True)
     st.header("👨‍🏫 Mentor Panel")
 
     current = st.session_state.get("mentor_page", "m_dashboard")
@@ -2550,12 +2435,9 @@ def main():
     # interaction was one of the causes of the extra delay/flicker on
     # mobile (a "Connecting..." spinner flashing on every tap).
     if not st.session_state.get("_sheets_ready"):
-        boot_placeholder = st.empty()
-        with boot_placeholder.container():
-            render_boot_loading_screen("Connecting...")
-        sh.init_sheets()
+        with st.spinner("Connecting..."):
+            sh.init_sheets()
         st.session_state["_sheets_ready"] = True
-        boot_placeholder.empty()
 
     restore_page_from_url()
 
