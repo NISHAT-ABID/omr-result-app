@@ -140,6 +140,7 @@ def inject_global_css():
             --mv-border: rgba(20,32,28,0.16);
             --mv-card-bg: rgba(20,32,28,0.05);
             --mv-dot: rgba(20,32,28,0.10);
+            --mv-input-bg: #E6ECE7;
             --surface: var(--mv-surface);
             --serif: 'Fraunces', Georgia, serif;
             --sans: 'IBM Plex Sans', -apple-system, sans-serif;
@@ -166,15 +167,27 @@ def inject_global_css():
                 --mv-border: rgba(230,240,235,0.16);
                 --mv-card-bg: rgba(230,240,235,0.06);
                 --mv-dot: rgba(230,240,235,0.12);
+                --mv-input-bg: #0E1F1A;
             }
-            /* Streamlit's own native widgets (text inputs, selects, date
-               pickers) follow Streamlit's in-app theme, which is separate
-               from this OS-level media query and outside our control -
-               but we can still make sure their border/placeholder read
-               cleanly against our themed cards instead of clashing. */
-            input, textarea, select, div[data-baseweb="select"] > div {
-                border-color: var(--mv-border) !important;
-            }
+        }
+
+        /* ---- Native form-field theming (applies in both light and dark):
+           Streamlit's default input/select/date/time boxes render pure
+           white regardless of app theme, which clashed hard with our
+           off-white/dark surfaces. Give them our own tinted background and
+           make sure the text typed inside stays readable on it. ---- */
+        input[type="text"], input[type="password"], input[type="number"],
+        input[type="date"], input[type="time"], textarea,
+        div[data-baseweb="select"] > div, div[data-baseweb="base-input"],
+        div[data-baseweb="input"] {
+            background: var(--mv-input-bg) !important;
+            border-color: var(--mv-border) !important;
+            color: var(--mv-ink) !important;
+        }
+        input::placeholder, textarea::placeholder { color: var(--mv-muted) !important; opacity: .8 !important; }
+        div[data-baseweb="popover"] li, div[data-baseweb="menu"] li {
+            background: var(--mv-input-bg) !important;
+            color: var(--mv-ink) !important;
         }
 
         html, body, [class*="css"] { font-family: var(--sans); }
@@ -183,6 +196,21 @@ def inject_global_css():
         .metric-box .value, [data-testid="stMetricValue"], .rank-badge,
         .vitals-marks, code, .stCodeBlock, .analysis-title, table.wrong-table, .omr-qnum {
             font-family: var(--mono) !important;
+        }
+        /* Streamlit's own metric widget renders its value in a fairly low-
+           contrast gray by default, which read as near-invisible "ghost
+           text" against our themed backgrounds - force a solid, readable
+           color instead. */
+        [data-testid="stMetricValue"] {
+            color: var(--mv-ink) !important;
+            font-weight: 700 !important;
+        }
+        [data-testid="stMetricLabel"] p {
+            color: var(--mv-muted) !important;
+            font-family: var(--sans) !important;
+        }
+        [data-testid="stCaptionContainer"], .stCaption, small {
+            color: var(--mv-muted) !important;
         }
 
         /* ---- App-wide background (matches the web app's body color) ---- */
