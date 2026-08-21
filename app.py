@@ -734,11 +734,14 @@ def inject_global_css():
            after the first pass. ---- */
         .mv-hero-pulse-path {
             stroke-dasharray: 90 400;
-            animation: mv-hero-pulse-travel 2.6s linear infinite;
+            animation: mv-hero-pulse-travel 3.2s ease-in-out infinite;
         }
         @keyframes mv-hero-pulse-travel {
-            0%   { stroke-dashoffset: 490; }
-            100% { stroke-dashoffset: -400; }
+            0%   { stroke-dashoffset: 490; opacity: 0; }
+            10%  { opacity: 1; }
+            70%  { opacity: 1; }
+            92%  { stroke-dashoffset: -400; opacity: 0; }
+            100% { stroke-dashoffset: -400; opacity: 0; }
         }
         </style>
         """,
