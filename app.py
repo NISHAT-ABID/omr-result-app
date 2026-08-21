@@ -60,7 +60,7 @@ def render_hero(eyebrow, heading_html=None, tagline=None, compact=False, pulse=T
     pulse_html = f"""
         <svg viewBox="0 0 400 40" preserveAspectRatio="none"
              style="width:100%;max-width:260px;height:24px;color:var(--mv-accent);opacity:.6;margin:16px auto 2px;display:block;">
-            <path d="M0,20 L110,20 L128,4 L145,36 L162,20 L400,20" fill="none"
+            <path class="mv-hero-pulse-path" d="M0,20 L110,20 L128,4 L145,36 L162,20 L400,20" fill="none"
                   stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
         """ if pulse else ""
@@ -72,7 +72,7 @@ def render_hero(eyebrow, heading_html=None, tagline=None, compact=False, pulse=T
         f'font-size:{"24px" if compact else "clamp(26px,5vw,36px)"};'
         f'margin:0 0 2px;letter-spacing:-0.01em;color:var(--mv-ink);line-height:1.12;">{heading}</h1>',
         '<div style="font-family:var(--sans);font-size:11px;letter-spacing:.08em;'
-        'text-transform:uppercase;color:var(--mv-muted);margin-top:2px;">by Bushra</div>',
+        'text-transform:uppercase;color:var(--mv-muted);margin-top:2px;">By Bushra</div>',
     ]
     if tag_html:
         parts.append(tag_html)
@@ -248,27 +248,35 @@ def inject_global_css():
         .mv-auth-ring {
             position: absolute; border-radius: 50%;
             border: 1px solid var(--mv-border);
-            animation: mv-auth-ring-pulse 3.6s ease-in-out infinite;
         }
         .mv-auth-ring.r1 { width: 132px; height: 132px; }
-        .mv-auth-ring.r2 { width: 96px; height: 96px; animation-delay: .5s; }
-        /* Orbit wrappers are the full size of the wrap and simply spin -
-           each dot sits at a fixed offset inside its orbit, so spinning the
-           orbit carries the dot around the icon in a circle. Two different
-           durations/directions keep the motion from feeling mechanical. */
+        .mv-auth-ring.r2 { width: 96px; height: 96px; }
+        /* ---- Orbiting dots: the two small accent dots around the lock
+           icon now live inside a full-size wrapper that spins slowly, so
+           the dots travel in a circle around the icon instead of sitting
+           static. Each dot also gets its own gentle pulse (offset in time
+           from the other) layered on top of the spin, so the motion reads
+           as "alive" rather than a plain mechanical rotation. ---- */
         .mv-auth-orbit {
-            position: absolute; inset: 0;
-            animation: mv-auth-orbit-spin linear infinite;
+            position: absolute;
+            inset: 0;
+            animation: mv-orbit-spin 9s linear infinite;
         }
-        .mv-auth-orbit.orbit1 { animation-duration: 9s; }
-        .mv-auth-orbit.orbit2 { animation-duration: 13s; animation-direction: reverse; }
         .mv-auth-dot {
             position: absolute; width: 7px; height: 7px; border-radius: 50%;
             background: var(--mv-primary); opacity: .85;
-            animation: mv-auth-dot-twinkle 2.4s ease-in-out infinite;
+            animation: mv-dot-pulse 2.2s ease-in-out infinite;
         }
         .mv-auth-dot.d1 { top: 8px; right: 14px; }
-        .mv-auth-dot.d2 { bottom: 18px; left: 4px; width: 5px; height: 5px; opacity: .5; animation-delay: 1s; }
+        .mv-auth-dot.d2 { bottom: 18px; left: 4px; width: 5px; height: 5px; opacity: .5; animation-delay: .8s; }
+        @keyframes mv-orbit-spin {
+            from { transform: rotate(0deg); }
+            to   { transform: rotate(360deg); }
+        }
+        @keyframes mv-dot-pulse {
+            0%, 100% { transform: scale(1); opacity: .8; }
+            50%      { transform: scale(1.4); opacity: 1; }
+        }
         .mv-auth-icon-box {
             position: relative; z-index: 1;
             width: 62px; height: 62px; border-radius: 16px;
@@ -276,7 +284,6 @@ def inject_global_css():
             border: 1px solid var(--mv-border);
             display: flex; align-items: center; justify-content: center;
             font-size: 26px;
-            animation: mv-auth-icon-glow 3.6s ease-in-out infinite;
         }
         .mv-auth-icon-box .mv-auth-icon-dot {
             position: absolute; bottom: -3px; right: -3px;
@@ -310,15 +317,31 @@ def inject_global_css():
             color: var(--mv-primary); text-align: right;
         }
 
-        .st-key-mentor_cta_row {
+        /* ---- Mentor entry CTA row: a real st.container (key="mentor_cta")
+           wraps the label + button together now, instead of splitting an
+           <div>...</div> across two separate st.markdown calls (Streamlit
+           renders each st.markdown as its own DOM node, so widgets placed
+           "between" two markdown calls never actually land inside that
+           div - that was leaving the pill-shaped box empty and the real
+           label/button rendering unstyled underneath it). Styling this
+           actual container fixes that: label + button now sit inside one
+           real bordered/padded row, side by side. ---- */
+        .st-key-mentor_cta {
             border: 1px solid var(--mv-border); border-radius: 14px;
             padding: 14px 18px; margin-top: 4px;
             background: var(--mv-card-bg);
         }
-        .st-key-mentor_cta_row div[data-testid="stHorizontalBlock"] {
+        .st-key-mentor_cta div[data-testid="stHorizontalBlock"] {
+            display: flex !important;
+            flex-direction: row !important;
             align-items: center !important;
+            flex-wrap: wrap !important;
+            gap: 14px !important;
         }
         .mv-mentor-cta-label { font-family: var(--sans); font-weight: 600; font-size: 14px; color: var(--mv-ink); }
+        .st-key-mentor_entry_login button {
+            border-radius: 999px !important;
+        }
 
         /* ---- Panel-style cards: theme-adaptive surface + soft shadow +
            hover lift, matching the web app's .panel / .exam-card look. ---- */
@@ -471,15 +494,15 @@ def inject_global_css():
         /* ---- Mentor entry point ---- */
         .st-key-mentor_entry_login button {
             background: transparent !important;
-            color: var(--mv-primary) !important;
-            border: 1.4px solid var(--mv-primary) !important;
+            color: var(--mv-accent) !important;
+            border: 1.4px solid var(--mv-accent) !important;
             border-radius: 999px !important;
             font-weight: 600 !important;
-            font-size: 13px !important;
-            padding: 8px 16px !important;
+            font-size: 11px !important;
+            padding: 4px 10px !important;
             box-shadow: none !important;
         }
-        .st-key-mentor_entry_login button:hover { background: var(--mv-primary-soft) !important; }
+        .st-key-mentor_entry_login button:hover { background: var(--mv-accent-soft) !important; }
         .mentor-entry-caption {
             text-align: center;
             opacity: .65;
@@ -703,22 +726,22 @@ def inject_global_css():
         }
         .mv-boot-pulse path { animation: mv-pulse-draw 1.8s ease-in-out infinite; }
 
-        /* ---- Login icon rings/dots animation ---- */
-        @keyframes mv-auth-orbit-spin {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
+        /* ---- Entry-screen (password gate / student login / mentor login)
+           pulse-line: unlike the one-shot boot pulse above (which draws once
+           then fades out), this one keeps a short "traveling" dash segment
+           looping across the line forever - so the heartbeat line on the
+           first screen keeps animating continuously instead of freezing
+           after the first pass. ---- */
+        .mv-hero-pulse-path {
+            stroke-dasharray: 90 400;
+            animation: mv-hero-pulse-travel 3.2s ease-in-out infinite;
         }
-        @keyframes mv-auth-ring-pulse {
-            0%, 100% { opacity: .5; transform: scale(1); }
-            50% { opacity: 1; transform: scale(1.045); }
-        }
-        @keyframes mv-auth-dot-twinkle {
-            0%, 100% { opacity: .4; transform: scale(.85); }
-            50% { opacity: 1; transform: scale(1.15); }
-        }
-        @keyframes mv-auth-icon-glow {
-            0%, 100% { box-shadow: 0 0 0 0 var(--mv-primary-soft); }
-            50% { box-shadow: 0 0 0 8px transparent; }
+        @keyframes mv-hero-pulse-travel {
+            0%   { stroke-dashoffset: 490; opacity: 0; }
+            10%  { opacity: 1; }
+            70%  { opacity: 1; }
+            92%  { stroke-dashoffset: -400; opacity: 0; }
+            100% { stroke-dashoffset: -400; opacity: 0; }
         }
         </style>
         """,
@@ -912,8 +935,10 @@ def page_student_auth():
                     <div class='mv-auth-side-icon-wrap'>
                         <div class='mv-auth-ring r1'></div>
                         <div class='mv-auth-ring r2'></div>
-                        <div class='mv-auth-orbit orbit1'><span class='mv-auth-dot d1'></span></div>
-                        <div class='mv-auth-orbit orbit2'><span class='mv-auth-dot d2'></span></div>
+                        <div class='mv-auth-orbit'>
+                            <span class='mv-auth-dot d1'></span>
+                            <span class='mv-auth-dot d2'></span>
+                        </div>
                         <div class='mv-auth-icon-box'>🔒<span class='mv-auth-icon-dot'></span></div>
                     </div>
                     <div class='mv-auth-side-title'>Welcome back!</div>
@@ -1050,8 +1075,11 @@ def page_student_auth():
                 st.warning("No account found with this phone number.")
 
     # ---- Small, quiet mentor entry point right below the login card ----
-    with st.container(key="mentor_cta_row"):
-        label_col, btn_col = st.columns([2, 1.3], vertical_alignment="center")
+    # A real st.container (key="mentor_cta") wraps the label + button
+    # together, so the CSS box and the actual widgets are the same DOM
+    # node - see the ".st-key-mentor_cta" rule in inject_global_css.
+    with st.container(key="mentor_cta"):
+        label_col, btn_col = st.columns([2, 1.1])
         with label_col:
             st.markdown("<div class='mv-mentor-cta-label'>Are you a mentor?</div>", unsafe_allow_html=True)
         with btn_col:
