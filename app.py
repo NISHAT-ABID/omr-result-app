@@ -251,12 +251,32 @@ def inject_global_css():
         }
         .mv-auth-ring.r1 { width: 132px; height: 132px; }
         .mv-auth-ring.r2 { width: 96px; height: 96px; }
+        /* ---- Orbiting dots: the two small accent dots around the lock
+           icon now live inside a full-size wrapper that spins slowly, so
+           the dots travel in a circle around the icon instead of sitting
+           static. Each dot also gets its own gentle pulse (offset in time
+           from the other) layered on top of the spin, so the motion reads
+           as "alive" rather than a plain mechanical rotation. ---- */
+        .mv-auth-orbit {
+            position: absolute;
+            inset: 0;
+            animation: mv-orbit-spin 9s linear infinite;
+        }
         .mv-auth-dot {
             position: absolute; width: 7px; height: 7px; border-radius: 50%;
             background: var(--mv-primary); opacity: .85;
+            animation: mv-dot-pulse 2.2s ease-in-out infinite;
         }
         .mv-auth-dot.d1 { top: 8px; right: 14px; }
-        .mv-auth-dot.d2 { bottom: 18px; left: 4px; width: 5px; height: 5px; opacity: .5; }
+        .mv-auth-dot.d2 { bottom: 18px; left: 4px; width: 5px; height: 5px; opacity: .5; animation-delay: .8s; }
+        @keyframes mv-orbit-spin {
+            from { transform: rotate(0deg); }
+            to   { transform: rotate(360deg); }
+        }
+        @keyframes mv-dot-pulse {
+            0%, 100% { transform: scale(1); opacity: .8; }
+            50%      { transform: scale(1.4); opacity: 1; }
+        }
         .mv-auth-icon-box {
             position: relative; z-index: 1;
             width: 62px; height: 62px; border-radius: 16px;
@@ -297,12 +317,26 @@ def inject_global_css():
             color: var(--mv-primary); text-align: right;
         }
 
-        .mv-mentor-cta {
-            display: flex; align-items: center; justify-content: space-between;
-            gap: 14px; flex-wrap: wrap;
+        /* ---- Mentor entry CTA row: a real st.container (key="mentor_cta")
+           wraps the label + button together now, instead of splitting an
+           <div>...</div> across two separate st.markdown calls (Streamlit
+           renders each st.markdown as its own DOM node, so widgets placed
+           "between" two markdown calls never actually land inside that
+           div - that was leaving the pill-shaped box empty and the real
+           label/button rendering unstyled underneath it). Styling this
+           actual container fixes that: label + button now sit inside one
+           real bordered/padded row, side by side. ---- */
+        .st-key-mentor_cta {
             border: 1px solid var(--mv-border); border-radius: 14px;
             padding: 14px 18px; margin-top: 4px;
             background: var(--mv-card-bg);
+        }
+        .st-key-mentor_cta div[data-testid="stHorizontalBlock"] {
+            display: flex !important;
+            flex-direction: row !important;
+            align-items: center !important;
+            flex-wrap: wrap !important;
+            gap: 14px !important;
         }
         .mv-mentor-cta-label { font-family: var(--sans); font-weight: 600; font-size: 14px; color: var(--mv-ink); }
         .st-key-mentor_entry_login button {
@@ -883,8 +917,10 @@ def page_student_auth():
                     <div class='mv-auth-side-icon-wrap'>
                         <div class='mv-auth-ring r1'></div>
                         <div class='mv-auth-ring r2'></div>
-                        <span class='mv-auth-dot d1'></span>
-                        <span class='mv-auth-dot d2'></span>
+                        <div class='mv-auth-orbit'>
+                            <span class='mv-auth-dot d1'></span>
+                            <span class='mv-auth-dot d2'></span>
+                        </div>
                         <div class='mv-auth-icon-box'>🔒<span class='mv-auth-icon-dot'></span></div>
                     </div>
                     <div class='mv-auth-side-title'>Welcome back!</div>
@@ -1021,15 +1057,17 @@ def page_student_auth():
                 st.warning("No account found with this phone number.")
 
     # ---- Small, quiet mentor entry point right below the login card ----
-    st.markdown("<div class='mv-mentor-cta'>", unsafe_allow_html=True)
-    label_col, btn_col = st.columns([2, 1.1])
-    with label_col:
-        st.markdown("<div class='mv-mentor-cta-label'>Are you a mentor?</div>", unsafe_allow_html=True)
-    with btn_col:
-        with st.container(key="mentor_entry_login"):
-            if st.button("Mentor Login →", use_container_width=True, key="mentor_entry_login_btn"):
-                go_to("mentor")
-    st.markdown("</div>", unsafe_allow_html=True)
+    # A real st.container (key="mentor_cta") wraps the label + button
+    # together, so the CSS box and the actual widgets are the same DOM
+    # node - see the ".st-key-mentor_cta" rule in inject_global_css.
+    with st.container(key="mentor_cta"):
+        label_col, btn_col = st.columns([2, 1.1])
+        with label_col:
+            st.markdown("<div class='mv-mentor-cta-label'>Are you a mentor?</div>", unsafe_allow_html=True)
+        with btn_col:
+            with st.container(key="mentor_entry_login"):
+                if st.button("Mentor Login →", use_container_width=True, key="mentor_entry_login_btn"):
+                    go_to("mentor")
 
 
 # =========================================================================
