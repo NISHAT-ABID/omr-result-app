@@ -72,7 +72,7 @@ def render_hero(eyebrow, heading_html=None, tagline=None, compact=False, pulse=T
         f'font-size:{"24px" if compact else "clamp(26px,5vw,36px)"};'
         f'margin:0 0 2px;letter-spacing:-0.01em;color:var(--mv-ink);line-height:1.12;">{heading}</h1>',
         '<div style="font-family:var(--sans);font-size:11px;letter-spacing:.08em;'
-        'text-transform:uppercase;color:var(--mv-muted);margin-top:2px;">by Bushra</div>',
+        'text-transform:uppercase;color:var(--mv-muted);margin-top:2px;">====</div>',
     ]
     if tag_html:
         parts.append(tag_html)
