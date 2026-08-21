@@ -60,7 +60,7 @@ def render_hero(eyebrow, heading_html=None, tagline=None, compact=False, pulse=T
     pulse_html = f"""
         <svg viewBox="0 0 400 40" preserveAspectRatio="none"
              style="width:100%;max-width:260px;height:24px;color:var(--mv-accent);opacity:.6;margin:16px auto 2px;display:block;">
-            <path d="M0,20 L110,20 L128,4 L145,36 L162,20 L400,20" fill="none"
+            <path class="mv-hero-pulse-path" d="M0,20 L110,20 L128,4 L145,36 L162,20 L400,20" fill="none"
                   stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
         """ if pulse else ""
@@ -725,6 +725,21 @@ def inject_global_css():
             100% { stroke-dashoffset: 0; opacity: 0; }
         }
         .mv-boot-pulse path { animation: mv-pulse-draw 1.8s ease-in-out infinite; }
+
+        /* ---- Entry-screen (password gate / student login / mentor login)
+           pulse-line: unlike the one-shot boot pulse above (which draws once
+           then fades out), this one keeps a short "traveling" dash segment
+           looping across the line forever - so the heartbeat line on the
+           first screen keeps animating continuously instead of freezing
+           after the first pass. ---- */
+        .mv-hero-pulse-path {
+            stroke-dasharray: 90 400;
+            animation: mv-hero-pulse-travel 2.6s linear infinite;
+        }
+        @keyframes mv-hero-pulse-travel {
+            0%   { stroke-dashoffset: 490; }
+            100% { stroke-dashoffset: -400; }
+        }
         </style>
         """,
         unsafe_allow_html=True,
