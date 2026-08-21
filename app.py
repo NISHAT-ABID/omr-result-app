@@ -127,48 +127,29 @@ def inject_global_css():
         """
         <style>
         @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+        /* One fixed palette, always applied - deliberately NOT gated behind
+           @media (prefers-color-scheme: dark) any more. The app must look
+           identical no matter what light/dark mode the visitor's OS or
+           browser is set to, so we hardcode this single dark, teal Med
+           Venture palette as the only palette that ever exists. */
         :root {
-            --mv-bg: #F1F4F0;
-            --mv-surface: #FFFFFF;
-            --mv-ink: #14201C;
-            --mv-primary: #1A5C54;
-            --mv-primary-hover: #123C39;
-            --mv-primary-soft: rgba(26,92,84,0.14);
-            --mv-accent: #C4432E;
-            --mv-accent-soft: rgba(196,67,46,0.14);
-            --mv-muted: #5C6B64;
-            --mv-border: rgba(20,32,28,0.16);
-            --mv-card-bg: rgba(20,32,28,0.05);
-            --mv-dot: rgba(20,32,28,0.10);
-            --mv-input-bg: #E6ECE7;
+            --mv-bg: #10201C;
+            --mv-surface: #18302A;
+            --mv-ink: #EAF2EF;
+            --mv-primary: #4FB3A2;
+            --mv-primary-hover: #6FC9BA;
+            --mv-primary-soft: rgba(79,179,162,0.20);
+            --mv-accent: #E68B75;
+            --mv-accent-soft: rgba(230,139,117,0.18);
+            --mv-muted: #9BAAA2;
+            --mv-border: rgba(230,240,235,0.16);
+            --mv-card-bg: rgba(230,240,235,0.06);
+            --mv-dot: rgba(230,240,235,0.12);
+            --mv-input-bg: #0E1F1A;
             --surface: var(--mv-surface);
             --serif: 'Fraunces', Georgia, serif;
             --sans: 'IBM Plex Sans', -apple-system, sans-serif;
             --mono: 'IBM Plex Mono', 'Courier New', monospace;
-        }
-        /* Every token - including background/surface/ink, not just the
-           accent colors - is overridden together here. Earlier this block
-           only re-tinted the accents while background/surface/ink tried
-           (and silently failed) to read Streamlit's own theme variables,
-           which produced a light background with dark-mode-tuned text on
-           top of it - unreadable. Now light and dark are two fully
-           self-consistent palettes with nothing shared between them. */
-        @media (prefers-color-scheme: dark) {
-            :root {
-                --mv-bg: #10201C;
-                --mv-surface: #18302A;
-                --mv-ink: #EAF2EF;
-                --mv-primary: #4FB3A2;
-                --mv-primary-hover: #6FC9BA;
-                --mv-primary-soft: rgba(79,179,162,0.20);
-                --mv-accent: #E68B75;
-                --mv-accent-soft: rgba(230,139,117,0.18);
-                --mv-muted: #9BAAA2;
-                --mv-border: rgba(230,240,235,0.16);
-                --mv-card-bg: rgba(230,240,235,0.06);
-                --mv-dot: rgba(230,240,235,0.12);
-                --mv-input-bg: #0E1F1A;
-            }
         }
 
         /* ---- Native form-field theming (applies in both light and dark):
@@ -233,6 +214,99 @@ def inject_global_css():
             font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
             color: var(--mv-primary); background: var(--mv-primary-soft);
             padding: 5px 14px; border-radius: 999px; margin-bottom: 16px;
+        }
+
+        /* ---- Auth card (Log In / Sign Up / Forgot Password) - a two-
+           column panel: a decorative icon+welcome side and the actual
+           form side, matching the reference design. Pure presentation -
+           wraps the exact same widgets/logic that already existed. ---- */
+        .mv-auth-card {
+            border: 1px solid var(--mv-border);
+            border-radius: 18px;
+            background: var(--mv-surface);
+            padding: 6px 6px 22px;
+            margin-top: 6px;
+            margin-bottom: 18px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.14), 0 10px 30px rgba(0,0,0,0.18);
+        }
+        .mv-auth-side {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 30px 18px;
+            border-right: 1px solid var(--mv-border);
+        }
+        .mv-auth-side-icon-wrap {
+            position: relative;
+            width: 132px; height: 132px;
+            display: flex; align-items: center; justify-content: center;
+            margin-bottom: 22px;
+        }
+        .mv-auth-ring {
+            position: absolute; border-radius: 50%;
+            border: 1px solid var(--mv-border);
+        }
+        .mv-auth-ring.r1 { width: 132px; height: 132px; }
+        .mv-auth-ring.r2 { width: 96px; height: 96px; }
+        .mv-auth-dot {
+            position: absolute; width: 7px; height: 7px; border-radius: 50%;
+            background: var(--mv-primary); opacity: .85;
+        }
+        .mv-auth-dot.d1 { top: 8px; right: 14px; }
+        .mv-auth-dot.d2 { bottom: 18px; left: 4px; width: 5px; height: 5px; opacity: .5; }
+        .mv-auth-icon-box {
+            position: relative; z-index: 1;
+            width: 62px; height: 62px; border-radius: 16px;
+            background: var(--mv-primary-soft);
+            border: 1px solid var(--mv-border);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 26px;
+        }
+        .mv-auth-icon-box .mv-auth-icon-dot {
+            position: absolute; bottom: -3px; right: -3px;
+            width: 16px; height: 16px; border-radius: 50%;
+            background: var(--mv-accent);
+            border: 3px solid var(--mv-surface);
+        }
+        .mv-auth-side-title {
+            font-family: var(--serif); font-weight: 600; font-size: 21px;
+            color: var(--mv-ink); margin-bottom: 8px;
+        }
+        .mv-auth-side-text {
+            font-family: var(--sans); font-size: 13.5px; color: var(--mv-muted);
+            max-width: 220px; line-height: 1.55;
+        }
+        .mv-auth-form-side { padding: 26px 26px 4px; }
+        @media (max-width: 900px) {
+            .mv-auth-side { border-right: none; border-bottom: 1px solid var(--mv-border); padding: 24px 16px; }
+            .mv-auth-form-side { padding: 20px 16px 4px; }
+        }
+
+        .mv-remember-row {
+            display: flex; align-items: center; justify-content: space-between;
+            margin: 2px 0 12px;
+        }
+        .mv-remember-row [data-testid="stCheckbox"] label p {
+            font-size: 13px !important; color: var(--mv-muted) !important;
+        }
+        .mv-forgot-link {
+            font-family: var(--sans); font-size: 12.5px; font-weight: 600;
+            color: var(--mv-primary); text-align: right;
+        }
+
+        .mv-mentor-cta {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 14px; flex-wrap: wrap;
+            border: 1px solid var(--mv-border); border-radius: 14px;
+            padding: 14px 18px; margin-top: 4px;
+            background: var(--mv-card-bg);
+        }
+        .mv-mentor-cta-label { font-family: var(--sans); font-weight: 600; font-size: 14px; color: var(--mv-ink); }
+        .st-key-mentor_entry_login button {
+            border-radius: 999px !important;
         }
 
         /* ---- Panel-style cards: theme-adaptive surface + soft shadow +
@@ -773,7 +847,7 @@ def phone_field(key_prefix, placeholder="1712345678"):
     with st.container(key=f"{key_prefix}_phone_row"):
         c1, c2 = st.columns([0.9, 3.1], gap="small")
         with c1:
-            st.markdown("<div class='bd-phone-prefix'>+880</div>", unsafe_allow_html=True)
+            st.markdown("<div class='bd-phone-prefix'>+880 <span style='opacity:.55;font-size:10px;margin-left:4px;'>⌄</span></div>", unsafe_allow_html=True)
         with c2:
             digits = st.text_input(
                 "Phone number", key=f"{key_prefix}_digits", label_visibility="collapsed",
@@ -800,16 +874,46 @@ def page_student_auth():
     tab_login, tab_signup, tab_forgot = st.tabs(["Log In", "Sign Up", "Forgot Password"])
 
     with tab_login:
-        # Wrapped in a real st.form: this both (a) lets the browser detect
-        # it as a login form for autofill / "remember password", and
-        # (b) makes pressing Enter inside any field submit the form - no
-        # extra click needed after autofill/paste. No live password-
-        # strength feedback is needed on this tab, so a form (which only
-        # reruns on submit) doesn't cost us anything here.
-        with st.form(key="login_form", clear_on_submit=False):
-            login_digits = phone_field("login")
-            pw = st.text_input("Password", type="password", key="login_pw")
-            submitted = st.form_submit_button("Log In", type="primary", use_container_width=True)
+        st.markdown("<div class='mv-auth-card'>", unsafe_allow_html=True)
+        side_col, form_col = st.columns([1, 1.35], gap="small")
+        with side_col:
+            st.markdown(
+                """
+                <div class='mv-auth-side'>
+                    <div class='mv-auth-side-icon-wrap'>
+                        <div class='mv-auth-ring r1'></div>
+                        <div class='mv-auth-ring r2'></div>
+                        <span class='mv-auth-dot d1'></span>
+                        <span class='mv-auth-dot d2'></span>
+                        <div class='mv-auth-icon-box'>🔒<span class='mv-auth-icon-dot'></span></div>
+                    </div>
+                    <div class='mv-auth-side-title'>Welcome back!</div>
+                    <div class='mv-auth-side-text'>Login to access your student dashboard</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        with form_col:
+            st.markdown("<div class='mv-auth-form-side'>", unsafe_allow_html=True)
+            # Wrapped in a real st.form: this both (a) lets the browser detect
+            # it as a login form for autofill / "remember password", and
+            # (b) makes pressing Enter inside any field submit the form - no
+            # extra click needed after autofill/paste. No live password-
+            # strength feedback is needed on this tab, so a form (which only
+            # reruns on submit) doesn't cost us anything here.
+            with st.form(key="login_form", clear_on_submit=False):
+                login_digits = phone_field("login")
+                pw = st.text_input("Password", type="password", key="login_pw")
+                st.markdown("<div class='mv-remember-row'>", unsafe_allow_html=True)
+                rc1, rc2 = st.columns([1, 1])
+                with rc1:
+                    st.checkbox("Remember me", key="login_remember_me_ui")
+                with rc2:
+                    st.markdown("<div class='mv-forgot-link'>Forgot Password?</div>", unsafe_allow_html=True)
+                st.markdown("</div>", unsafe_allow_html=True)
+                submitted = st.form_submit_button("Log In", type="primary", use_container_width=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
         if submitted:
             ok, err, canonical_phone = sh.validate_bd_phone_digits(login_digits)
             if not ok:
@@ -917,12 +1021,15 @@ def page_student_auth():
                 st.warning("No account found with this phone number.")
 
     # ---- Small, quiet mentor entry point right below the login card ----
-    st.markdown("<p class='mentor-entry-caption'>Are you a mentor?</p>", unsafe_allow_html=True)
-    _, mid, _ = st.columns([1, 1.3, 1])
-    with mid:
+    st.markdown("<div class='mv-mentor-cta'>", unsafe_allow_html=True)
+    label_col, btn_col = st.columns([2, 1.1])
+    with label_col:
+        st.markdown("<div class='mv-mentor-cta-label'>Are you a mentor?</div>", unsafe_allow_html=True)
+    with btn_col:
         with st.container(key="mentor_entry_login"):
-            if st.button("Mentor Login", use_container_width=True, key="mentor_entry_login_btn"):
+            if st.button("Mentor Login →", use_container_width=True, key="mentor_entry_login_btn"):
                 go_to("mentor")
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 # =========================================================================
