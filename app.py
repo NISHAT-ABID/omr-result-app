@@ -754,47 +754,34 @@ def inject_global_css():
         .strength-fill { height:100%; border-radius:4px; }
         .time-row-label { font-weight:600; padding-top:6px; font-size:14px; }
 
-        .bd-phone-prefix {
-            border: 1.4px solid var(--mv-border);
-            border-radius: 9px;
-            height: 46px;
+        /* ---- Phone number field: a fixed "+880" badge drawn on top of a
+           single normal st.text_input, instead of two side-by-side
+           st.columns (see the phone_field() docstring for why columns
+           were dropped - Streamlit's own column-stacking on narrow
+           screens couldn't be reliably overridden). The container is the
+           positioning anchor; the badge sits absolutely inside its top-
+           left corner, and the input gets left padding so typed digits
+           start clear of it. This is one visual unit that behaves
+           identically at any screen width, phone included. ---- */
+        div[class*="_phone_row"] { position: relative; }
+        div[class*="_phone_row"] .bd-phone-prefix {
+            position: absolute;
+            left: 1px; top: 1px; bottom: 1px;
             display: flex;
             align-items: center;
-            justify-content: center;
-            box-sizing: border-box;
+            padding: 0 12px;
+            border-radius: 8px 0 0 8px;
             font-weight: 600;
+            font-size: 14px;
             color: var(--mv-primary);
             background: var(--mv-primary-soft);
+            border-right: 1px solid var(--mv-border);
+            pointer-events: none;
+            z-index: 2;
             white-space: nowrap;
         }
-        div[class*="_phone_row"] { width: 100% !important; }
-        div[class*="_phone_row"] label { display: none !important; }
-        div[class*="_phone_row"] div[data-testid="stHorizontalBlock"] {
-            display: flex !important;
-            flex-direction: row !important;
-            flex-wrap: nowrap !important;
-            align-items: stretch !important;
-            gap: 8px !important;
-            width: 100% !important;
-        }
-        div[class*="_phone_row"] div[data-testid="column"] {
-            width: auto !important;
-            min-width: 0 !important;
-        }
-        div[class*="_phone_row"] div[data-testid="column"]:first-child {
-            flex: 0 0 68px !important;
-            max-width: 68px !important;
-        }
-        div[class*="_phone_row"] div[data-testid="column"]:last-child {
-            flex: 1 1 0% !important;
-            min-width: 0 !important;
-        }
-        div[class*="_phone_row"] div[data-testid="column"]:last-child .stTextInput,
-        div[class*="_phone_row"] div[data-testid="column"]:last-child input {
-            width: 100% !important;
-        }
-        div[class*="_phone_row"] div[data-testid="column"]:last-child .stTextInput > div,
-        div[class*="_phone_row"] div[data-testid="column"]:last-child input {
+        div[class*="_phone_row"] input {
+            padding-left: 68px !important;
             height: 46px !important;
             box-sizing: border-box !important;
         }
@@ -820,11 +807,6 @@ def inject_global_css():
             .metric-box { flex: 1 1 45%; }
             .lb-row { font-size: 13px; }
             .analysis-test-card, [class*="st-key-acard_"] { padding: 8px 10px; }
-            .bd-phone-prefix { padding: 9px 3px; font-size: 13px; }
-            div[class*="_phone_row"] div[data-testid="column"]:first-child {
-                flex: 0 0 58px !important;
-                max-width: 58px !important;
-            }
             .mv-hero { padding: 22px 10px 14px; border-radius: 0 0 16px 16px; }
             .app-card, [class*="st-key-card_"], div[data-testid="stForm"] { padding: 10px 12px !important; }
         }
@@ -1012,21 +994,27 @@ def phone_field(key_prefix, placeholder="1712345678"):
     student only ever types the 10 digits that follow. This removes the
     'leading 0 disappears' class of bug entirely (there's no 0 for the
     user to type or for anything to drop), and keeps every number stored
-    in one consistent format. The '+880' box and the digit input are kept
-    on ONE row (see the '_phone_row' CSS rule in inject_global_css) even
-    on mobile, where Streamlit's columns would otherwise stack vertically.
+    in one consistent format.
+
+    Deliberately NOT built with st.columns() any more: Streamlit collapses/
+    resizes columns using its own internal responsive rules on narrow
+    screens, and that was fighting our CSS overrides - on phones the
+    "+880" box was rendering at nearly full width with the actual number
+    input squeezed into a sliver at the edge. Instead, the "+880" badge is
+    now a small absolutely-positioned label drawn directly on top of the
+    left edge of a single, normal st.text_input (which gets extra left
+    padding so typed digits never sit underneath the badge). One real
+    input box, one visual unit, no column-stacking to fight - works the
+    same way at every screen width.
     Returns whatever raw digits the user has typed so far (validate with
     sh.validate_bd_phone_digits before use)."""
     st.markdown("**Phone number**")
     with st.container(key=f"{key_prefix}_phone_row"):
-        c1, c2 = st.columns([0.9, 3.1], gap="small")
-        with c1:
-            st.markdown("<div class='bd-phone-prefix'>+880 <span style='opacity:.55;font-size:10px;margin-left:4px;'>⌄</span></div>", unsafe_allow_html=True)
-        with c2:
-            digits = st.text_input(
-                "Phone number", key=f"{key_prefix}_digits", label_visibility="collapsed",
-                placeholder=placeholder, max_chars=10,
-            )
+        st.markdown("<span class='bd-phone-prefix'>+880</span>", unsafe_allow_html=True)
+        digits = st.text_input(
+            "Phone number", key=f"{key_prefix}_digits", label_visibility="collapsed",
+            placeholder=placeholder, max_chars=10,
+        )
     return digits
 
 
