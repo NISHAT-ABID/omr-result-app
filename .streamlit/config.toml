@@ -1,0 +1,35 @@
+# This file pins the app to ONE fixed dark theme at the Streamlit level,
+# so it looks identical for every visitor regardless of their OS/browser
+# light-or-dark setting.
+#
+# Why this file is needed (not just CSS in app.py):
+# Streamlit renders many of its own built-in widgets - including the
+# password show/hide "eye" icon, select-box dropdown popovers, and other
+# native controls - using its own internal design system (BaseWeb), which
+# by default auto-switches between a light and a dark palette based on
+# the visitor's OS/browser preference. Custom CSS injected from app.py
+# can override *most* of the app's look, but it has to fight that
+# auto-switching internal theme for a few native widgets, which is what
+# was causing the password eye icon (and similar controls) to still show
+# up with a stray white box in light mode even after the CSS fixes.
+#
+# Setting `base = "dark"` here tells Streamlit itself to always use its
+# dark design tokens - no auto-detection, no fighting with CSS specificity
+# - so every native widget matches the app's Med Venture palette. The
+# colors below match the --mv-* CSS variables already used in app.py's
+# inject_global_css(), so the two layers (Streamlit's own theme + our
+# custom CSS) now agree instead of conflicting.
+#
+# IMPORTANT: this file must live at "<project folder>/.streamlit/config.toml"
+# - i.e. in a folder named ".streamlit" placed right next to app.py.
+# Streamlit only reads it from that exact relative location (or from a
+# user-level .streamlit folder), so if it isn't sitting alongside app.py
+# it won't take effect.
+
+[theme]
+base = "dark"
+primaryColor = "#4FB3A2"
+backgroundColor = "#10201C"
+secondaryBackgroundColor = "#18302A"
+textColor = "#EAF2EF"
+font = "sans serif"
