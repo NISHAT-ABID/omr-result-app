@@ -150,6 +150,7 @@ def inject_global_css():
            browser is set to, so we hardcode this single dark, teal Med
            Venture palette as the only palette that ever exists. */
         :root {
+            color-scheme: dark;
             --mv-bg: #10201C;
             --mv-surface: #18302A;
             --mv-ink: #EAF2EF;
@@ -168,6 +169,15 @@ def inject_global_css():
             --sans: 'IBM Plex Sans', -apple-system, sans-serif;
             --mono: 'IBM Plex Mono', 'Courier New', monospace;
         }
+        /* color-scheme tells the BROWSER (not just our own CSS) that this
+           page is dark, so any native chrome we can't fully restyle with
+           CSS alone - the password show/hide eye icon, date/time picker
+           popups, scrollbars - renders in dark mode too. Without this,
+           those native bits were following the visitor's OS light/dark
+           setting instead of our app's palette, which is what was
+           showing up as a stray white box with black text/icon whenever
+           someone's OS/browser was set to light mode. */
+        html, body { color-scheme: dark; }
 
         /* ---- Native form-field theming (applies in both light and dark):
            Streamlit's default input/select/date/time boxes render pure
@@ -186,6 +196,30 @@ def inject_global_css():
         div[data-baseweb="popover"] li, div[data-baseweb="menu"] li {
             background: var(--mv-input-bg) !important;
             color: var(--mv-ink) !important;
+        }
+        div[data-baseweb="popover"], div[data-baseweb="popover"] div[role="listbox"] {
+            background: var(--mv-input-bg) !important;
+        }
+
+        /* ---- Password show/hide eye-icon button: it lives inside the
+           text input itself rather than as a normal .stButton, so none
+           of our button-recoloring rules further down ever touched it -
+           left it rendering with the browser/BaseWeb's own default
+           button chrome (a plain white square, dark icon) that didn't
+           match the rest of the dark theme. Force it transparent with a
+           theme-colored icon instead. ---- */
+        div[data-testid="stTextInput"] button,
+        div[data-baseweb="input"] button,
+        div[data-baseweb="base-input"] button {
+            background: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+        }
+        div[data-testid="stTextInput"] button svg,
+        div[data-baseweb="input"] button svg,
+        div[data-baseweb="base-input"] button svg {
+            color: var(--mv-muted) !important;
+            fill: var(--mv-muted) !important;
         }
 
         html, body, [class*="css"] { font-family: var(--sans); }
@@ -248,9 +282,16 @@ def inject_global_css():
            In) - real st.button/st.form_submit_button widgets underneath
            (so they're properly clickable and can drive navigation), just
            stripped of the normal button chrome and rendered as plain
-           text links instead. ---- */
+           text links instead.
+           Selectors below deliberately repeat the ".stButton"/
+           ".stFormSubmitButton" wrapper class (not just "button") so
+           their specificity clearly beats the generic
+           ".stButton > button:not([kind=\"primary\"])" pill-button rule
+           further down this stylesheet - with equal specificity the
+           generic rule (declared later) would win and put the teal
+           border box back around these links. ---- */
         .st-key-forgot_pw_link { display: flex; justify-content: flex-end; align-items: center; }
-        .st-key-forgot_pw_link button {
+        .st-key-forgot_pw_link .stFormSubmitButton > button:not([kind="primary"]) {
             background: transparent !important;
             border: none !important;
             box-shadow: none !important;
@@ -261,11 +302,14 @@ def inject_global_css():
             min-height: unset !important;
             width: auto !important;
         }
-        .st-key-forgot_pw_link button:hover { text-decoration: underline; transform: none !important; }
+        .st-key-forgot_pw_link .stFormSubmitButton > button:not([kind="primary"]):hover {
+            text-decoration: underline; transform: none !important; background: transparent !important;
+        }
 
         .st-key-auth_bottom_links { margin-top: 16px; text-align: center; }
         .st-key-auth_bottom_links div[data-testid="stHorizontalBlock"] { gap: 6px !important; }
-        .st-key-auth_signup_link button, .st-key-auth_mentor_link button {
+        .st-key-auth_signup_link .stButton > button:not([kind="primary"]),
+        .st-key-auth_mentor_link .stButton > button:not([kind="primary"]) {
             background: transparent !important;
             border: none !important;
             box-shadow: none !important;
@@ -275,14 +319,15 @@ def inject_global_css():
             padding: 6px 4px !important;
             min-height: unset !important;
         }
-        .st-key-auth_signup_link button:hover, .st-key-auth_mentor_link button:hover {
+        .st-key-auth_signup_link .stButton > button:not([kind="primary"]):hover,
+        .st-key-auth_mentor_link .stButton > button:not([kind="primary"]):hover {
             color: var(--mv-primary) !important;
             text-decoration: underline;
             background: transparent !important;
             transform: none !important;
         }
         .st-key-back_to_login_link { margin-top: 10px; text-align: center; }
-        .st-key-back_to_login_link button {
+        .st-key-back_to_login_link .stButton > button:not([kind="primary"]) {
             background: transparent !important;
             border: none !important;
             box-shadow: none !important;
@@ -292,7 +337,9 @@ def inject_global_css():
             padding: 4px 0 !important;
             min-height: unset !important;
         }
-        .st-key-back_to_login_link button:hover { text-decoration: underline; transform: none !important; }
+        .st-key-back_to_login_link .stButton > button:not([kind="primary"]):hover {
+            text-decoration: underline; transform: none !important; background: transparent !important;
+        }
 
         /* ---- Auth card (Log In / Sign Up / Forgot Password) - a two-
            column panel: a decorative icon+welcome side and the actual
