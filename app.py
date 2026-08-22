@@ -565,19 +565,24 @@ def inject_global_css():
         }
         .st-key-top_nav button[kind="primary"] { border: none !important; }
 
-        /* ---- Mobile top bar + custom expandable menu ---- */
-        .st-key-mobile_top_bar { display: none; }
-        .st-key-mobile_top_bar div[data-testid="stHorizontalBlock"] {
-            display: flex !important;
-            flex-direction: row !important;
-            flex-wrap: nowrap !important;
-            gap: 8px;
-            align-items: center !important;
-            width: 100% !important;
+        /* ---- Mobile top bar + custom expandable menu.
+           Rebuilt WITHOUT st.columns - see the comment in render_top_nav()/
+           page_mentor() for why. The container is a fixed-height, position:
+           relative box; the hamburger button is its normal first child
+           (sits top-left in normal document flow); the second icon (when
+           present) lives in its own nested container that's pinned to the
+           top-right corner via position:absolute. Nothing here depends on
+           Streamlit's column-width engine, so it can't overflow the
+           viewport on a real phone the way the old 3-column version did. ---- */
+        .st-key-mobile_top_bar {
+            display: none;
+            position: relative;
+            min-height: 40px;
         }
-        .st-key-mobile_top_bar div[data-testid="column"] {
-            width: auto !important;
-            min-width: 0 !important;
+        .st-key-mobile_top_bar_right {
+            position: absolute;
+            top: 0;
+            right: 0;
         }
         .st-key-mobile_top_bar button {
             border-radius: 50% !important;
@@ -589,7 +594,6 @@ def inject_global_css():
             align-items: center !important;
             justify-content: center !important;
             font-size: 17px !important;
-            margin: 0 auto !important;
             border: 1px solid rgba(128,128,128,0.25) !important;
         }
         /* Matched via a wildcard too so a real st.container(key=
@@ -754,17 +758,23 @@ def inject_global_css():
         .strength-fill { height:100%; border-radius:4px; }
         .time-row-label { font-weight:600; padding-top:6px; font-size:14px; }
 
-        /* ---- Phone number field: a fixed "+880" badge drawn on top of a
-           single normal st.text_input, instead of two side-by-side
-           st.columns (see the phone_field() docstring for why columns
-           were dropped - Streamlit's own column-stacking on narrow
-           screens couldn't be reliably overridden). The container is the
-           positioning anchor; the badge sits absolutely inside its top-
-           left corner, and the input gets left padding so typed digits
-           start clear of it. This is one visual unit that behaves
-           identically at any screen width, phone included. ---- */
-        div[class*="_phone_row"] { position: relative; }
-        div[class*="_phone_row"] .bd-phone-prefix {
+        /* ---- Phone number field: a fixed "+880" prefix drawn directly on
+           Streamlit's own input-wrapper element via a CSS ::before pseudo-
+           element - not a separate st.markdown() span positioned relative
+           to an outer container (that version was rendering as a plain
+           stacked line with a gap instead of overlaying the input, most
+           likely because the outer container wasn't a reliable enough
+           positioning anchor). A ::before is guaranteed to be positioned
+           relative to the exact element it's attached to, so anchoring it
+           straight on div[data-baseweb="input"] - the actual visual input
+           box Streamlit renders - removes that whole class of uncertainty.
+           No extra markdown call, no separate span to keep in sync either. ---- */
+        div[class*="_phone_row"] div[data-baseweb="input"],
+        div[class*="_phone_row"] div[data-baseweb="base-input"] {
+            position: relative;
+        }
+        div[class*="_phone_row"] div[data-baseweb="input"]::before {
+            content: "+880";
             position: absolute;
             left: 1px; top: 1px; bottom: 1px;
             display: flex;
@@ -1000,17 +1010,15 @@ def phone_field(key_prefix, placeholder="1712345678"):
     resizes columns using its own internal responsive rules on narrow
     screens, and that was fighting our CSS overrides - on phones the
     "+880" box was rendering at nearly full width with the actual number
-    input squeezed into a sliver at the edge. Instead, the "+880" badge is
-    now a small absolutely-positioned label drawn directly on top of the
-    left edge of a single, normal st.text_input (which gets extra left
-    padding so typed digits never sit underneath the badge). One real
-    input box, one visual unit, no column-stacking to fight - works the
-    same way at every screen width.
+    input squeezed into a sliver at the edge. The "+880" prefix is now a
+    pure CSS ::before pseudo-element drawn directly on Streamlit's own
+    input box (see the "_phone_row" CSS in inject_global_css) - no extra
+    markdown span needed, and nothing here depends on Streamlit's column
+    engine, so it can't overflow or misalign at any screen width.
     Returns whatever raw digits the user has typed so far (validate with
     sh.validate_bd_phone_digits before use)."""
     st.markdown("**Phone number**")
     with st.container(key=f"{key_prefix}_phone_row"):
-        st.markdown("<span class='bd-phone-prefix'>+880</span>", unsafe_allow_html=True)
         digits = st.text_input(
             "Phone number", key=f"{key_prefix}_digits", label_visibility="collapsed",
             placeholder=placeholder, max_chars=10,
@@ -1276,19 +1284,26 @@ def render_top_nav(current_page):
 
     # Mobile: a real toggle so the closed state is ☰ and the open state is ✕.
     # st.popover was removed because its trigger cannot reliably change to a
-    # cross after opening.
+    # cross after opening. Rebuilt WITHOUT st.columns([1,3,1]) - a narrow
+    # spacer column plus two icon columns was overflowing the actual phone
+    # viewport width (Streamlit's own column engine reserves more minimum
+    # width per column than fits three-across on a real small screen),
+    # which pushed the profile icon off-screen and required horizontal
+    # scrolling to reach it. The hamburger button now just sits as the
+    # first, normal-flow element (top-left), and the profile button is
+    # wrapped in its own small container that's pinned to the top-right
+    # corner with CSS position:absolute - no column width math involved,
+    # so nothing can overflow the screen.
     with st.container(key="mobile_top_bar"):
-        c1, c2, c3 = st.columns([1, 3, 1])
-        with c1:
-            is_open = st.session_state.get("student_mobile_menu_open", False)
-            if st.button("✕" if is_open else "☰", key="student_mobile_menu_toggle", help="Open menu" if not is_open else "Close menu"):
-                st.session_state["student_mobile_menu_open"] = not is_open
-                st.rerun()
-        with c3:
-            # Only show the profile shortcut when the menu is CLOSED - once
-            # open, the menu list below already has "Profile" in it, so
-            # keeping this icon too was a redundant, confusing duplicate.
-            if not is_open:
+        is_open = st.session_state.get("student_mobile_menu_open", False)
+        if st.button("✕" if is_open else "☰", key="student_mobile_menu_toggle", help="Open menu" if not is_open else "Close menu"):
+            st.session_state["student_mobile_menu_open"] = not is_open
+            st.rerun()
+        # Only show the profile shortcut when the menu is CLOSED - once
+        # open, the menu list below already has "Profile" in it, so
+        # keeping this icon too was a redundant, confusing duplicate.
+        if not is_open:
+            with st.container(key="mobile_top_bar_right"):
                 if st.button("👤", key="mobile_profile_btn", help="Profile"):
                     go_to("profile")
 
@@ -2769,25 +2784,23 @@ def page_mentor():
                     st.session_state.pop("mentor_analysis_view_key_id", None)
                     go_to("mentor")
 
-    # Mobile: ☰ when closed, ✕ when open. Hamburger stays on the LEFT and
-    # the Settings shortcut stays on the RIGHT (same row - forced via the
-    # ".st-key-mobile_top_bar" flex CSS in inject_global_css, since
-    # Streamlit's own responsive rules would otherwise stack these two
-    # columns vertically on narrow screens).
+    # Mobile: ☰ when closed, ✕ when open. Rebuilt without st.columns([1,3,1])
+    # for the same reason as the student nav above - three columns don't
+    # reliably fit a real phone viewport, which pushed the Settings icon
+    # off-screen. Hamburger is the normal first element (top-left);
+    # Settings is pinned top-right via CSS on its own small container.
     with st.container(key="mobile_top_bar"):
-        c1, c2, c3 = st.columns([1, 3, 1])
-        with c1:
-            is_open = st.session_state.get("mentor_mobile_menu_open", False)
-            if st.button("✕" if is_open else "☰", key="mentor_mobile_menu_toggle", help="Open menu" if not is_open else "Close menu"):
-                st.session_state["mentor_mobile_menu_open"] = not is_open
-                st.rerun()
-        with c3:
-            # Only show the Settings shortcut when the menu is CLOSED - once
-            # open, "⚙️ Settings" is already in the list below, so keeping
-            # both was a redundant, confusing duplicate. Settings itself has
-            # both the password-change form and Log Out, matching the PC
-            # experience (a Settings nav item, not a bare logout icon).
-            if not is_open:
+        is_open = st.session_state.get("mentor_mobile_menu_open", False)
+        if st.button("✕" if is_open else "☰", key="mentor_mobile_menu_toggle", help="Open menu" if not is_open else "Close menu"):
+            st.session_state["mentor_mobile_menu_open"] = not is_open
+            st.rerun()
+        # Only show the Settings shortcut when the menu is CLOSED - once
+        # open, "⚙️ Settings" is already in the list below, so keeping
+        # both was a redundant, confusing duplicate. Settings itself has
+        # both the password-change form and Log Out, matching the PC
+        # experience (a Settings nav item, not a bare logout icon).
+        if not is_open:
+            with st.container(key="mobile_top_bar_right"):
                 if st.button("⚙️", key="mobile_mentor_settings_btn", help="Settings"):
                     st.session_state["mentor_page"] = "m_settings"
                     st.session_state.pop("mentor_analysis_sid", None)
