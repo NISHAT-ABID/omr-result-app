@@ -43,15 +43,32 @@ LOGO_SVG = """
 """
 
 
-def render_hero(eyebrow, heading_html=None, tagline=None, compact=False, pulse=True):
+def render_hero(eyebrow, heading_html=None, tagline=None, compact=False, pulse=True,
+                 show_badge=True, show_byline=True):
     """Full hero-style entry header - mirrors the Med Venture web app's
     role-selection screen: dotted background, logo, eyebrow badge, big
     serif heading, optional tagline, and the animated pulse-line. Used on
     every entry/gate screen (password gate, student login, mentor login)
     so the whole app opens the same way the web app does. Presentation
-    only - no session/state/logic lives here."""
-    logo_size = 40 if compact else 52
+    only - no session/state/logic lives here.
+
+    show_badge / show_byline let a caller drop the small eyebrow pill and
+    the "By Bushra" line entirely (used on the Student/Mentor login
+    screens, where "Student Portal"/"Mentor Portal" doesn't apply until
+    *after* the password gate, and the byline is redundant there) without
+    touching the password-gate screen, which still shows both by default.
+    compact=True also tightens the whole block's padding/heading size a
+    step further than before, so the heading alone doesn't push the login
+    card below the fold on mobile.
+    """
+    logo_size = 34 if compact else 52
     heading = heading_html or "The Med <span style='color:var(--mv-accent);font-style:italic;'>Venture</span>"
+    badge_html = f'<div class="mv-hero-badge">{eyebrow}</div>' if show_badge else ""
+    byline_html = (
+        '<div style="font-family:var(--sans);font-size:11px;letter-spacing:.08em;'
+        'text-transform:uppercase;color:var(--mv-muted);margin-top:2px;">By Bushra</div>'
+        if show_byline else ""
+    )
     tag_html = (
         f"<p style='font-family:var(--sans);color:var(--mv-muted);font-size:14px;"
         f"max-width:420px;margin:8px auto 0;line-height:1.55;'>{tagline}</p>"
@@ -64,15 +81,15 @@ def render_hero(eyebrow, heading_html=None, tagline=None, compact=False, pulse=T
                   stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
         """ if pulse else ""
+    hero_class = "mv-hero mv-hero-compact" if compact else "mv-hero"
     parts = [
-        '<div class="mv-hero">',
-        f'<div style="width:{logo_size}px;height:{logo_size}px;margin:0 auto 14px;">{LOGO_SVG}</div>',
-        f'<div class="mv-hero-badge">{eyebrow}</div>',
+        f'<div class="{hero_class}">',
+        f'<div style="width:{logo_size}px;height:{logo_size}px;margin:0 auto 12px;">{LOGO_SVG}</div>',
+        badge_html,
         f'<h1 style="font-family:var(--serif);font-weight:600;'
-        f'font-size:{"24px" if compact else "clamp(26px,5vw,36px)"};'
+        f'font-size:{"19px" if compact else "clamp(26px,5vw,36px)"};'
         f'margin:0 0 2px;letter-spacing:-0.01em;color:var(--mv-ink);line-height:1.12;">{heading}</h1>',
-        '<div style="font-family:var(--sans);font-size:11px;letter-spacing:.08em;'
-        'text-transform:uppercase;color:var(--mv-muted);margin-top:2px;">By Bushra</div>',
+        byline_html,
     ]
     if tag_html:
         parts.append(tag_html)
@@ -209,12 +226,73 @@ def inject_global_css():
             background-size: 18px 18px;
             border-radius: 0 0 22px 22px;
         }
+        /* ---- Extra-tight variant used on Student/Mentor login screens:
+           two classes beats the single ".mv-hero" rule (and the mobile
+           media-query overrides below, which also only carry one class),
+           so this wins at every breakpoint without needing its own
+           @media copies - keeps the heading from pushing the login card
+           below the fold on phones. ---- */
+        .mv-hero.mv-hero-compact {
+            padding: 14px 16px 10px;
+            margin: -1rem -1rem 12px;
+        }
         .mv-hero-badge {
             display: inline-flex; align-items: center; gap: 6px;
             font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
             color: var(--mv-primary); background: var(--mv-primary-soft);
             padding: 5px 14px; border-radius: 999px; margin-bottom: 16px;
         }
+
+        /* ---- Small, quiet link-styled buttons used for secondary auth
+           actions (Forgot Password?, Sign Up, Mentor Login, Back to Log
+           In) - real st.button/st.form_submit_button widgets underneath
+           (so they're properly clickable and can drive navigation), just
+           stripped of the normal button chrome and rendered as plain
+           text links instead. ---- */
+        .st-key-forgot_pw_link { display: flex; justify-content: flex-end; align-items: center; }
+        .st-key-forgot_pw_link button {
+            background: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+            color: var(--mv-primary) !important;
+            font-size: 12.5px !important;
+            font-weight: 600 !important;
+            padding: 4px 0 !important;
+            min-height: unset !important;
+            width: auto !important;
+        }
+        .st-key-forgot_pw_link button:hover { text-decoration: underline; transform: none !important; }
+
+        .st-key-auth_bottom_links { margin-top: 16px; text-align: center; }
+        .st-key-auth_bottom_links div[data-testid="stHorizontalBlock"] { gap: 6px !important; }
+        .st-key-auth_signup_link button, .st-key-auth_mentor_link button {
+            background: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+            color: var(--mv-muted) !important;
+            font-size: 12.5px !important;
+            font-weight: 600 !important;
+            padding: 6px 4px !important;
+            min-height: unset !important;
+        }
+        .st-key-auth_signup_link button:hover, .st-key-auth_mentor_link button:hover {
+            color: var(--mv-primary) !important;
+            text-decoration: underline;
+            background: transparent !important;
+            transform: none !important;
+        }
+        .st-key-back_to_login_link { margin-top: 10px; text-align: center; }
+        .st-key-back_to_login_link button {
+            background: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+            color: var(--mv-primary) !important;
+            font-size: 13px !important;
+            font-weight: 600 !important;
+            padding: 4px 0 !important;
+            min-height: unset !important;
+        }
+        .st-key-back_to_login_link button:hover { text-decoration: underline; transform: none !important; }
 
         /* ---- Auth card (Log In / Sign Up / Forgot Password) - a two-
            column panel: a decorative icon+welcome side and the actual
@@ -315,32 +393,6 @@ def inject_global_css():
         .mv-forgot-link {
             font-family: var(--sans); font-size: 12.5px; font-weight: 600;
             color: var(--mv-primary); text-align: right;
-        }
-
-        /* ---- Mentor entry CTA row: a real st.container (key="mentor_cta")
-           wraps the label + button together now, instead of splitting an
-           <div>...</div> across two separate st.markdown calls (Streamlit
-           renders each st.markdown as its own DOM node, so widgets placed
-           "between" two markdown calls never actually land inside that
-           div - that was leaving the pill-shaped box empty and the real
-           label/button rendering unstyled underneath it). Styling this
-           actual container fixes that: label + button now sit inside one
-           real bordered/padded row, side by side. ---- */
-        .st-key-mentor_cta {
-            border: 1px solid var(--mv-border); border-radius: 14px;
-            padding: 14px 18px; margin-top: 4px;
-            background: var(--mv-card-bg);
-        }
-        .st-key-mentor_cta div[data-testid="stHorizontalBlock"] {
-            display: flex !important;
-            flex-direction: row !important;
-            align-items: center !important;
-            flex-wrap: wrap !important;
-            gap: 14px !important;
-        }
-        .mv-mentor-cta-label { font-family: var(--sans); font-weight: 600; font-size: 14px; color: var(--mv-ink); }
-        .st-key-mentor_entry_login button {
-            border-radius: 999px !important;
         }
 
         /* ---- Panel-style cards: theme-adaptive surface + soft shadow +
@@ -490,26 +542,6 @@ def inject_global_css():
             margin-bottom: 5px !important;
         }
         .mobile-menu-card button:last-child { margin-bottom: 0 !important; }
-
-        /* ---- Mentor entry point ---- */
-        .st-key-mentor_entry_login button {
-            background: transparent !important;
-            color: var(--mv-accent) !important;
-            border: 1.4px solid var(--mv-accent) !important;
-            border-radius: 999px !important;
-            font-weight: 600 !important;
-            font-size: 11px !important;
-            padding: 4px 10px !important;
-            box-shadow: none !important;
-        }
-        .st-key-mentor_entry_login button:hover { background: var(--mv-accent-soft) !important; }
-        .mentor-entry-caption {
-            text-align: center;
-            opacity: .65;
-            font-size: 12px;
-            margin-top: 22px;
-            margin-bottom: 6px;
-        }
 
         /* ---- Test History table: keeps its 8 columns on one row and
            becomes horizontally swipeable on narrow screens instead of
@@ -921,85 +953,177 @@ def student_session_is_valid():
     return live_version == st.session_state.get("session_version")
 
 
-def page_student_auth():
-    render_hero("Student Portal", heading_html="Student Login", compact=True, pulse=False)
-    tab_login, tab_signup, tab_forgot = st.tabs(["Log In", "Sign Up", "Forgot Password"])
+def _render_login_view():
+    render_hero("Student Portal", heading_html="Student Login", compact=True, pulse=False,
+                show_badge=False, show_byline=False)
 
-    with tab_login:
-        st.markdown("<div class='mv-auth-card'>", unsafe_allow_html=True)
-        side_col, form_col = st.columns([1, 1.35], gap="small")
-        with side_col:
-            st.markdown(
-                """
-                <div class='mv-auth-side'>
-                    <div class='mv-auth-side-icon-wrap'>
-                        <div class='mv-auth-ring r1'></div>
-                        <div class='mv-auth-ring r2'></div>
-                        <div class='mv-auth-orbit'>
-                            <span class='mv-auth-dot d1'></span>
-                            <span class='mv-auth-dot d2'></span>
-                        </div>
-                        <div class='mv-auth-icon-box'>🔒<span class='mv-auth-icon-dot'></span></div>
+    st.markdown("<div class='mv-auth-card'>", unsafe_allow_html=True)
+    side_col, form_col = st.columns([1, 1.35], gap="small")
+    with side_col:
+        st.markdown(
+            """
+            <div class='mv-auth-side'>
+                <div class='mv-auth-side-icon-wrap'>
+                    <div class='mv-auth-ring r1'></div>
+                    <div class='mv-auth-ring r2'></div>
+                    <div class='mv-auth-orbit'>
+                        <span class='mv-auth-dot d1'></span>
+                        <span class='mv-auth-dot d2'></span>
                     </div>
-                    <div class='mv-auth-side-title'>Welcome back!</div>
-                    <div class='mv-auth-side-text'>Login to access your student dashboard</div>
+                    <div class='mv-auth-icon-box'>🔒<span class='mv-auth-icon-dot'></span></div>
                 </div>
-                """,
-                unsafe_allow_html=True,
-            )
-        with form_col:
-            st.markdown("<div class='mv-auth-form-side'>", unsafe_allow_html=True)
-            # Wrapped in a real st.form: this both (a) lets the browser detect
-            # it as a login form for autofill / "remember password", and
-            # (b) makes pressing Enter inside any field submit the form - no
-            # extra click needed after autofill/paste. No live password-
-            # strength feedback is needed on this tab, so a form (which only
-            # reruns on submit) doesn't cost us anything here.
-            with st.form(key="login_form", clear_on_submit=False):
-                login_digits = phone_field("login")
-                pw = st.text_input("Password", type="password", key="login_pw")
-                st.markdown("<div class='mv-remember-row'>", unsafe_allow_html=True)
-                rc1, rc2 = st.columns([1, 1])
-                with rc1:
-                    st.checkbox("Remember me", key="login_remember_me_ui")
-                with rc2:
-                    st.markdown("<div class='mv-forgot-link'>Forgot Password?</div>", unsafe_allow_html=True)
-                st.markdown("</div>", unsafe_allow_html=True)
-                submitted = st.form_submit_button("Log In", type="primary", use_container_width=True)
-            st.markdown("</div>", unsafe_allow_html=True)
+                <div class='mv-auth-side-title'>Welcome back!</div>
+                <div class='mv-auth-side-text'>Login to access your student dashboard</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with form_col:
+        st.markdown("<div class='mv-auth-form-side'>", unsafe_allow_html=True)
+        # Wrapped in a real st.form: this both (a) lets the browser detect
+        # it as a login form for autofill / "remember password", and
+        # (b) makes pressing Enter inside any field submit the form - no
+        # extra click needed after autofill/paste. No live password-
+        # strength feedback is needed here, so a form (which only reruns
+        # on submit) doesn't cost us anything.
+        #
+        # "Forgot Password?" is a SECOND st.form_submit_button inside this
+        # same form (Streamlit allows more than one per form) styled as a
+        # plain text link via the ".st-key-forgot_pw_link" CSS - clicking
+        # it submits the form too, but we check *which* button fired below
+        # and route to the forgot-password view without touching the
+        # phone/password validation meant for the actual Log In button.
+        with st.form(key="login_form", clear_on_submit=False):
+            login_digits = phone_field("login")
+            pw = st.text_input("Password", type="password", key="login_pw")
+            rc1, rc2 = st.columns([1, 1])
+            with rc1:
+                st.checkbox("Remember me", key="login_remember_me_ui")
+            with rc2:
+                with st.container(key="forgot_pw_link"):
+                    forgot_clicked = st.form_submit_button("Forgot Password?")
+            submitted = st.form_submit_button("Log In", type="primary", use_container_width=True)
         st.markdown("</div>", unsafe_allow_html=True)
-        if submitted:
-            ok, err, canonical_phone = sh.validate_bd_phone_digits(login_digits)
-            if not ok:
-                st.error(err)
-            elif not pw:
-                st.error("Please enter your password.")
-            else:
-                with st.spinner("Logging in..."):
-                    try:
-                        student = sh.authenticate_student(canonical_phone, pw)
-                        st.session_state["student_id"] = student["student_id"]
-                        st.session_state["student_name"] = student["name"]
-                        st.session_state["session_version"] = sh._to_int(student.get("session_version"), 1)
-                        st.session_state["role"] = "student"
-                    except ValueError as e:
-                        st.error(str(e))
-                    else:
-                        st.success("Logged in!")
-                        go_to("home")
+    st.markdown("</div>", unsafe_allow_html=True)
 
-    with tab_signup:
-        # NOT wrapped in st.form on purpose: a form only reruns the script
-        # when its submit button is clicked, so a password-strength meter
-        # inside a form only ever updates AFTER you hit submit - which is
-        # exactly the confusing behaviour we're fixing here. Plain widgets
-        # rerun on every keystroke, so the strength bar updates live while
-        # typing, before the button is ever pressed.
-        name = st.text_input("Full name", key="su_name")
-        phone_digits = phone_field("su")
-        pw1 = st.text_input("Password", type="password", key="su_pw1")
-        if pw1:
-            score, label, _tips = sh.password_strength(pw1)
+    if forgot_clicked:
+        st.session_state["student_auth_view"] = "forgot"
+        st.rerun()
+
+    if submitted:
+        ok, err, canonical_phone = sh.validate_bd_phone_digits(login_digits)
+        if not ok:
+            st.error(err)
+        elif not pw:
+            st.error("Please enter your password.")
+        else:
+            with st.spinner("Logging in..."):
+                try:
+                    student = sh.authenticate_student(canonical_phone, pw)
+                    st.session_state["student_id"] = student["student_id"]
+                    st.session_state["student_name"] = student["name"]
+                    st.session_state["session_version"] = sh._to_int(student.get("session_version"), 1)
+                    st.session_state["role"] = "student"
+                except ValueError as e:
+                    st.error(str(e))
+                else:
+                    st.success("Logged in!")
+                    go_to("home")
+
+    # ---- Small, quiet secondary links: Sign Up (for new students) and
+    # Mentor Login - both real st.button widgets styled as plain text
+    # links (see ".st-key-auth_signup_link" / ".st-key-auth_mentor_link"
+    # in inject_global_css) instead of the earlier full-width pill button,
+    # so they read as secondary actions rather than competing with Log In.
+    with st.container(key="auth_bottom_links"):
+        l1, l2 = st.columns(2)
+        with l1:
+            with st.container(key="auth_signup_link"):
+                if st.button("New here? Sign Up", key="goto_signup_btn", use_container_width=True):
+                    st.session_state["student_auth_view"] = "signup"
+                    st.rerun()
+        with l2:
+            with st.container(key="auth_mentor_link"):
+                if st.button("Are you a mentor? Mentor Login", key="goto_mentor_btn", use_container_width=True):
+                    go_to("mentor")
+
+
+def _render_signup_view():
+    render_hero("Student Portal", heading_html="Create Account", compact=True, pulse=False,
+                show_badge=False, show_byline=False)
+
+    st.markdown("<div class='mv-auth-card'>", unsafe_allow_html=True)
+    st.markdown("<div class='mv-auth-form-side' style='padding-top:22px;'>", unsafe_allow_html=True)
+    # NOT wrapped in st.form on purpose: a form only reruns the script
+    # when its submit button is clicked, so a password-strength meter
+    # inside a form only ever updates AFTER you hit submit - which is
+    # exactly the confusing behaviour we're fixing here. Plain widgets
+    # rerun on every keystroke, so the strength bar updates live while
+    # typing, before the button is ever pressed.
+    name = st.text_input("Full name", key="su_name")
+    phone_digits = phone_field("su")
+    pw1 = st.text_input("Password", type="password", key="su_pw1")
+    if pw1:
+        score, label, _tips = sh.password_strength(pw1)
+        colors = ["#ef4444", "#ef4444", "#f59e0b", "#10b981", "#059669"]
+        st.markdown(
+            f"<div class='strength-bar'><div class='strength-fill' "
+            f"style='width:{(score+1)*20}%; background:{colors[score]};'></div></div>"
+            f"<small>Password strength: <b>{label}</b></small>",
+            unsafe_allow_html=True,
+        )
+    pw2 = st.text_input("Confirm password", type="password", key="su_pw2")
+    sec_q = st.selectbox("Security question (used for password recovery)", SECURITY_QUESTIONS, key="su_secq")
+    sec_a = st.text_input("Your answer", key="su_seca")
+
+    if st.button("Create Account", type="primary", use_container_width=True, key="signup_btn"):
+        ok, phone_err, canonical_phone = sh.validate_bd_phone_digits(phone_digits)
+        _, _, tips = sh.password_strength(pw1)
+        if not name.strip():
+            st.error("Please enter your name.")
+        elif not ok:
+            st.error(phone_err)
+        elif tips:
+            st.error("Password is too weak: " + ", ".join(tips))
+        elif pw1 != pw2:
+            st.error("Passwords do not match.")
+        elif not sec_a.strip():
+            st.error("Please answer the security question.")
+        else:
+            with st.spinner("Creating your account..."):
+                try:
+                    sh.create_student(name, canonical_phone, pw1, sec_q, sec_a)
+                    clear_all_caches()
+                except ValueError as e:
+                    st.error(str(e))
+                else:
+                    st.success("Account created! Please log in below.")
+                    st.session_state["student_auth_view"] = "login"
+    st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    with st.container(key="back_to_login_link"):
+        if st.button("← Back to Log In", key="signup_back_to_login"):
+            st.session_state["student_auth_view"] = "login"
+            st.rerun()
+
+
+def _render_forgot_view():
+    render_hero("Student Portal", heading_html="Reset Password", compact=True, pulse=False,
+                show_badge=False, show_byline=False)
+
+    st.markdown("<div class='mv-auth-card'>", unsafe_allow_html=True)
+    st.markdown("<div class='mv-auth-form-side' style='padding-top:22px;'>", unsafe_allow_html=True)
+    st.caption("Reset your password using the security question you set at sign up.")
+    f_phone_digits = phone_field("fp")
+    ok_preview, err_preview, canonical_preview = sh.validate_bd_phone_digits(f_phone_digits)
+    student_preview = sh.get_student_by_phone(canonical_preview) if ok_preview else None
+    if student_preview:
+        st.info(f"Security question: **{student_preview.get('security_question')}**")
+        f_answer = st.text_input("Your answer", key="fp_answer")
+        f_new1 = st.text_input("New password", type="password", key="fp_new1")
+        if f_new1:
+            score, label, _tips = sh.password_strength(f_new1)
             colors = ["#ef4444", "#ef4444", "#f59e0b", "#10b981", "#059669"]
             st.markdown(
                 f"<div class='strength-bar'><div class='strength-fill' "
@@ -1007,85 +1131,49 @@ def page_student_auth():
                 f"<small>Password strength: <b>{label}</b></small>",
                 unsafe_allow_html=True,
             )
-        pw2 = st.text_input("Confirm password", type="password", key="su_pw2")
-        sec_q = st.selectbox("Security question (used for password recovery)", SECURITY_QUESTIONS, key="su_secq")
-        sec_a = st.text_input("Your answer", key="su_seca")
-
-        if st.button("Create Account", type="primary", use_container_width=True, key="signup_btn"):
-            ok, phone_err, canonical_phone = sh.validate_bd_phone_digits(phone_digits)
-            _, _, tips = sh.password_strength(pw1)
-            if not name.strip():
-                st.error("Please enter your name.")
-            elif not ok:
-                st.error(phone_err)
-            elif tips:
+        f_new2 = st.text_input("Confirm new password", type="password", key="fp_new2")
+        if st.button("Reset Password", type="primary", use_container_width=True, key="fp_btn"):
+            _, _, tips = sh.password_strength(f_new1)
+            if tips:
                 st.error("Password is too weak: " + ", ".join(tips))
-            elif pw1 != pw2:
+            elif f_new1 != f_new2:
                 st.error("Passwords do not match.")
-            elif not sec_a.strip():
-                st.error("Please answer the security question.")
             else:
-                with st.spinner("Creating your account..."):
+                with st.spinner("Resetting..."):
                     try:
-                        sh.create_student(name, canonical_phone, pw1, sec_q, sec_a)
+                        sh.reset_password_via_security(canonical_preview, f_answer, f_new1)
                         clear_all_caches()
                     except ValueError as e:
                         st.error(str(e))
                     else:
-                        st.success("Account created! Please log in from the 'Log In' tab.")
+                        st.success("Password reset! Please log in with your new password.")
+                        st.session_state["student_auth_view"] = "login"
+    elif f_phone_digits.strip():
+        if not ok_preview:
+            st.caption(err_preview)
+        else:
+            st.warning("No account found with this phone number.")
+    st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
-    with tab_forgot:
-        st.caption("Reset your password using the security question you set at sign up.")
-        f_phone_digits = phone_field("fp")
-        ok_preview, err_preview, canonical_preview = sh.validate_bd_phone_digits(f_phone_digits)
-        student_preview = sh.get_student_by_phone(canonical_preview) if ok_preview else None
-        if student_preview:
-            st.info(f"Security question: **{student_preview.get('security_question')}**")
-            f_answer = st.text_input("Your answer", key="fp_answer")
-            f_new1 = st.text_input("New password", type="password", key="fp_new1")
-            if f_new1:
-                score, label, _tips = sh.password_strength(f_new1)
-                colors = ["#ef4444", "#ef4444", "#f59e0b", "#10b981", "#059669"]
-                st.markdown(
-                    f"<div class='strength-bar'><div class='strength-fill' "
-                    f"style='width:{(score+1)*20}%; background:{colors[score]};'></div></div>"
-                    f"<small>Password strength: <b>{label}</b></small>",
-                    unsafe_allow_html=True,
-                )
-            f_new2 = st.text_input("Confirm new password", type="password", key="fp_new2")
-            if st.button("Reset Password", type="primary", use_container_width=True, key="fp_btn"):
-                _, _, tips = sh.password_strength(f_new1)
-                if tips:
-                    st.error("Password is too weak: " + ", ".join(tips))
-                elif f_new1 != f_new2:
-                    st.error("Passwords do not match.")
-                else:
-                    with st.spinner("Resetting..."):
-                        try:
-                            sh.reset_password_via_security(canonical_preview, f_answer, f_new1)
-                            clear_all_caches()
-                        except ValueError as e:
-                            st.error(str(e))
-                        else:
-                            st.success("Password reset! Please log in with your new password.")
-        elif f_phone_digits.strip():
-            if not ok_preview:
-                st.caption(err_preview)
-            else:
-                st.warning("No account found with this phone number.")
+    with st.container(key="back_to_login_link"):
+        if st.button("← Back to Log In", key="forgot_back_to_login"):
+            st.session_state["student_auth_view"] = "login"
+            st.rerun()
 
-    # ---- Small, quiet mentor entry point right below the login card ----
-    # A real st.container (key="mentor_cta") wraps the label + button
-    # together, so the CSS box and the actual widgets are the same DOM
-    # node - see the ".st-key-mentor_cta" rule in inject_global_css.
-    with st.container(key="mentor_cta"):
-        label_col, btn_col = st.columns([2, 1.1])
-        with label_col:
-            st.markdown("<div class='mv-mentor-cta-label'>Are you a mentor?</div>", unsafe_allow_html=True)
-        with btn_col:
-            with st.container(key="mentor_entry_login"):
-                if st.button("Mentor Login →", use_container_width=True, key="mentor_entry_login_btn"):
-                    go_to("mentor")
+
+def page_student_auth():
+    # A small session_state-driven "sub-page" inside the student auth
+    # screen (login / signup / forgot) instead of st.tabs - st.tabs has no
+    # way to be switched programmatically, which is exactly what the
+    # "Forgot Password?" link and the "Sign Up" link below need to do.
+    view = st.session_state.get("student_auth_view", "login")
+    if view == "signup":
+        _render_signup_view()
+    elif view == "forgot":
+        _render_forgot_view()
+    else:
+        _render_login_view()
 
 
 # =========================================================================
@@ -2554,7 +2642,8 @@ def page_mentor_settings():
 def is_mentor():
     if st.session_state.get("mentor_authed"):
         return True
-    render_hero("Mentor Portal", heading_html="Mentor Login", compact=True, pulse=False)
+    render_hero("Mentor Portal", heading_html="Mentor Login", compact=True, pulse=False,
+                show_badge=False, show_byline=False)
     with st.form(key="mentor_login_form", clear_on_submit=False):
         pw = st.text_input("Mentor password", type="password", key="mentor_pw")
         submitted = st.form_submit_button("Log In", type="primary", use_container_width=True)
