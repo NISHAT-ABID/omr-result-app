@@ -221,6 +221,14 @@ def inject_global_css():
             color: var(--mv-muted) !important;
             fill: var(--mv-muted) !important;
         }
+        /* Belt-and-suspenders: some browsers (Edge in particular) add
+           their OWN native reveal-password icon on top of input type=
+           password fields, separate from the button above and outside
+           the page's DOM - CSS can't recolor it, only hide it via these
+           browser-specific pseudo-elements, so we hide it rather than
+           show two overlapping eye icons. */
+        input[type="password"]::-ms-reveal,
+        input[type="password"]::-ms-clear { display: none !important; }
 
         html, body, [class*="css"] { font-family: var(--sans); }
         h1, h2, h3 { font-family: var(--serif) !important; letter-spacing: -0.01em; color: var(--mv-ink); }
