@@ -45,6 +45,28 @@ bug impossible going forward, independent of what happened to the sheet
 in the past. Rows created *before* this fix may still have the old,
 already-corrupted value baked in - `format_bd_phone()` below applies a
 best-effort cosmetic fix for those legacy rows when displaying them.
+
+IMPORTANT - Concurrent-user duplicate-submission guard:
+With multiple students able to use the app at the same time, the OLD
+pattern used by the Streamlit layer was: read cached results, check
+`has_submitted()`, and only THEN call `append_result()` as two entirely
+separate steps. That left a real race window - if the same student
+double-clicked Submit, had two tabs open, or two students happened to
+submit at nearly the same instant, both requests could pass the
+"already submitted?" check before either one had actually written its
+row, producing a duplicate result in the Results sheet. Google Sheets'
+API has no row-level lock we can take from gspread, so this can't be
+made fully atomic - but `append_result_if_not_submitted()` below
+collapses the check and the write into one function call, re-reading
+the Results sheet fresh (bypassing any Streamlit-level cache) right
+before writing. That shrinks the race window from "the whole photo
+upload + calibration flow" down to a single network round trip
+immediately before the write, which is enough to stop the realistic
+causes (double-click, duplicate tab, near-simultaneous different
+students) in normal use. Callers should use this function instead of
+the separate has_submitted() + append_result() pattern for new
+submissions; append_result() is kept only for any code that still needs
+the old two-step form.
 """
 
 import hashlib
@@ -271,16 +293,28 @@ def add_answer_key(exam_name, date_str, start_time_str, end_time_str,
                     total_questions, answer_string,
                     negative_marking=False, negative_marks_value=0.0):
     ws = _cached_worksheet("AnswerKeys")
-    existing = _with_retry(ws.get_all_records)
-    key_id = f"K{len(existing) + 1:04d}"
-    _with_retry(
-        ws.append_row,
-        [key_id, exam_name, date_str, start_time_str, end_time_str,
-         total_questions, answer_string, negative_marking, negative_marks_value],
-        value_input_option=RAW,
-    )
-    clear_data_caches()
-    return key_id
+    # Small collision-retry loop: two mentors saving an exam at almost the
+    # exact same instant could otherwise both compute the same next
+    # key_id from the same "existing rows" snapshot and end up appending
+    # two rows with an identical key_id. This doesn't need a hard lock
+    # (mentor accounts are few and this is a rare, low-stakes collision),
+    # but re-checking right before the write and retrying with the next
+    # number if a clash is spotted costs almost nothing and closes the
+    # gap for the common case.
+    for _attempt in range(5):
+        existing = _with_retry(ws.get_all_records)
+        key_id = f"K{len(existing) + 1:04d}"
+        if any(str(r.get("key_id")) == key_id for r in existing):
+            continue  # someone else just took this number - recompute and retry
+        _with_retry(
+            ws.append_row,
+            [key_id, exam_name, date_str, start_time_str, end_time_str,
+             total_questions, answer_string, negative_marking, negative_marks_value],
+            value_input_option=RAW,
+        )
+        clear_data_caches()
+        return key_id
+    raise ValueError("Could not save the answer key right now (too many concurrent saves). Please try again.")
 
 
 def get_all_answer_keys():
@@ -519,18 +553,25 @@ def create_student(name, phone, password, security_question, security_answer):
     if get_student_by_phone(phone):
         raise ValueError("This phone number is already registered.")
     ws = _cached_worksheet("Students")
-    existing = _with_retry(ws.get_all_records)
-    student_id = f"S{len(existing) + 1:04d}"
-    pw_hash, salt = hash_password(password)
-    ans_hash, _ = hash_password(security_answer.strip().lower(), salt)
-    _with_retry(
-        ws.append_row,
-        [student_id, name.strip(), phone, pw_hash, salt,
-         security_question, ans_hash, False, 1, now_bd().strftime("%Y-%m-%d %H:%M:%S")],
-        value_input_option=RAW,
-    )
-    clear_data_caches()
-    return student_id
+    # Same small collision-retry idea as add_answer_key(): two people
+    # signing up at almost the exact same instant could otherwise compute
+    # the same next student_id from the same snapshot of existing rows.
+    for _attempt in range(5):
+        existing = _with_retry(ws.get_all_records)
+        student_id = f"S{len(existing) + 1:04d}"
+        if any(str(r.get("student_id")) == student_id for r in existing):
+            continue
+        pw_hash, salt = hash_password(password)
+        ans_hash, _ = hash_password(security_answer.strip().lower(), salt)
+        _with_retry(
+            ws.append_row,
+            [student_id, name.strip(), phone, pw_hash, salt,
+             security_question, ans_hash, False, 1, now_bd().strftime("%Y-%m-%d %H:%M:%S")],
+            value_input_option=RAW,
+        )
+        clear_data_caches()
+        return student_id
+    raise ValueError("Could not create the account right now (too many concurrent signups). Please try again.")
 
 
 def authenticate_student(phone, password):
@@ -612,7 +653,15 @@ def get_session_version(student_id):
 
 def has_submitted(student_id, key_id):
     """Duplicate-submission protection: True if this student already has a
-    result recorded for this exam key."""
+    result recorded for this exam key.
+
+    NOTE: this reads through get_all_results_df(), which the Streamlit
+    layer wraps in @st.cache_data - i.e. this can return a slightly STALE
+    answer (up to the cache's TTL old). That's fine for deciding whether to
+    even SHOW the submit form, but it must never be the only guard right
+    before a write - see append_result_if_not_submitted() below, which
+    re-checks with a fresh, uncached read at the moment of writing.
+    """
     df = get_all_results_df()
     if df.empty:
         return False
@@ -620,13 +669,7 @@ def has_submitted(student_id, key_id):
     return not match.empty
 
 
-def append_result(student_id, student_name, key_id, result):
-    """
-    result is the dict returned by omr_scanner.score_answers():
-    total, answered, skipped, correct, wrong_count, wrong,
-    wrong_details, accuracy, marks, negative_marking, negative_value
-    """
-    ws = _cached_worksheet("Results")
+def _result_row_values(student_id, student_name, key_id, result):
     timestamp = now_bd().strftime("%Y-%m-%d %H:%M:%S")
     wrong_str = ",".join(str(q) for q in result.get("wrong", []))
     wrong_details_json = json.dumps(result.get("wrong_details", {}))
@@ -634,7 +677,7 @@ def append_result(student_id, student_name, key_id, result):
     if skipped_qs is None:
         skipped_qs = []
     skipped_json = json.dumps(skipped_qs)
-    row = [
+    return [
         timestamp, student_id, student_name, key_id,
         result.get("total", 0), result.get("answered", 0), result.get("skipped", 0),
         result.get("correct", 0), result.get("wrong_count", 0), wrong_str,
@@ -642,8 +685,70 @@ def append_result(student_id, student_name, key_id, result):
         result.get("negative_marking", False), result.get("negative_value", 0.0),
         False, wrong_details_json, skipped_json,
     ]
+
+
+def append_result(student_id, student_name, key_id, result):
+    """
+    result is the dict returned by omr_scanner.score_answers():
+    total, answered, skipped, correct, wrong_count, wrong,
+    wrong_details, accuracy, marks, negative_marking, negative_value
+
+    NOTE: this does NOT check for an existing submission first - callers
+    are responsible for that. New submission code should call
+    append_result_if_not_submitted() instead, which does the check and
+    the write together against a fresh read. This function is kept for
+    any other caller that manages its own duplicate check (e.g. a mentor
+    override flow that intentionally wants to add a row).
+    """
+    ws = _cached_worksheet("Results")
+    row = _result_row_values(student_id, student_name, key_id, result)
     _with_retry(ws.append_row, row, value_input_option=RAW)
     clear_data_caches()
+
+
+def append_result_if_not_submitted(student_id, student_name, key_id, result):
+    """
+    Duplicate-submission guard + write, collapsed into one call.
+
+    Re-reads the Results sheet FRESH (bypassing any Streamlit-level
+    @st.cache_data caching that get_all_results_df()/has_submitted() go
+    through) immediately before appending, and only writes if no existing
+    row for this (student_id, key_id) pair is found yet. This is what
+    should be used for every new student submission instead of the older
+    "has_submitted() then append_result()" two-step pattern, which left a
+    window where two near-simultaneous requests (double-click, two open
+    tabs, or two different students submitting at almost the same moment)
+    could both pass the check before either had written.
+
+    This can't be made perfectly atomic (the Sheets API has no row lock),
+    but doing the check and the write back-to-back inside one function
+    call - right before the network write, with no caching or UI logic in
+    between - shrinks the race window from "the whole photo-upload +
+    calibration flow" down to a single network round trip. That's enough
+    to stop the realistic causes of duplicates in normal use.
+
+    Returns True if the result was saved, False if a submission already
+    existed for this (student_id, key_id) and nothing was written.
+    """
+    ws = _cached_worksheet("Results")
+    values = _with_retry(ws.get_all_values)
+    if values:
+        header = values[0]
+        if "student_id" in header and "key_id" in header:
+            sid_idx = header.index("student_id")
+            key_idx = header.index("key_id")
+            for row in values[1:]:
+                if (
+                    len(row) > max(sid_idx, key_idx)
+                    and row[sid_idx] == student_id
+                    and row[key_idx] == key_id
+                ):
+                    return False
+
+    row = _result_row_values(student_id, student_name, key_id, result)
+    _with_retry(ws.append_row, row, value_input_option=RAW)
+    clear_data_caches()
+    return True
 
 
 def update_result(student_id, key_id, new_marks=None, new_correct=None,
