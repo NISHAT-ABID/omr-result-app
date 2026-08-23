@@ -1744,23 +1744,44 @@ def page_tests_results():
                         )
                         st.markdown(chip_html, unsafe_allow_html=True)
 
+                        # Guards against duplicate submissions caused by a
+                        # user double-clicking Submit or having two tabs
+                        # open: while a submission for THIS photo is being
+                        # processed, the button below is disabled so a
+                        # second click can't even fire a second request.
+                        # This is on top of (not instead of) the atomic
+                        # server-side check in
+                        # sh.append_result_if_not_submitted() below - the
+                        # button-disable stops the common case (an
+                        # impatient extra click) instantly with no network
+                        # round trip, while the server-side check is what
+                        # actually protects against two different tabs/
+                        # devices racing each other.
+                        submitting_key = f"submitting_{file_sig}"
+                        is_submitting = st.session_state.get(submitting_key, False)
+
                         cb1, cb2 = st.columns(2)
                         with cb1:
-                            if st.button("🔄 Redo Calibration Points", use_container_width=True):
+                            if st.button("🔄 Redo Calibration Points", use_container_width=True,
+                                         disabled=is_submitting):
                                 st.session_state["submit_calib_points"] = []
                                 st.rerun()
                         with cb2:
                             submit_clicked = st.button(
-                                "📤 Submit & See Score", type="primary", use_container_width=True
+                                "📤 Submit & See Score", type="primary", use_container_width=True,
+                                disabled=is_submitting,
                             )
 
-                        if submit_clicked:
+                        if submit_clicked and not is_submitting:
+                            st.session_state[submitting_key] = True
                             with st.spinner("Reading your answers..."):
                                 active_now = sh.get_active_answer_key()
                                 if not active_now:
                                     st.error("The test window has just closed. Your result can't be recorded.")
+                                    st.session_state[submitting_key] = False
                                 elif sh.has_submitted(sid, active_now["key_id"]):
                                     st.warning("You've already submitted this test.")
+                                    st.session_state[submitting_key] = False
                                 else:
                                     calibration = {
                                         info["key"]: pt
@@ -1777,21 +1798,34 @@ def page_tests_results():
                                         negative_marking=active_now.get("negative_marking", False),
                                         negative_value=active_now.get("negative_marks_value", 0.0),
                                     )
-                                    sh.append_result(sid, st.session_state["student_name"], key_id, result)
+                                    # Atomic check-and-write: re-verifies against a FRESH
+                                    # (uncached) read of the Results sheet right before
+                                    # writing, so a near-simultaneous duplicate request
+                                    # (double-click that slipped past the disabled button,
+                                    # a second open tab, or another device) is caught here
+                                    # even if the has_submitted() check above was stale.
+                                    saved = sh.append_result_if_not_submitted(
+                                        sid, st.session_state["student_name"], key_id, result
+                                    )
                                     clear_all_caches()
-                                    _reset_submission_state()
-                                    st.success("✅ Result saved!")
+                                    st.session_state[submitting_key] = False
 
-                                    r1, r2, r3 = st.columns(3)
-                                    r1.metric("Correct ✅", result["correct"])
-                                    r2.metric("Wrong ❌", result["wrong_count"])
-                                    r3.metric("Skipped ⚪", result["skipped"])
-                                    st.metric("🏆 Marks", result["marks"])
+                                    if not saved:
+                                        st.warning("You've already submitted this test (from another tab or device).")
+                                    else:
+                                        _reset_submission_state()
+                                        st.success("✅ Result saved!")
 
-                                    rows = omr_scanner.build_review_rows(student_answers, key_string)
-                                    review_rows = [r for r in rows if r["status"] in ("wrong", "skipped")]
-                                    st.markdown("#### Review")
-                                    render_omr_review(review_rows)
+                                        r1, r2, r3 = st.columns(3)
+                                        r1.metric("Correct ✅", result["correct"])
+                                        r2.metric("Wrong ❌", result["wrong_count"])
+                                        r3.metric("Skipped ⚪", result["skipped"])
+                                        st.metric("🏆 Marks", result["marks"])
+
+                                        rows = omr_scanner.build_review_rows(student_answers, key_string)
+                                        review_rows = [r for r in rows if r["status"] in ("wrong", "skipped")]
+                                        st.markdown("#### Review")
+                                        render_omr_review(review_rows)
 
     st.markdown("#### 📋 Test History")
     results = cached_results()
