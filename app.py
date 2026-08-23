@@ -568,25 +568,27 @@ def inject_global_css():
         /* ---- Mobile top bar + custom expandable menu.
            Rebuilt WITHOUT st.columns AND without position:absolute - the
            absolute-positioning version put the hamburger and profile/
-           settings buttons exactly on top of each other (both rendered
-           at the same coordinates). Using the same reliable technique as
-           elsewhere in this file instead: Streamlit puts each st.button()
-           /st.container() call as its own direct child ("element
-           container") inside one div[data-testid="stVerticalBlock"] -
-           forcing THAT wrapper into a plain CSS flex row with
-           justify-content:space-between lines the two buttons up left/
-           right with zero reliance on Streamlit's own column-width
-           engine (the thing that broke on real phones) or on guessing
-           absolute coordinates (the thing that made them overlap). ---- */
+           settings buttons exactly on top of each other. The next attempt
+           (targeting ".st-key-mobile_top_bar > div[data-testid=
+           'stVerticalBlock']") silently matched nothing at all - the ">"
+           direct-child combinator assumed stVerticalBlock sits one level
+           BELOW the st-key-* class, but Streamlit puts that testid on the
+           SAME element the class is on, so the rule never applied and the
+           two buttons just fell back to Streamlit's default stacked
+           layout. Fixed by targeting the class itself directly (no ">"),
+           with a plain descendant version alongside it as a fallback in
+           case a future Streamlit version nests it differently. ---- */
         .st-key-mobile_top_bar { display: none; }
-        .st-key-mobile_top_bar > div[data-testid="stVerticalBlock"] {
+        .st-key-mobile_top_bar[data-testid="stVerticalBlock"],
+        .st-key-mobile_top_bar div[data-testid="stVerticalBlock"] {
             display: flex !important;
             flex-direction: row !important;
             justify-content: space-between !important;
             align-items: center !important;
             gap: 8px !important;
         }
-        .st-key-mobile_top_bar > div[data-testid="stVerticalBlock"] > div {
+        .st-key-mobile_top_bar[data-testid="stVerticalBlock"] > div,
+        .st-key-mobile_top_bar div[data-testid="stVerticalBlock"] > div {
             width: auto !important;
             flex: 0 0 auto !important;
         }
@@ -764,49 +766,48 @@ def inject_global_css():
         .strength-fill { height:100%; border-radius:4px; }
         .time-row-label { font-weight:600; padding-top:6px; font-size:14px; }
 
-        /* ---- Phone number field: a fixed "+880" prefix badge sitting
-           beside a normal st.text_input, laid out with plain CSS flexbox -
-           NOT position:absolute (that version never showed up at all,
-           most likely because Streamlit's actual input DOM structure
-           didn't match the exact wrapper this was anchored to) and NOT
-           st.columns (Streamlit's own column-width engine was breaking on
-           real phones). Same reliable trick as the mobile top bar above:
-           the badge (a plain st.markdown call) and the text_input are two
-           direct children inside one div[data-testid="stVerticalBlock"] -
-           forcing that wrapper into a flex row puts them side by side
-           exactly like normal HTML siblings, no guessing about Streamlit's
-           internal input markup required. ---- */
-        div[class*="_phone_row"] > div[data-testid="stVerticalBlock"] {
+        /* ---- Phone number field: a country-code st.selectbox ("+880 ⌄"
+           style, matching the requested reference design) sitting beside
+           a normal st.text_input, laid out with plain CSS flexbox.
+           Two earlier attempts at this failed: st.columns() (Streamlit's
+           own column-width engine breaks on real phones) and
+           position:absolute (never rendered at all). This version puts
+           the selectbox and the text_input as two plain, normal children
+           inside this container, and forces Streamlit's own wrapper div
+           around them into a flex row - using BOTH a same-element and a
+           descendant version of the selector below, because Streamlit
+           puts the "stVerticalBlock" testid directly on the same element
+           as the "st-key-*" class (not one level below it, which is what
+           made an earlier ">"-child-combinator version of this rule
+           silently match nothing). ---- */
+        div[class*="_phone_row"][data-testid="stVerticalBlock"],
+        div[class*="_phone_row"] div[data-testid="stVerticalBlock"] {
             display: flex !important;
             flex-direction: row !important;
             align-items: stretch !important;
             gap: 0 !important;
         }
-        div[class*="_phone_row"] > div[data-testid="stVerticalBlock"] > div {
+        div[class*="_phone_row"][data-testid="stVerticalBlock"] > div,
+        div[class*="_phone_row"] div[data-testid="stVerticalBlock"] > div {
             margin: 0 !important;
         }
-        div[class*="_phone_row"] > div[data-testid="stVerticalBlock"] > div:first-child {
-            flex: 0 0 auto !important;
+        div[class*="_phone_row"][data-testid="stVerticalBlock"] > div:first-child,
+        div[class*="_phone_row"] div[data-testid="stVerticalBlock"] > div:first-child {
+            flex: 0 0 96px !important;
+            min-width: 96px !important;
         }
-        div[class*="_phone_row"] > div[data-testid="stVerticalBlock"] > div:last-child {
+        div[class*="_phone_row"][data-testid="stVerticalBlock"] > div:last-child,
+        div[class*="_phone_row"] div[data-testid="stVerticalBlock"] > div:last-child {
             flex: 1 1 auto !important;
             min-width: 0 !important;
         }
-        div[class*="_phone_row"] .bd-phone-prefix {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            height: 46px;
-            box-sizing: border-box;
-            padding: 0 14px;
-            border: 1.4px solid var(--mv-border);
-            border-right: none;
-            border-radius: 9px 0 0 9px;
-            font-weight: 600;
-            font-size: 14px;
-            color: var(--mv-primary);
-            background: var(--mv-primary-soft);
-            white-space: nowrap;
+        div[class*="_phone_row"] div[data-baseweb="select"] > div {
+            height: 46px !important;
+            border-radius: 9px 0 0 9px !important;
+            border-right: none !important;
+            font-weight: 600 !important;
+            color: var(--mv-primary) !important;
+            background: var(--mv-primary-soft) !important;
         }
         div[class*="_phone_row"] input {
             height: 46px !important;
@@ -1017,36 +1018,52 @@ SECURITY_QUESTIONS = [
     "What is your favorite color?",
 ]
 
+# Shown in the phone field's country-code dropdown. Only "+880" is actually
+# validated end to end right now (sh.validate_bd_phone_digits and student
+# records are Bangladesh-only) - the others are listed because they were
+# requested, but phone_field() shows a caption steering the person back to
+# +880 if they pick one of these.
+PHONE_COUNTRY_CODES = ["+880", "+91", "+1", "+44", "+971", "+966"]
+
 
 def phone_field(key_prefix, placeholder="1712345678"):
-    """A phone number field with a fixed, non-editable '+880' prefix - the
-    student only ever types the 10 digits that follow. This removes the
-    'leading 0 disappears' class of bug entirely (there's no 0 for the
-    user to type or for anything to drop), and keeps every number stored
-    in one consistent format.
+    """A phone number field with a country-code selector (matching the
+    requested "+880 ⌄" reference design) next to a plain digits input.
 
-    Deliberately NOT built with st.columns() any more: Streamlit resizes
-    columns using its own internal responsive rules on narrow screens,
-    and that was fighting our CSS overrides - on phones the "+880" box
-    was rendering at nearly full width with the actual number input
-    squeezed into a sliver at the edge. A later position:absolute attempt
-    to overlay "+880" directly on the input also failed (it didn't show
-    up at all). This version instead puts the "+880" badge and the real
-    st.text_input as two plain, normal children in this container, and
-    the "_phone_row" CSS in inject_global_css forces Streamlit's own
-    wrapper div around them into a simple CSS flex row - no column-width
-    engine involved, no coordinate-guessing, just two boxes sitting next
-    to each other like ordinary HTML.
-    Returns whatever raw digits the user has typed so far (validate with
-    sh.validate_bd_phone_digits before use)."""
+    IMPORTANT: the actual login/signup/reset backend (sh.validate_bd_phone_digits
+    and everything downstream of it in sheets_helper.py) only understands
+    Bangladeshi 10-digit numbers - it has no concept of other countries'
+    number formats. Rather than silently pretending other codes work (which
+    would just fail validation in a confusing way, or worse, store a
+    malformed number), this returns the selected code alongside the digits
+    so each caller can gate on `code == "+880"` before calling into that
+    BD-specific validation, and show a plain "only +880 is supported right
+    now" message otherwise. Extending real validation to other countries
+    would need changes in sheets_helper.py, which is out of scope here.
+
+    Deliberately NOT built with st.columns(): Streamlit resizes columns
+    using its own internal responsive rules on narrow screens, which was
+    fighting our CSS overrides on phones. This instead puts the selectbox
+    and the real st.text_input as two plain, normal children in this
+    container, and the "_phone_row" CSS in inject_global_css forces
+    Streamlit's own wrapper div around them into a simple CSS flex row -
+    no column-width engine involved, just two boxes side by side like
+    ordinary HTML.
+    Returns (selected_code, digits) - validate digits with
+    sh.validate_bd_phone_digits only when selected_code == "+880"."""
     st.markdown("**Phone number**")
     with st.container(key=f"{key_prefix}_phone_row"):
-        st.markdown("<div class='bd-phone-prefix'>+880</div>", unsafe_allow_html=True)
+        code = st.selectbox(
+            "Country code", PHONE_COUNTRY_CODES, key=f"{key_prefix}_code",
+            label_visibility="collapsed",
+        )
         digits = st.text_input(
             "Phone number", key=f"{key_prefix}_digits", label_visibility="collapsed",
             placeholder=placeholder, max_chars=10,
         )
-    return digits
+    if code != "+880":
+        st.caption("⚠️ Only Bangladeshi (+880) numbers can be used to log in right now.")
+    return code, digits
 
 
 def student_session_is_valid():
@@ -1103,7 +1120,7 @@ def _render_login_view():
                 # and route to the forgot-password view without touching the
                 # phone/password validation meant for the actual Log In button.
                 with st.form(key="login_form", clear_on_submit=False):
-                    login_digits = phone_field("login")
+                    login_code, login_digits = phone_field("login")
                     pw = st.text_input("Password", type="password", key="login_pw")
                     rc1, rc2 = st.columns([1, 1])
                     with rc1:
@@ -1118,24 +1135,27 @@ def _render_login_view():
         st.rerun()
 
     if submitted:
-        ok, err, canonical_phone = sh.validate_bd_phone_digits(login_digits)
-        if not ok:
-            st.error(err)
-        elif not pw:
-            st.error("Please enter your password.")
+        if login_code != "+880":
+            st.error("Only Bangladeshi (+880) numbers can be used to log in right now.")
         else:
-            with st.spinner("Logging in..."):
-                try:
-                    student = sh.authenticate_student(canonical_phone, pw)
-                    st.session_state["student_id"] = student["student_id"]
-                    st.session_state["student_name"] = student["name"]
-                    st.session_state["session_version"] = sh._to_int(student.get("session_version"), 1)
-                    st.session_state["role"] = "student"
-                except ValueError as e:
-                    st.error(str(e))
-                else:
-                    st.success("Logged in!")
-                    go_to("home")
+            ok, err, canonical_phone = sh.validate_bd_phone_digits(login_digits)
+            if not ok:
+                st.error(err)
+            elif not pw:
+                st.error("Please enter your password.")
+            else:
+                with st.spinner("Logging in..."):
+                    try:
+                        student = sh.authenticate_student(canonical_phone, pw)
+                        st.session_state["student_id"] = student["student_id"]
+                        st.session_state["student_name"] = student["name"]
+                        st.session_state["session_version"] = sh._to_int(student.get("session_version"), 1)
+                        st.session_state["role"] = "student"
+                    except ValueError as e:
+                        st.error(str(e))
+                    else:
+                        st.success("Logged in!")
+                        go_to("home")
 
     # ---- Small, quiet secondary links: Sign Up (for new students) and
     # Mentor Login - both real st.button widgets styled as plain text
@@ -1168,7 +1188,7 @@ def _render_signup_view():
             # rerun on every keystroke, so the strength bar updates live while
             # typing, before the button is ever pressed.
             name = st.text_input("Full name", key="su_name")
-            phone_digits = phone_field("su")
+            su_code, phone_digits = phone_field("su")
             pw1 = st.text_input("Password", type="password", key="su_pw1")
             if pw1:
                 score, label, _tips = sh.password_strength(pw1)
@@ -1188,6 +1208,8 @@ def _render_signup_view():
                 _, _, tips = sh.password_strength(pw1)
                 if not name.strip():
                     st.error("Please enter your name.")
+                elif su_code != "+880":
+                    st.error("Only Bangladeshi (+880) numbers can be used to sign up right now.")
                 elif not ok:
                     st.error(phone_err)
                 elif tips:
@@ -1220,8 +1242,11 @@ def _render_forgot_view():
     with st.container(key="auth_card_forgot"):
         with st.container(key="auth_form_forgot"):
             st.caption("Reset your password using the security question you set at sign up.")
-            f_phone_digits = phone_field("fp")
-            ok_preview, err_preview, canonical_preview = sh.validate_bd_phone_digits(f_phone_digits)
+            fp_code, f_phone_digits = phone_field("fp")
+            ok_preview, err_preview, canonical_preview = (
+                sh.validate_bd_phone_digits(f_phone_digits) if fp_code == "+880"
+                else (False, "Only Bangladeshi (+880) numbers are supported right now.", None)
+            )
             student_preview = sh.get_student_by_phone(canonical_preview) if ok_preview else None
             if student_preview:
                 st.info(f"Security question: **{student_preview.get('security_question')}**")
