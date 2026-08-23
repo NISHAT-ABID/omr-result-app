@@ -576,12 +576,24 @@ def inject_global_css():
            SAME element the class is on, so the rule never applied and the
            two buttons just fell back to Streamlit's default stacked
            layout. Fixed by targeting the class itself directly (no ">"),
-           with a plain descendant version alongside it as a fallback in
-           case a future Streamlit version nests it differently. ---- */
-        .st-key-mobile_top_bar { display: none; }
+           with a plain descendant version alongside it as a fallback.
+           IMPORTANT: "display" is set in exactly two places only - hidden
+           here (!important, every screen size) and shown-as-flex inside
+           the max-width:900px media query further down. Putting
+           "display: flex !important" in an *unconditional* rule (as an
+           earlier version of this file did) beat the "display: none"
+           default at every width regardless of the media query, since
+           !important always wins over a non-!important rule no matter
+           which one is declared first - that's what made this bar show
+           up on desktop too. Every other layout property (flex-direction,
+           gap, etc.) is safe to keep unconditional since it's inert while
+           display:none is in effect. ---- */
+        .st-key-mobile_top_bar,
+        .st-key-mobile_top_bar[data-testid="stVerticalBlock"] {
+            display: none !important;
+        }
         .st-key-mobile_top_bar[data-testid="stVerticalBlock"],
         .st-key-mobile_top_bar div[data-testid="stVerticalBlock"] {
-            display: flex !important;
             flex-direction: row !important;
             justify-content: space-between !important;
             align-items: center !important;
@@ -830,7 +842,11 @@ def inject_global_css():
         @media (max-width: 900px) {
             .block-container { max-width: 100%; padding-left: 1rem; padding-right: 1rem; }
             .st-key-top_nav { display: none !important; }
-            .st-key-mobile_top_bar { display: block !important; }
+            .st-key-mobile_top_bar,
+            .st-key-mobile_top_bar[data-testid="stVerticalBlock"],
+            .st-key-mobile_top_bar div[data-testid="stVerticalBlock"] {
+                display: flex !important;
+            }
             .mv-hero { margin: -1rem -1rem 16px; padding: 26px 12px 18px; }
         }
         @media (max-width: 640px) {
@@ -1018,12 +1034,12 @@ SECURITY_QUESTIONS = [
     "What is your favorite color?",
 ]
 
-# Shown in the phone field's country-code dropdown. Only "+880" is actually
-# validated end to end right now (sh.validate_bd_phone_digits and student
-# records are Bangladesh-only) - the others are listed because they were
-# requested, but phone_field() shows a caption steering the person back to
-# +880 if they pick one of these.
-PHONE_COUNTRY_CODES = ["+880", "+91", "+1", "+44", "+971", "+966"]
+# Shown in the phone field's country-code dropdown. Only "+880" is listed -
+# the backend (sh.validate_bd_phone_digits and student records) only
+# understands Bangladeshi numbers, so extra codes were removed rather than
+# offering choices that would just fail. The dropdown arrow still shows
+# (matching the requested reference look) even with a single option.
+PHONE_COUNTRY_CODES = ["+880"]
 
 
 def phone_field(key_prefix, placeholder="1712345678"):
