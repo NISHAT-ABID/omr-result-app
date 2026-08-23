@@ -1774,58 +1774,81 @@ def page_tests_results():
 
                         if submit_clicked and not is_submitting:
                             st.session_state[submitting_key] = True
-                            with st.spinner("Reading your answers..."):
-                                active_now = sh.get_active_answer_key()
-                                if not active_now:
-                                    st.error("The test window has just closed. Your result can't be recorded.")
-                                    st.session_state[submitting_key] = False
-                                elif sh.has_submitted(sid, active_now["key_id"]):
-                                    st.warning("You've already submitted this test.")
-                                    st.session_state[submitting_key] = False
-                                else:
-                                    calibration = {
-                                        info["key"]: pt
-                                        for info, pt in zip(points_info, calib_points)
-                                    }
-                                    grid = omr_scanner.build_grid(calibration, total_questions=active_now["total_questions"])
-                                    radius = omr_scanner.compute_bubble_radius(img_bgr)
-                                    student_answers = omr_scanner.read_answers(img_bgr, grid, radius=radius)
-                                    key_string = active_now["answer_string"]
-                                    key_id = active_now["key_id"]
-
-                                    result = omr_scanner.score_answers(
-                                        student_answers, key_string,
-                                        negative_marking=active_now.get("negative_marking", False),
-                                        negative_value=active_now.get("negative_marks_value", 0.0),
-                                    )
-                                    # Atomic check-and-write: re-verifies against a FRESH
-                                    # (uncached) read of the Results sheet right before
-                                    # writing, so a near-simultaneous duplicate request
-                                    # (double-click that slipped past the disabled button,
-                                    # a second open tab, or another device) is caught here
-                                    # even if the has_submitted() check above was stale.
-                                    saved = sh.append_result_if_not_submitted(
-                                        sid, st.session_state["student_name"], key_id, result
-                                    )
-                                    clear_all_caches()
-                                    st.session_state[submitting_key] = False
-
-                                    if not saved:
-                                        st.warning("You've already submitted this test (from another tab or device).")
+                            try:
+                                with st.spinner("Reading your answers..."):
+                                    active_now = sh.get_active_answer_key()
+                                    if not active_now:
+                                        st.error("The test window has just closed. Your result can't be recorded.")
+                                    elif sh.has_submitted(sid, active_now["key_id"]):
+                                        st.warning("You've already submitted this test.")
                                     else:
-                                        _reset_submission_state()
-                                        st.success("✅ Result saved!")
+                                        calibration = {
+                                            info["key"]: pt
+                                            for info, pt in zip(points_info, calib_points)
+                                        }
+                                        grid = omr_scanner.build_grid(calibration, total_questions=active_now["total_questions"])
+                                        radius = omr_scanner.compute_bubble_radius(img_bgr)
+                                        student_answers = omr_scanner.read_answers(img_bgr, grid, radius=radius)
+                                        key_string = active_now["answer_string"]
+                                        key_id = active_now["key_id"]
 
-                                        r1, r2, r3 = st.columns(3)
-                                        r1.metric("Correct ✅", result["correct"])
-                                        r2.metric("Wrong ❌", result["wrong_count"])
-                                        r3.metric("Skipped ⚪", result["skipped"])
-                                        st.metric("🏆 Marks", result["marks"])
+                                        result = omr_scanner.score_answers(
+                                            student_answers, key_string,
+                                            negative_marking=active_now.get("negative_marking", False),
+                                            negative_value=active_now.get("negative_marks_value", 0.0),
+                                        )
+                                        # Atomic check-and-write: re-verifies against a FRESH
+                                        # (uncached) read of the Results sheet right before
+                                        # writing, so a near-simultaneous duplicate request
+                                        # (double-click that slipped past the disabled button,
+                                        # a second open tab, or another device) is caught here
+                                        # even if the has_submitted() check above was stale.
+                                        saved = sh.append_result_if_not_submitted(
+                                            sid, st.session_state["student_name"], key_id, result
+                                        )
+                                        clear_all_caches()
 
-                                        rows = omr_scanner.build_review_rows(student_answers, key_string)
-                                        review_rows = [r for r in rows if r["status"] in ("wrong", "skipped")]
-                                        st.markdown("#### Review")
-                                        render_omr_review(review_rows)
+                                        if not saved:
+                                            st.warning("You've already submitted this test (from another tab or device).")
+                                        else:
+                                            _reset_submission_state()
+                                            st.success("✅ Result saved!")
+
+                                            r1, r2, r3 = st.columns(3)
+                                            r1.metric("Correct ✅", result["correct"])
+                                            r2.metric("Wrong ❌", result["wrong_count"])
+                                            r3.metric("Skipped ⚪", result["skipped"])
+                                            st.metric("🏆 Marks", result["marks"])
+
+                                            rows = omr_scanner.build_review_rows(student_answers, key_string)
+                                            review_rows = [r for r in rows if r["status"] in ("wrong", "skipped")]
+                                            st.markdown("#### Review")
+                                            render_omr_review(review_rows)
+                            except Exception as e:
+                                # Anything unexpected (network hiccup, Sheets API error,
+                                # a bug in the scoring/reading code, etc.) lands here.
+                                # Without this except+finally, an exception thrown
+                                # anywhere above would skip straight past every
+                                # "st.session_state[submitting_key] = False" line that
+                                # used to be sprinkled through the branches, leaving the
+                                # Submit button disabled FOREVER for this photo - the
+                                # student would be stuck with no way to retry short of
+                                # re-uploading a new photo. Catching here guarantees the
+                                # button always becomes clickable again, and tells the
+                                # student plainly that nothing was saved so they know a
+                                # retry is safe (not a silent double-submit risk).
+                                st.error(
+                                    "Something went wrong while saving your result and it was "
+                                    "NOT recorded. Please try submitting again."
+                                )
+                                st.caption(f"Technical detail: {e}")
+                            finally:
+                                # Runs no matter what happened above (success, a
+                                # handled error/warning, or the exception path) - this
+                                # is the single place that re-enables the Submit
+                                # button, so there's exactly one thing to check when
+                                # confirming the button can never get stuck.
+                                st.session_state[submitting_key] = False
 
     st.markdown("#### 📋 Test History")
     results = cached_results()
