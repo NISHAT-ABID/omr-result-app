@@ -778,23 +778,20 @@ def inject_global_css():
         .strength-fill { height:100%; border-radius:4px; }
         .time-row-label { font-weight:600; padding-top:6px; font-size:14px; }
 
-        /* ---- Phone number field: a fixed "+880" badge fused to a normal
-           st.text_input, laid out with plain CSS flexbox (no dropdown -
-           there's only one country this app's backend understands, so a
-           clickable selector with a single option was just a non-
-           functional arrow that also popped its one option open right
-           below the field, as in the earlier version). Two even earlier
-           attempts at this layout failed outright: st.columns() (Streamlit's
+        /* ---- Phone number field: a country-code st.selectbox ("+880 ⌄"
+           style, matching the requested reference design) sitting beside
+           a normal st.text_input, laid out with plain CSS flexbox.
+           Two earlier attempts at this failed: st.columns() (Streamlit's
            own column-width engine breaks on real phones) and
            position:absolute (never rendered at all). This version puts
-           the badge (a plain st.markdown call) and the text_input as two
-           plain, normal children inside this container, and forces
-           Streamlit's own wrapper div around them into a flex row - using
-           BOTH a same-element and a descendant version of the selector
-           below, because Streamlit puts the "stVerticalBlock" testid
-           directly on the same element as the "st-key-*" class (not one
-           level below it, which is what made an earlier ">"-child-
-           combinator version of this rule silently match nothing). ---- */
+           the selectbox and the text_input as two plain, normal children
+           inside this container, and forces Streamlit's own wrapper div
+           around them into a flex row - using BOTH a same-element and a
+           descendant version of the selector below, because Streamlit
+           puts the "stVerticalBlock" testid directly on the same element
+           as the "st-key-*" class (not one level below it, which is what
+           made an earlier ">"-child-combinator version of this rule
+           silently match nothing). ---- */
         div[class*="_phone_row"][data-testid="stVerticalBlock"],
         div[class*="_phone_row"] div[data-testid="stVerticalBlock"] {
             display: flex !important;
@@ -808,28 +805,21 @@ def inject_global_css():
         }
         div[class*="_phone_row"][data-testid="stVerticalBlock"] > div:first-child,
         div[class*="_phone_row"] div[data-testid="stVerticalBlock"] > div:first-child {
-            flex: 0 0 auto !important;
+            flex: 0 0 96px !important;
+            min-width: 96px !important;
         }
         div[class*="_phone_row"][data-testid="stVerticalBlock"] > div:last-child,
         div[class*="_phone_row"] div[data-testid="stVerticalBlock"] > div:last-child {
             flex: 1 1 auto !important;
             min-width: 0 !important;
         }
-        div[class*="_phone_row"] .bd-phone-prefix {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            height: 46px;
-            box-sizing: border-box;
-            padding: 0 16px;
-            border: 1.4px solid var(--mv-primary);
-            border-right: none;
-            border-radius: 9px 0 0 9px;
-            font-weight: 600;
-            font-size: 14px;
-            color: var(--mv-primary);
-            background: var(--mv-primary-soft);
-            white-space: nowrap;
+        div[class*="_phone_row"] div[data-baseweb="select"] > div {
+            height: 46px !important;
+            border-radius: 9px 0 0 9px !important;
+            border-right: none !important;
+            font-weight: 600 !important;
+            color: var(--mv-primary) !important;
+            background: var(--mv-primary-soft) !important;
         }
         div[class*="_phone_row"] input {
             height: 46px !important;
@@ -1044,31 +1034,52 @@ SECURITY_QUESTIONS = [
     "What is your favorite color?",
 ]
 
+# Shown in the phone field's country-code dropdown. Only "+880" is listed -
+# the backend (sh.validate_bd_phone_digits and student records) only
+# understands Bangladeshi numbers, so extra codes were removed rather than
+# offering choices that would just fail. The dropdown arrow still shows
+# (matching the requested reference look) even with a single option.
+PHONE_COUNTRY_CODES = ["+880"]
+
 
 def phone_field(key_prefix, placeholder="1712345678"):
-    """A phone number field with a fixed, non-interactive "+880" badge
-    fused to the left of a plain digits input (no dropdown - there's only
-    ever one country this app's backend understands, so a clickable
-    selector with one option was just a confusing, non-functional arrow).
+    """A phone number field with a country-code selector (matching the
+    requested "+880 ⌄" reference design) next to a plain digits input.
+
+    IMPORTANT: the actual login/signup/reset backend (sh.validate_bd_phone_digits
+    and everything downstream of it in sheets_helper.py) only understands
+    Bangladeshi 10-digit numbers - it has no concept of other countries'
+    number formats. Rather than silently pretending other codes work (which
+    would just fail validation in a confusing way, or worse, store a
+    malformed number), this returns the selected code alongside the digits
+    so each caller can gate on `code == "+880"` before calling into that
+    BD-specific validation, and show a plain "only +880 is supported right
+    now" message otherwise. Extending real validation to other countries
+    would need changes in sheets_helper.py, which is out of scope here.
 
     Deliberately NOT built with st.columns(): Streamlit resizes columns
     using its own internal responsive rules on narrow screens, which was
-    fighting our CSS overrides on phones. This instead puts the badge (a
-    plain st.markdown call) and the real st.text_input as two plain,
-    normal children in this container, and the "_phone_row" CSS in
-    inject_global_css forces Streamlit's own wrapper div around them into
-    a simple CSS flex row - no column-width engine involved, just two
-    boxes side by side like ordinary HTML.
-    Returns whatever raw digits the user has typed so far (validate with
-    sh.validate_bd_phone_digits before use)."""
+    fighting our CSS overrides on phones. This instead puts the selectbox
+    and the real st.text_input as two plain, normal children in this
+    container, and the "_phone_row" CSS in inject_global_css forces
+    Streamlit's own wrapper div around them into a simple CSS flex row -
+    no column-width engine involved, just two boxes side by side like
+    ordinary HTML.
+    Returns (selected_code, digits) - validate digits with
+    sh.validate_bd_phone_digits only when selected_code == "+880"."""
     st.markdown("**Phone number**")
     with st.container(key=f"{key_prefix}_phone_row"):
-        st.markdown("<div class='bd-phone-prefix'>+880</div>", unsafe_allow_html=True)
+        code = st.selectbox(
+            "Country code", PHONE_COUNTRY_CODES, key=f"{key_prefix}_code",
+            label_visibility="collapsed",
+        )
         digits = st.text_input(
             "Phone number", key=f"{key_prefix}_digits", label_visibility="collapsed",
             placeholder=placeholder, max_chars=10,
         )
-    return digits
+    if code != "+880":
+        st.caption("⚠️ Only Bangladeshi (+880) numbers can be used to log in right now.")
+    return code, digits
 
 
 def student_session_is_valid():
@@ -1125,7 +1136,7 @@ def _render_login_view():
                 # and route to the forgot-password view without touching the
                 # phone/password validation meant for the actual Log In button.
                 with st.form(key="login_form", clear_on_submit=False):
-                    login_digits = phone_field("login")
+                    login_code, login_digits = phone_field("login")
                     pw = st.text_input("Password", type="password", key="login_pw")
                     rc1, rc2 = st.columns([1, 1])
                     with rc1:
@@ -1140,24 +1151,27 @@ def _render_login_view():
         st.rerun()
 
     if submitted:
-        ok, err, canonical_phone = sh.validate_bd_phone_digits(login_digits)
-        if not ok:
-            st.error(err)
-        elif not pw:
-            st.error("Please enter your password.")
+        if login_code != "+880":
+            st.error("Only Bangladeshi (+880) numbers can be used to log in right now.")
         else:
-            with st.spinner("Logging in..."):
-                try:
-                    student = sh.authenticate_student(canonical_phone, pw)
-                    st.session_state["student_id"] = student["student_id"]
-                    st.session_state["student_name"] = student["name"]
-                    st.session_state["session_version"] = sh._to_int(student.get("session_version"), 1)
-                    st.session_state["role"] = "student"
-                except ValueError as e:
-                    st.error(str(e))
-                else:
-                    st.success("Logged in!")
-                    go_to("home")
+            ok, err, canonical_phone = sh.validate_bd_phone_digits(login_digits)
+            if not ok:
+                st.error(err)
+            elif not pw:
+                st.error("Please enter your password.")
+            else:
+                with st.spinner("Logging in..."):
+                    try:
+                        student = sh.authenticate_student(canonical_phone, pw)
+                        st.session_state["student_id"] = student["student_id"]
+                        st.session_state["student_name"] = student["name"]
+                        st.session_state["session_version"] = sh._to_int(student.get("session_version"), 1)
+                        st.session_state["role"] = "student"
+                    except ValueError as e:
+                        st.error(str(e))
+                    else:
+                        st.success("Logged in!")
+                        go_to("home")
 
     # ---- Small, quiet secondary links: Sign Up (for new students) and
     # Mentor Login - both real st.button widgets styled as plain text
@@ -1190,7 +1204,7 @@ def _render_signup_view():
             # rerun on every keystroke, so the strength bar updates live while
             # typing, before the button is ever pressed.
             name = st.text_input("Full name", key="su_name")
-            phone_digits = phone_field("su")
+            su_code, phone_digits = phone_field("su")
             pw1 = st.text_input("Password", type="password", key="su_pw1")
             if pw1:
                 score, label, _tips = sh.password_strength(pw1)
@@ -1210,6 +1224,8 @@ def _render_signup_view():
                 _, _, tips = sh.password_strength(pw1)
                 if not name.strip():
                     st.error("Please enter your name.")
+                elif su_code != "+880":
+                    st.error("Only Bangladeshi (+880) numbers can be used to sign up right now.")
                 elif not ok:
                     st.error(phone_err)
                 elif tips:
@@ -1242,8 +1258,11 @@ def _render_forgot_view():
     with st.container(key="auth_card_forgot"):
         with st.container(key="auth_form_forgot"):
             st.caption("Reset your password using the security question you set at sign up.")
-            f_phone_digits = phone_field("fp")
-            ok_preview, err_preview, canonical_preview = sh.validate_bd_phone_digits(f_phone_digits)
+            fp_code, f_phone_digits = phone_field("fp")
+            ok_preview, err_preview, canonical_preview = (
+                sh.validate_bd_phone_digits(f_phone_digits) if fp_code == "+880"
+                else (False, "Only Bangladeshi (+880) numbers are supported right now.", None)
+            )
             student_preview = sh.get_student_by_phone(canonical_preview) if ok_preview else None
             if student_preview:
                 st.info(f"Security question: **{student_preview.get('security_question')}**")
