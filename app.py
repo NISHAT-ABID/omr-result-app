@@ -791,13 +791,21 @@ def inject_global_css():
            puts the "stVerticalBlock" testid directly on the same element
            as the "st-key-*" class (not one level below it, which is what
            made an earlier ">"-child-combinator version of this rule
-           silently match nothing). ---- */
+           silently match nothing). An explicit border/background/shadow
+           is added on this same wrapper so the whole code+digits row
+           reads as ONE clearly-bounded field against the page background,
+           instead of just relying on the two child pieces' own colors to
+           imply a boundary. ---- */
         div[class*="_phone_row"][data-testid="stVerticalBlock"],
         div[class*="_phone_row"] div[data-testid="stVerticalBlock"] {
             display: flex !important;
             flex-direction: row !important;
             align-items: stretch !important;
             gap: 0 !important;
+            border: 1px solid var(--mv-border) !important;
+            border-radius: 9px !important;
+            background: var(--mv-input-bg) !important;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.14) !important;
         }
         div[class*="_phone_row"][data-testid="stVerticalBlock"] > div,
         div[class*="_phone_row"] div[data-testid="stVerticalBlock"] > div {
@@ -813,19 +821,27 @@ def inject_global_css():
             flex: 1 1 auto !important;
             min-width: 0 !important;
         }
+        /* Country-code side now matches the SAME dark input background as
+           the digits side (not the teal "primary-soft" tint it used to
+           have) - a thin border-right is what separates the two halves
+           visually, while the whole row's own border/shadow above is what
+           separates the entire field from the page background. */
         div[class*="_phone_row"] div[data-baseweb="select"] > div {
             height: 46px !important;
             border-radius: 9px 0 0 9px !important;
-            border-right: none !important;
+            border: none !important;
+            border-right: 1px solid var(--mv-border) !important;
             font-weight: 600 !important;
             color: var(--mv-primary) !important;
-            background: var(--mv-primary-soft) !important;
+            background: var(--mv-input-bg) !important;
         }
         div[class*="_phone_row"] input {
             height: 46px !important;
             width: 100% !important;
             box-sizing: border-box !important;
+            border: none !important;
             border-radius: 0 9px 9px 0 !important;
+            background: var(--mv-input-bg) !important;
         }
 
         /* ---- Student per-submission calibration ---- */
