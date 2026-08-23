@@ -566,23 +566,29 @@ def inject_global_css():
         .st-key-top_nav button[kind="primary"] { border: none !important; }
 
         /* ---- Mobile top bar + custom expandable menu.
-           Rebuilt WITHOUT st.columns - see the comment in render_top_nav()/
-           page_mentor() for why. The container is a fixed-height, position:
-           relative box; the hamburger button is its normal first child
-           (sits top-left in normal document flow); the second icon (when
-           present) lives in its own nested container that's pinned to the
-           top-right corner via position:absolute. Nothing here depends on
-           Streamlit's column-width engine, so it can't overflow the
-           viewport on a real phone the way the old 3-column version did. ---- */
-        .st-key-mobile_top_bar {
-            display: none;
-            position: relative;
-            min-height: 40px;
+           Rebuilt WITHOUT st.columns AND without position:absolute - the
+           absolute-positioning version put the hamburger and profile/
+           settings buttons exactly on top of each other (both rendered
+           at the same coordinates). Using the same reliable technique as
+           elsewhere in this file instead: Streamlit puts each st.button()
+           /st.container() call as its own direct child ("element
+           container") inside one div[data-testid="stVerticalBlock"] -
+           forcing THAT wrapper into a plain CSS flex row with
+           justify-content:space-between lines the two buttons up left/
+           right with zero reliance on Streamlit's own column-width
+           engine (the thing that broke on real phones) or on guessing
+           absolute coordinates (the thing that made them overlap). ---- */
+        .st-key-mobile_top_bar { display: none; }
+        .st-key-mobile_top_bar > div[data-testid="stVerticalBlock"] {
+            display: flex !important;
+            flex-direction: row !important;
+            justify-content: space-between !important;
+            align-items: center !important;
+            gap: 8px !important;
         }
-        .st-key-mobile_top_bar_right {
-            position: absolute;
-            top: 0;
-            right: 0;
+        .st-key-mobile_top_bar > div[data-testid="stVerticalBlock"] > div {
+            width: auto !important;
+            flex: 0 0 auto !important;
         }
         .st-key-mobile_top_bar button {
             border-radius: 50% !important;
@@ -758,42 +764,55 @@ def inject_global_css():
         .strength-fill { height:100%; border-radius:4px; }
         .time-row-label { font-weight:600; padding-top:6px; font-size:14px; }
 
-        /* ---- Phone number field: a fixed "+880" prefix drawn directly on
-           Streamlit's own input-wrapper element via a CSS ::before pseudo-
-           element - not a separate st.markdown() span positioned relative
-           to an outer container (that version was rendering as a plain
-           stacked line with a gap instead of overlaying the input, most
-           likely because the outer container wasn't a reliable enough
-           positioning anchor). A ::before is guaranteed to be positioned
-           relative to the exact element it's attached to, so anchoring it
-           straight on div[data-baseweb="input"] - the actual visual input
-           box Streamlit renders - removes that whole class of uncertainty.
-           No extra markdown call, no separate span to keep in sync either. ---- */
-        div[class*="_phone_row"] div[data-baseweb="input"],
-        div[class*="_phone_row"] div[data-baseweb="base-input"] {
-            position: relative;
+        /* ---- Phone number field: a fixed "+880" prefix badge sitting
+           beside a normal st.text_input, laid out with plain CSS flexbox -
+           NOT position:absolute (that version never showed up at all,
+           most likely because Streamlit's actual input DOM structure
+           didn't match the exact wrapper this was anchored to) and NOT
+           st.columns (Streamlit's own column-width engine was breaking on
+           real phones). Same reliable trick as the mobile top bar above:
+           the badge (a plain st.markdown call) and the text_input are two
+           direct children inside one div[data-testid="stVerticalBlock"] -
+           forcing that wrapper into a flex row puts them side by side
+           exactly like normal HTML siblings, no guessing about Streamlit's
+           internal input markup required. ---- */
+        div[class*="_phone_row"] > div[data-testid="stVerticalBlock"] {
+            display: flex !important;
+            flex-direction: row !important;
+            align-items: stretch !important;
+            gap: 0 !important;
         }
-        div[class*="_phone_row"] div[data-baseweb="input"]::before {
-            content: "+880";
-            position: absolute;
-            left: 1px; top: 1px; bottom: 1px;
+        div[class*="_phone_row"] > div[data-testid="stVerticalBlock"] > div {
+            margin: 0 !important;
+        }
+        div[class*="_phone_row"] > div[data-testid="stVerticalBlock"] > div:first-child {
+            flex: 0 0 auto !important;
+        }
+        div[class*="_phone_row"] > div[data-testid="stVerticalBlock"] > div:last-child {
+            flex: 1 1 auto !important;
+            min-width: 0 !important;
+        }
+        div[class*="_phone_row"] .bd-phone-prefix {
             display: flex;
             align-items: center;
-            padding: 0 12px;
-            border-radius: 8px 0 0 8px;
+            justify-content: center;
+            height: 46px;
+            box-sizing: border-box;
+            padding: 0 14px;
+            border: 1.4px solid var(--mv-border);
+            border-right: none;
+            border-radius: 9px 0 0 9px;
             font-weight: 600;
             font-size: 14px;
             color: var(--mv-primary);
             background: var(--mv-primary-soft);
-            border-right: 1px solid var(--mv-border);
-            pointer-events: none;
-            z-index: 2;
             white-space: nowrap;
         }
         div[class*="_phone_row"] input {
-            padding-left: 68px !important;
             height: 46px !important;
+            width: 100% !important;
             box-sizing: border-box !important;
+            border-radius: 0 9px 9px 0 !important;
         }
 
         /* ---- Student per-submission calibration ---- */
@@ -1006,19 +1025,23 @@ def phone_field(key_prefix, placeholder="1712345678"):
     user to type or for anything to drop), and keeps every number stored
     in one consistent format.
 
-    Deliberately NOT built with st.columns() any more: Streamlit collapses/
-    resizes columns using its own internal responsive rules on narrow
-    screens, and that was fighting our CSS overrides - on phones the
-    "+880" box was rendering at nearly full width with the actual number
-    input squeezed into a sliver at the edge. The "+880" prefix is now a
-    pure CSS ::before pseudo-element drawn directly on Streamlit's own
-    input box (see the "_phone_row" CSS in inject_global_css) - no extra
-    markdown span needed, and nothing here depends on Streamlit's column
-    engine, so it can't overflow or misalign at any screen width.
+    Deliberately NOT built with st.columns() any more: Streamlit resizes
+    columns using its own internal responsive rules on narrow screens,
+    and that was fighting our CSS overrides - on phones the "+880" box
+    was rendering at nearly full width with the actual number input
+    squeezed into a sliver at the edge. A later position:absolute attempt
+    to overlay "+880" directly on the input also failed (it didn't show
+    up at all). This version instead puts the "+880" badge and the real
+    st.text_input as two plain, normal children in this container, and
+    the "_phone_row" CSS in inject_global_css forces Streamlit's own
+    wrapper div around them into a simple CSS flex row - no column-width
+    engine involved, no coordinate-guessing, just two boxes sitting next
+    to each other like ordinary HTML.
     Returns whatever raw digits the user has typed so far (validate with
     sh.validate_bd_phone_digits before use)."""
     st.markdown("**Phone number**")
     with st.container(key=f"{key_prefix}_phone_row"):
+        st.markdown("<div class='bd-phone-prefix'>+880</div>", unsafe_allow_html=True)
         digits = st.text_input(
             "Phone number", key=f"{key_prefix}_digits", label_visibility="collapsed",
             placeholder=placeholder, max_chars=10,
