@@ -813,8 +813,8 @@ def inject_global_css():
         }
         div[class*="_phone_row"][data-testid="stVerticalBlock"] > div:first-child,
         div[class*="_phone_row"] div[data-testid="stVerticalBlock"] > div:first-child {
-            flex: 0 0 96px !important;
-            min-width: 96px !important;
+            flex: 0 0 168px !important;
+            min-width: 168px !important;
         }
         div[class*="_phone_row"][data-testid="stVerticalBlock"] > div:last-child,
         div[class*="_phone_row"] div[data-testid="stVerticalBlock"] > div:last-child {
@@ -1050,28 +1050,61 @@ SECURITY_QUESTIONS = [
     "What is your favorite color?",
 ]
 
-# Shown in the phone field's country-code dropdown. Only "+880" is listed -
-# the backend (sh.validate_bd_phone_digits and student records) only
-# understands Bangladeshi numbers, so extra codes were removed rather than
-# offering choices that would just fail. The dropdown arrow still shows
-# (matching the requested reference look) even with a single option.
-PHONE_COUNTRY_CODES = ["+880"]
+# Full worldwide country list for the phone field's country-code dropdown,
+# shown as "Country (+code)" labels so a user can click the dropdown and
+# type a country name (e.g. "Bangla") to filter down to it - st.selectbox
+# has built-in typeahead search, so no extra search widget is needed.
+#
+# IMPORTANT: the actual login/signup/reset backend (sh.validate_bd_phone_digits
+# and everything downstream of it in sheets_helper.py) only understands
+# Bangladeshi 10-digit numbers - it has no concept of other countries'
+# number formats. Rather than silently pretending other codes work (which
+# would just fail validation in a confusing way, or worse, store a
+# malformed number), phone_field() below still returns the selected dial
+# code alongside the digits so each caller can gate on `code == "+880"`
+# before calling into that BD-specific validation, and show a plain "only
+# +880 is supported right now" message otherwise. Extending real validation
+# to other countries would need changes in sheets_helper.py, which is out
+# of scope here - this list only widens what's *shown*, not what's *accepted*.
+COUNTRY_CODES = [
+    ("Afghanistan", "+93"), ("Albania", "+355"), ("Algeria", "+213"),
+    ("Argentina", "+54"), ("Australia", "+61"), ("Austria", "+43"),
+    ("Bahrain", "+973"), ("Bangladesh", "+880"), ("Belgium", "+32"),
+    ("Bhutan", "+975"), ("Brazil", "+55"), ("Brunei", "+673"),
+    ("Cambodia", "+855"), ("Canada", "+1"), ("China", "+86"),
+    ("Denmark", "+45"), ("Egypt", "+20"), ("Finland", "+358"),
+    ("France", "+33"), ("Germany", "+49"), ("Greece", "+30"),
+    ("Hong Kong", "+852"), ("India", "+91"), ("Indonesia", "+62"),
+    ("Iran", "+98"), ("Iraq", "+964"), ("Ireland", "+353"),
+    ("Italy", "+39"), ("Japan", "+81"), ("Jordan", "+962"),
+    ("Kuwait", "+965"), ("Malaysia", "+60"), ("Maldives", "+960"),
+    ("Mexico", "+52"), ("Myanmar", "+95"), ("Nepal", "+977"),
+    ("Netherlands", "+31"), ("New Zealand", "+64"), ("Norway", "+47"),
+    ("Oman", "+968"), ("Pakistan", "+92"), ("Philippines", "+63"),
+    ("Poland", "+48"), ("Portugal", "+351"), ("Qatar", "+974"),
+    ("Russia", "+7"), ("Saudi Arabia", "+966"), ("Singapore", "+65"),
+    ("South Africa", "+27"), ("South Korea", "+82"), ("Spain", "+34"),
+    ("Sri Lanka", "+94"), ("Sweden", "+46"), ("Switzerland", "+41"),
+    ("Thailand", "+66"), ("Turkey", "+90"), ("UAE", "+971"),
+    ("UK", "+44"), ("USA", "+1"), ("Vietnam", "+84"),
+]
+COUNTRY_LABELS = [f"{name} ({code})" for name, code in COUNTRY_CODES]
+COUNTRY_LABEL_TO_CODE = {f"{name} ({code})": code for name, code in COUNTRY_CODES}
+# Bangladesh is the default selection every time this field is rendered,
+# since the vast majority of users are Bangladeshi students/mentors - this
+# just saves them a search on the common case, not a functional restriction.
+DEFAULT_COUNTRY_LABEL = "Bangladesh (+880)"
 
 
 def phone_field(key_prefix, placeholder="1712345678"):
-    """A phone number field with a country-code selector (matching the
-    requested "+880 ⌄" reference design) next to a plain digits input.
+    """A phone number field with a searchable worldwide country selector
+    (type a country name to filter, e.g. "Bangla" -> "Bangladesh (+880)")
+    next to a plain digits input. Defaults to Bangladesh on first render.
 
-    IMPORTANT: the actual login/signup/reset backend (sh.validate_bd_phone_digits
-    and everything downstream of it in sheets_helper.py) only understands
-    Bangladeshi 10-digit numbers - it has no concept of other countries'
-    number formats. Rather than silently pretending other codes work (which
-    would just fail validation in a confusing way, or worse, store a
-    malformed number), this returns the selected code alongside the digits
-    so each caller can gate on `code == "+880"` before calling into that
-    BD-specific validation, and show a plain "only +880 is supported right
-    now" message otherwise. Extending real validation to other countries
-    would need changes in sheets_helper.py, which is out of scope here.
+    See the COUNTRY_CODES comment above for why only +880 actually
+    validates right now - other countries are selectable (so the UI looks
+    and behaves like a real international phone field) but will show a
+    "not supported yet" caption instead of silently failing.
 
     Deliberately NOT built with st.columns(): Streamlit resizes columns
     using its own internal responsive rules on narrow screens, which was
@@ -1085,10 +1118,12 @@ def phone_field(key_prefix, placeholder="1712345678"):
     sh.validate_bd_phone_digits only when selected_code == "+880"."""
     st.markdown("**Phone number**")
     with st.container(key=f"{key_prefix}_phone_row"):
-        code = st.selectbox(
-            "Country code", PHONE_COUNTRY_CODES, key=f"{key_prefix}_code",
-            label_visibility="collapsed",
+        default_idx = COUNTRY_LABELS.index(DEFAULT_COUNTRY_LABEL)
+        label = st.selectbox(
+            "Country", COUNTRY_LABELS, index=default_idx,
+            key=f"{key_prefix}_code", label_visibility="collapsed",
         )
+        code = COUNTRY_LABEL_TO_CODE[label]
         digits = st.text_input(
             "Phone number", key=f"{key_prefix}_digits", label_visibility="collapsed",
             placeholder=placeholder, max_chars=10,
