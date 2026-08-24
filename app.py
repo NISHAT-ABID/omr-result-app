@@ -747,16 +747,6 @@ def inject_global_css():
         /* ---- Analysis / Test History cards on mobile: keeps the same
            "Exam name | Marks | Correct | Wrong | View" ROW layout used on
            desktop, instead of Streamlit's default behaviour of stacking
-           st.columns() vertically below ~640px (which is what was making
-           each metric render as one huge full-width number per line -
-           a single card taking up the whole screen). This mirrors the
-           same flex-row-nowrap technique already used for
-           .st-key-test_history_table above, just tuned for this card's
-           narrower columns: everything stays on one compact horizontal
-           strip, with the exam-name column shrinking (ellipsis) before
-           anything else does, and metric numbers/labels/the View button
-           scaled down so the whole row still fits a phone screen without
-           wrapping or overflowing. ---- */
         [class*="st-key-acard_"] div[data-testid="stHorizontalBlock"] {
             display: flex !important;
             flex-direction: row !important;
@@ -772,15 +762,38 @@ def inject_global_css():
             text-align: center !important;
         }
         @media (max-width: 640px) {
-            [class*="st-key-acard_"] div[data-testid="stHorizontalBlock"] { gap: 3px !important; }
-            /* Exam-name column: allowed to shrink and ellipsis rather than
-               push the metrics off-screen - this is the one column with
-               genuinely variable-length content, so it's the one that
-               should give way first. */
-            [class*="st-key-acard_"] div[data-testid="column"]:nth-child(1) {
-                flex: 1 1 74px !important;
-                min-width: 0 !important;
+            /* CSS GRID instead of flexbox for this row on mobile - an
+               earlier flexbox version (fixed flex-basis px widths per
+               nth-child column) still broke: flex items have a default
+               min-width:auto that lets their CONTENT's natural size win
+               over a fixed flex-basis, and Streamlit's metric widgets
+               sit one DOM level deeper than the column div we can style,
+               so the override never reached them - the Correct/Wrong
+               values and the View button ended up overlapping/pushed
+               off-screen instead of staying in their slots (see the
+               screenshot this was reported from). CSS Grid with
+               `minmax(0, 1fr)` for the name column and fixed px tracks
+               for the rest doesn't have that problem: a grid track is a
+               hard-capped slot regardless of what's inside it, so every
+               column - including the View button - reliably stays where
+               it's put. */
+            [class*="st-key-acard_"] div[data-testid="stHorizontalBlock"] {
+                display: grid !important;
+                grid-template-columns: minmax(0, 1fr) 42px 42px 42px 46px !important;
+                align-items: center !important;
+                gap: 4px !important;
             }
+            [class*="st-key-acard_"] div[data-testid="column"] {
+                width: 100% !important;
+                min-width: 0 !important;
+                max-width: 100% !important;
+                overflow: hidden !important;
+            }
+            /* Exam-name column (1st grid track, the flexible minmax(0,1fr)
+               one): shrinks and ellipses rather than pushing the metrics
+               off-screen - this is the one column with genuinely
+               variable-length content, so it's the one that should give
+               way first. */
             [class*="st-key-acard_"] div[data-testid="column"]:nth-child(1) .analysis-title {
                 font-size: 12.5px !important;
                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -789,33 +802,23 @@ def inject_global_css():
                 font-size: 10px !important;
                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
             }
-            /* Marks / Correct / Wrong metric columns: fixed narrow width,
-               small label + small value, so three of them plus the exam
-               name and the View button all fit on one line. */
-            [class*="st-key-acard_"] div[data-testid="column"]:nth-child(2),
-            [class*="st-key-acard_"] div[data-testid="column"]:nth-child(3),
-            [class*="st-key-acard_"] div[data-testid="column"]:nth-child(4) {
-                flex: 0 0 44px !important;
-                min-width: 0 !important;
-                overflow: hidden !important;
-            }
+            /* Marks / Correct / Wrong metric columns: small label + small
+               value, centered in their fixed 42px grid track. */
             [class*="st-key-acard_"] [data-testid="stMetricValue"] {
                 font-size: 13px !important;
                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
             }
             [class*="st-key-acard_"] [data-testid="stMetricLabel"] p {
                 font-size: 9px !important;
-                white-space: nowrap;
+                white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
             }
-            /* View button column: fixed compact width, small pill button
-               instead of the full-size default. */
-            [class*="st-key-acard_"] div[data-testid="column"]:nth-child(5) {
-                flex: 0 0 46px !important;
-            }
+            /* View button column (5th, 46px grid track): compact pill
+               button instead of the full-size default. */
             [class*="st-key-acard_"] div[data-testid="column"]:nth-child(5) .stButton > button {
                 padding: 4px 2px !important;
                 font-size: 11px !important;
                 min-height: 30px !important;
+                width: 100% !important;
             }
             /* The Total/Skipped/Accuracy line underneath - shrink and
                allow it to wrap onto two lines instead of overflowing. */
