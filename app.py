@@ -1089,6 +1089,71 @@ def motivation_for(student_id):
     return rnd.choice(MOTIVATIONS)
 
 
+# A small fixed palette of theme-friendly colors for avatars - picked to
+# stay readable with white initials on top and to feel at home next to
+# the app's teal/coral Med Venture palette rather than clashing with it.
+AVATAR_COLORS = [
+    "#4FB3A2", "#E68B75", "#7C9CE6", "#C77DE0", "#E0A23D",
+    "#5FBF6B", "#E0637D", "#4FA0E6", "#B0A23D", "#8B7DE0",
+]
+
+
+def _avatar_initials(name):
+    """Up to 2 letters: first letter of the first two words, or the first
+    2 letters of a single word - falls back to '?' for an empty name."""
+    parts = [p for p in str(name or "").strip().split() if p]
+    if not parts:
+        return "?"
+    if len(parts) == 1:
+        return parts[0][:2].upper()
+    return (parts[0][0] + parts[1][0]).upper()
+
+
+def render_avatar(student_id, name, size=40, font_size=None):
+    """
+    Deterministic, no-network avatar: a solid-color circle with the
+    student's initials, colored by hashing their student_id (NOT their
+    name, so two students who happen to share a first name still get
+    visually distinct avatars) into AVATAR_COLORS. Same student_id always
+    gets the same color and initials, every time it's rendered anywhere
+    in the app - no external avatar service, image upload, or network
+    call needed, so it can never fail to load or add latency.
+
+    Returns an HTML string (a single inline <span>) meant to be embedded
+    inside a larger st.markdown(..., unsafe_allow_html=True) call, or
+    rendered on its own.
+    """
+    seed = str(student_id or name or "?")
+    rnd = random.Random(seed)
+    color = rnd.choice(AVATAR_COLORS)
+    initials = _avatar_initials(name)
+    if font_size is None:
+        font_size = max(11, int(size * 0.42))
+    return (
+        f"<span style='display:inline-flex; align-items:center; justify-content:center; "
+        f"width:{size}px; height:{size}px; min-width:{size}px; border-radius:50%; "
+        f"background:{color}; color:#fff; font-family:var(--sans); "
+        f"font-weight:700; font-size:{font_size}px; letter-spacing:.02em; "
+        f"line-height:1; vertical-align:middle;'>{initials}</span>"
+    )
+
+
+def render_student_header(student_id, name, heading_level=3):
+    """Shared "[avatar] Name" header used at the top of every student-
+    analysis-style page (a student's own Analysis page, and the mentor's
+    per-student Analysis/drilldown page) so the same avatar + name +
+    Student ID block doesn't get copy-pasted three times."""
+    tag = f"h{heading_level}"
+    st.markdown(
+        f"<div style='display:flex; align-items:center; gap:10px; margin-bottom:2px;'>"
+        f"{render_avatar(student_id, name, size=40)}"
+        f"<{tag} style='margin:0;'>{name}</{tag}>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+    st.caption(f"Student ID: **{student_id}**")
+
+
 # =========================================================================
 # Cached reads (keeps the app snappy - avoids hitting Google Sheets on
 # every single rerun/click, which is what causes "hang" in Streamlit apps)
@@ -2074,8 +2139,7 @@ def render_student_analysis(sid, name, *, mentor_mode=False):
     else:
         student_results = results[results["student_id"].astype(str) == str(sid)].copy()
 
-    st.markdown(f"### 👤 {name}")
-    st.caption(f"Student ID: **{sid}**")
+    render_student_header(sid, name, heading_level=3)
 
     if mentor_mode:
         if st.button("← Back to Students", use_container_width=False, key="back_to_students_analysis"):
@@ -2187,8 +2251,7 @@ def page_student_analysis():
         if match.empty or key_match.empty:
             st.warning("Result not found.")
         else:
-            st.markdown(f"### 👤 {name}")
-            st.caption(f"Student ID: **{sid}**")
+            render_student_header(sid, name, heading_level=3)
             render_result_detail(match.iloc[0], key_match.iloc[0])
         return
 
@@ -2217,8 +2280,7 @@ def page_mentor_student_analysis():
         if match.empty or key_match.empty:
             st.warning("Result not found.")
         else:
-            st.markdown(f"### 👤 {name}")
-            st.caption(f"Student ID: **{sid}**")
+            render_student_header(sid, name, heading_level=3)
             render_result_detail(match.iloc[0], key_match.iloc[0])
         return
 
@@ -2265,7 +2327,11 @@ def render_leaderboard_rows(df, mode, sid=None):
         css_class = "lb-row me" if is_me else "lb-row"
         icon = _rank_icon(rank) if rank <= 3 else f"#{rank}"
         badge_class = _rank_class(rank)
-        name_html = f"{row['student']}{' (You)' if is_me else ''}"
+        avatar_html = render_avatar(row["student_id"], row["student"], size=26, font_size=11)
+        name_html = (
+            f"<span style='display:inline-flex; align-items:center; gap:7px;'>"
+            f"{avatar_html}<span>{row['student']}{' (You)' if is_me else ''}</span></span>"
+        )
 
         if mode == "Overall":
             trend = row.get("trend")
@@ -2374,9 +2440,14 @@ def page_leaderboard():
 def page_profile():
     sid = st.session_state["student_id"]
     student = sh.get_student_by_id(sid)
-    st.markdown("### 👤 Profile")
+    st.markdown(
+        f"<div style='display:flex; align-items:center; gap:12px; margin-bottom:4px;'>"
+        f"{render_avatar(sid, student['name'], size=52)}"
+        f"<h3 style='margin:0;'>{student['name']}</h3>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
     with st.container(key="card_profile_info"):
-        st.write(f"**Name:** {student['name']}")
         st.write(f"**Phone:** {sh.format_bd_phone(student['phone'])}")
 
     with st.expander("🔑 Change Password"):
@@ -2781,7 +2852,12 @@ def page_mentor_students():
             c1, c2, c3 = st.columns([3.2, 1.4, 1.3])
             with c1:
                 status = "🔴 Disabled" if disabled else "🟢 Active"
-                st.markdown(f"**{row['name']}** &nbsp; {status}")
+                avatar_html = render_avatar(sid, row["name"], size=30, font_size=12)
+                st.markdown(
+                    f"<div style='display:flex; align-items:center; gap:8px;'>"
+                    f"{avatar_html}<span><b>{row['name']}</b> &nbsp; {status}</span></div>",
+                    unsafe_allow_html=True,
+                )
                 st.caption(f"ID: {sid} · 📱 {sh.format_bd_phone(row['phone'])} · Tests: {tests_taken} · Avg: {avg_score}%")
             with c2:
                 if st.button("📊 View Analysis", key=f"analysis_{sid}", use_container_width=True):
