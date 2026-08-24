@@ -747,21 +747,21 @@ def inject_global_css():
         /* ---- Analysis / Test History cards on mobile: keeps the same
            "Exam name | Marks | Correct | Wrong | View" ROW layout used on
            desktop, instead of Streamlit's default behaviour of stacking
-        [class*="st-key-acard_"] div[data-testid="stHorizontalBlock"] {
-            display: flex !important;
-            flex-direction: row !important;
-            flex-wrap: nowrap !important;
-            align-items: center !important;
-            gap: 6px !important;
-        }
-        [class*="st-key-acard_"] div[data-testid="column"] {
-            min-width: 0 !important;
-            width: auto !important;
-        }
-        [class*="st-key-acard_"] div[data-testid="stMetric"] {
-            text-align: center !important;
-        }
+           st.columns() vertically below ~640px (which is what was making
+           each metric render as one huge full-width number per line -
+           a single card taking up the whole screen).
+           IMPORTANT: every rule below is scoped inside the
+           @media (max-width: 640px) block ONLY. Desktop (>640px) is left
+           completely alone, relying entirely on Streamlit's own default
+           st.columns() row layout - an earlier version of this fix
+           applied some of these rules unscoped (to all screen sizes),
+           which ended up shrinking/cramping the metric numbers on
+           desktop too, even though desktop's layout was already fine on
+           its own and never needed touching. */
         @media (max-width: 640px) {
+            [class*="st-key-acard_"] div[data-testid="stMetric"] {
+                text-align: center !important;
+            }
             /* CSS GRID instead of flexbox for this row on mobile - an
                earlier flexbox version (fixed flex-basis px widths per
                nth-child column) still broke: flex items have a default
