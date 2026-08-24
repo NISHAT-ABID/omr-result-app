@@ -528,7 +528,17 @@ def inject_global_css():
             padding-bottom: 3.0rem;
             max-width: 1180px;
         }
-        * { transition: background-color .15s ease, color .15s ease, opacity .15s ease; }
+        /* opacity intentionally left OUT of this transition: Streamlit
+           already fades stale content to low opacity while a rerun is in
+           progress (e.g. right after login, when the page swaps from the
+           login form to the logged-in Home page with its top nav).
+           Animating that opacity change too stretches out how long that
+           in-between frame stays visible, which is what made the old
+           page and the new page appear to render on top of each other
+           for a moment. Keeping color/background-color animated (for the
+           nice hover/theme feel) but leaving opacity instant fixes that
+           without losing the rest of the polish. */
+        * { transition: background-color .15s ease, color .15s ease; }
 
         /* ---- App accent color: Med Venture deep teal (was default blue) ---- */
         button[kind="primary"], .stButton>button[kind="primary"], .stFormSubmitButton>button[kind="primary"] {
@@ -809,6 +819,51 @@ def inject_global_css():
             [class*="st-key-acard_"] .analysis-subtle:last-child {
                 font-size: 10px !important;
                 margin-top: 2px;
+            }
+        }
+
+        /* ---- Every other card built from real st.metric() widgets inside
+           st.columns(): Home page's "Active Test" (Questions/Time Left)
+           and "Last Result" (Marks/Correct/Wrong), the OMR submission
+           result summary (Correct/Wrong/Skipped/Marks), and each
+           mentor per-submission review row (Correct/Wrong/Skipped).
+           Same root cause and same fix as the Analysis cards above:
+           Streamlit stacks st.columns() vertically by default below
+           ~640px, which was rendering one huge full-width number per
+           line instead of a compact row. Forcing flex-row here once,
+           shared across every one of these containers, keeps them all
+           looking like their desktop layout - just a bit smaller - on
+           mobile too, without repeating the same CSS block per card. ---- */
+        .st-key-card_home_active div[data-testid="stHorizontalBlock"],
+        .st-key-card_home_last div[data-testid="stHorizontalBlock"],
+        .st-key-card_submit_result div[data-testid="stHorizontalBlock"],
+        [class*="st-key-card_mentor_result_"] div[data-testid="stHorizontalBlock"] {
+            display: flex !important;
+            flex-direction: row !important;
+            flex-wrap: nowrap !important;
+            gap: 8px !important;
+        }
+        .st-key-card_home_active div[data-testid="column"],
+        .st-key-card_home_last div[data-testid="column"],
+        .st-key-card_submit_result div[data-testid="column"],
+        [class*="st-key-card_mentor_result_"] div[data-testid="column"] {
+            flex: 1 1 0 !important;
+            min-width: 0 !important;
+            width: auto !important;
+        }
+        @media (max-width: 640px) {
+            .st-key-card_home_active [data-testid="stMetricValue"],
+            .st-key-card_home_last [data-testid="stMetricValue"],
+            .st-key-card_submit_result [data-testid="stMetricValue"],
+            [class*="st-key-card_mentor_result_"] [data-testid="stMetricValue"] {
+                font-size: 16px !important;
+            }
+            .st-key-card_home_active [data-testid="stMetricLabel"] p,
+            .st-key-card_home_last [data-testid="stMetricLabel"] p,
+            .st-key-card_submit_result [data-testid="stMetricLabel"] p,
+            [class*="st-key-card_mentor_result_"] [data-testid="stMetricLabel"] p {
+                font-size: 10px !important;
+                white-space: nowrap;
             }
         }
 
@@ -1892,11 +1947,12 @@ def page_tests_results():
                                             _reset_submission_state()
                                             st.success("✅ Result saved!")
 
-                                            r1, r2, r3 = st.columns(3)
-                                            r1.metric("Correct ✅", result["correct"])
-                                            r2.metric("Wrong ❌", result["wrong_count"])
-                                            r3.metric("Skipped ⚪", result["skipped"])
-                                            st.metric("🏆 Marks", result["marks"])
+                                            with st.container(key="card_submit_result"):
+                                                r1, r2, r3, r4 = st.columns(4)
+                                                r1.metric("Correct ✅", result["correct"])
+                                                r2.metric("Wrong ❌", result["wrong_count"])
+                                                r3.metric("Skipped ⚪", result["skipped"])
+                                                r4.metric("🏆 Marks", result["marks"])
 
                                             rows = omr_scanner.build_review_rows(student_answers, key_string)
                                             review_rows = [r for r in rows if r["status"] in ("wrong", "skipped")]
@@ -2765,10 +2821,11 @@ def page_mentor_results():
     for _, row in exam_results.iterrows():
         with st.expander(f"{row['student']} — Marks: {row['marks']}"
                           f"{' (edited)' if bool(row.get('edited_by_mentor')) else ''}"):
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Correct", int(row["correct"]))
-            c2.metric("Wrong", int(row["wrong_count"]))
-            c3.metric("Skipped", int(row["skipped"]))
+            with st.container(key=f"card_mentor_result_{row['student_id']}_{key_id}"):
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Correct", int(row["correct"]))
+                c2.metric("Wrong", int(row["wrong_count"]))
+                c3.metric("Skipped", int(row["skipped"]))
 
             with st.form(key=f"edit_form_{row['student_id']}"):
                 new_correct = st.number_input("Correct", min_value=0, max_value=int(row["total"]),
