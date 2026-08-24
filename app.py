@@ -796,9 +796,12 @@ def inject_global_css():
             [class*="st-key-acard_"] div[data-testid="column"]:nth-child(3),
             [class*="st-key-acard_"] div[data-testid="column"]:nth-child(4) {
                 flex: 0 0 44px !important;
+                min-width: 0 !important;
+                overflow: hidden !important;
             }
             [class*="st-key-acard_"] [data-testid="stMetricValue"] {
                 font-size: 13px !important;
+                white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
             }
             [class*="st-key-acard_"] [data-testid="stMetricLabel"] p {
                 font-size: 9px !important;
@@ -825,45 +828,63 @@ def inject_global_css():
         /* ---- Every other card built from real st.metric() widgets inside
            st.columns(): Home page's "Active Test" (Questions/Time Left)
            and "Last Result" (Marks/Correct/Wrong), the OMR submission
-           result summary (Correct/Wrong/Skipped/Marks), and each
-           mentor per-submission review row (Correct/Wrong/Skipped).
-           Same root cause and same fix as the Analysis cards above:
-           Streamlit stacks st.columns() vertically by default below
-           ~640px, which was rendering one huge full-width number per
-           line instead of a compact row. Forcing flex-row here once,
-           shared across every one of these containers, keeps them all
-           looking like their desktop layout - just a bit smaller - on
-           mobile too, without repeating the same CSS block per card. ---- */
-        .st-key-card_home_active div[data-testid="stHorizontalBlock"],
-        .st-key-card_home_last div[data-testid="stHorizontalBlock"],
-        .st-key-card_submit_result div[data-testid="stHorizontalBlock"],
-        [class*="st-key-card_mentor_result_"] div[data-testid="stHorizontalBlock"] {
-            display: flex !important;
-            flex-direction: row !important;
-            flex-wrap: nowrap !important;
-            gap: 8px !important;
-        }
-        .st-key-card_home_active div[data-testid="column"],
-        .st-key-card_home_last div[data-testid="column"],
-        .st-key-card_submit_result div[data-testid="column"],
-        [class*="st-key-card_mentor_result_"] div[data-testid="column"] {
-            flex: 1 1 0 !important;
-            min-width: 0 !important;
-            width: auto !important;
-        }
+           result summary (Correct/Wrong/Skipped/Marks), and each mentor
+           per-submission review row (Correct/Wrong/Skipped). Same root
+           cause as the Analysis cards above (Streamlit stacks
+           st.columns() vertically below ~640px), but fixed with CSS
+           GRID here instead of flexbox. An earlier flexbox version of
+           this rule (flex-basis:0 + min-width:0 on each column) still
+           overflowed off the right edge of the screen on mobile - flex
+           items have a default min-width:auto that lets their CONTENT'S
+           natural size win over flex-shrink even when the flex item
+           itself is told min-width:0, and Streamlit's own inner metric
+           markup sits one level deeper than the column div we can style,
+           so the override never reached it. CSS Grid tracks don't have
+           that problem: `repeat(N, 1fr)` divides the row into exactly N
+           equal, hard-capped slots regardless of content size, and
+           `overflow: hidden` + ellipsis on the metric text is added as a
+           second safety net in case any single number is unusually wide. ---- */
         @media (max-width: 640px) {
+            .st-key-card_home_active div[data-testid="stHorizontalBlock"] {
+                display: grid !important;
+                grid-template-columns: repeat(2, 1fr) !important;
+                gap: 6px !important;
+            }
+            .st-key-card_home_last div[data-testid="stHorizontalBlock"],
+            [class*="st-key-card_mentor_result_"] div[data-testid="stHorizontalBlock"] {
+                display: grid !important;
+                grid-template-columns: repeat(3, 1fr) !important;
+                gap: 6px !important;
+            }
+            .st-key-card_submit_result div[data-testid="stHorizontalBlock"] {
+                display: grid !important;
+                grid-template-columns: repeat(4, 1fr) !important;
+                gap: 4px !important;
+            }
+            .st-key-card_home_active div[data-testid="column"],
+            .st-key-card_home_last div[data-testid="column"],
+            .st-key-card_submit_result div[data-testid="column"],
+            [class*="st-key-card_mentor_result_"] div[data-testid="column"] {
+                width: 100% !important;
+                min-width: 0 !important;
+                max-width: 100% !important;
+            }
             .st-key-card_home_active [data-testid="stMetricValue"],
             .st-key-card_home_last [data-testid="stMetricValue"],
-            .st-key-card_submit_result [data-testid="stMetricValue"],
             [class*="st-key-card_mentor_result_"] [data-testid="stMetricValue"] {
-                font-size: 16px !important;
+                font-size: 15px !important;
+                white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            }
+            .st-key-card_submit_result [data-testid="stMetricValue"] {
+                font-size: 13px !important;
+                white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
             }
             .st-key-card_home_active [data-testid="stMetricLabel"] p,
             .st-key-card_home_last [data-testid="stMetricLabel"] p,
             .st-key-card_submit_result [data-testid="stMetricLabel"] p,
             [class*="st-key-card_mentor_result_"] [data-testid="stMetricLabel"] p {
-                font-size: 10px !important;
-                white-space: nowrap;
+                font-size: 9.5px !important;
+                white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
             }
         }
 
