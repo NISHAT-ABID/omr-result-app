@@ -575,6 +575,41 @@ def inject_global_css():
         }
         .st-key-top_nav button[kind="primary"] { border: none !important; }
 
+        /* ---- Custom nav icons (replaces emoji): a hand-drawn SVG sits
+           absolutely-positioned on top of the real st.button underneath
+           it, with pointer-events:none so every click still reaches the
+           actual button - the icon is purely decorative. Each icon+button
+           pair lives together inside its own st.container(key=
+           "navicon_..."/"mnavicon_...") so `position: relative` on that
+           wrapper is what the icon's `position: absolute` is measured
+           against. padding-left on the button makes room so the label
+           text doesn't sit underneath the icon. ---- */
+        [class*="st-key-navicon_"], [class*="st-key-mnavicon_"] {
+            position: relative;
+        }
+        [class*="st-key-navicon_"] .nav-icon-overlay,
+        [class*="st-key-mnavicon_"] .nav-icon-overlay {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            pointer-events: none;
+            z-index: 2;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        [class*="st-key-navicon_"] .nav-icon-overlay svg,
+        [class*="st-key-mnavicon_"] .nav-icon-overlay svg {
+            width: 100%;
+            height: 100%;
+        }
+        [class*="st-key-navicon_"] button {
+            padding-left: 34px !important;
+        }
+        [class*="st-key-mnavicon_"] button {
+            padding-left: 40px !important;
+        }
+
         /* ---- Mobile top bar + custom expandable menu.
            Rebuilt WITHOUT st.columns AND without position:absolute - the
            absolute-positioning version put the hamburger and profile/
@@ -1640,12 +1675,74 @@ def page_student_auth():
 # =========================================================================
 
 STUDENT_NAV = [
-    ("home", "🏠 Home"),
-    ("tests", "📝 Tests & Results"),
-    ("analysis", "📊 Analysis"),
-    ("leaderboard", "🏆 Leaderboard"),
-    ("profile", "👤 Profile"),
+    ("home", "Home"),
+    ("tests", "Tests & Results"),
+    ("analysis", "Analysis"),
+    ("leaderboard", "Leaderboard"),
+    ("profile", "Profile"),
 ]
+
+# Custom, hand-drawn line-style icons for the student nav (no emoji) -
+# minimal single-stroke SVGs in the same monoline style as the reference
+# design, using "currentColor" for the stroke so render_nav_icon() below
+# can recolor each one per-button (matching active/inactive text color)
+# with a simple string replace, without needing a separate icon file per
+# state.
+NAV_ICONS = {
+    "home": (
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" '
+        'stroke-linecap="round" stroke-linejoin="round">'
+        '<path d="M3 11.5 12 4l9 7.5"/>'
+        '<path d="M5.5 10v9a1 1 0 0 0 1 1H9a1 1 0 0 0 1-1v-4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v4a1 1 0 0 0 1 1h2.5a1 1 0 0 0 1-1v-9"/>'
+        "</svg>"
+    ),
+    "tests": (
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" '
+        'stroke-linecap="round" stroke-linejoin="round">'
+        '<path d="M7 3.5h7l4 4V19a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 6 19V5A1.5 1.5 0 0 1 7 3.5Z"/>'
+        '<path d="M14 3.5V8h4.2"/><path d="M9 12h6M9 15h6M9 9h3"/>'
+        "</svg>"
+    ),
+    "analysis": (
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" '
+        'stroke-linecap="round" stroke-linejoin="round">'
+        '<path d="M4 20V10M10 20V4M16 20v-7M20 20H4"/>'
+        "</svg>"
+    ),
+    "leaderboard": (
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" '
+        'stroke-linecap="round" stroke-linejoin="round">'
+        '<path d="M8 21h8M12 17v4M7 4h10v4a5 5 0 0 1-10 0V4Z"/>'
+        '<path d="M7 6H4.5A1.5 1.5 0 0 0 3 7.5 3.5 3.5 0 0 0 6.5 11H7M17 6h2.5A1.5 1.5 0 0 1 21 7.5 3.5 3.5 0 0 1 17.5 11H17"/>'
+        "</svg>"
+    ),
+    "profile": (
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" '
+        'stroke-linecap="round" stroke-linejoin="round">'
+        '<circle cx="12" cy="8" r="3.2"/><path d="M5 20c0-3.5 3.1-6 7-6s7 2.5 7 6"/>'
+        "</svg>"
+    ),
+}
+
+
+def render_nav_icon(page_key, container_key, color, size=16, left=14):
+    """
+    Overlays a custom SVG icon on top of a real st.button - Streamlit
+    button labels can't render raw HTML/SVG, only plain text/emoji, so
+    this draws the icon as a separate, absolutely-positioned, click-
+    -through (pointer-events:none) element sitting on top of the button
+    beneath it. The button itself still receives every click normally;
+    the icon is purely decorative. Must be called right before/alongside
+    the st.button() that lives inside the SAME st.container(key=
+    container_key), and the matching CSS (search "nav-icon-overlay" in
+    inject_global_css) is what positions it and makes room for it via
+    padding-left on the button.
+    """
+    svg = NAV_ICONS.get(page_key, "").replace("currentColor", color)
+    st.markdown(
+        f"<div class='nav-icon-overlay' style='width:{size}px; height:{size}px; left:{left}px;'>{svg}</div>",
+        unsafe_allow_html=True,
+    )
 
 
 def render_top_nav(current_page):
@@ -1662,11 +1759,14 @@ def render_top_nav(current_page):
         for col, (page_key, label) in zip(cols[:-1], desktop_nav_items):
             with col:
                 is_active = current_page == page_key or (page_key == "tests" and current_page == "test_detail")
-                if st.button(
-                    label, key=f"nav_{page_key}", use_container_width=True,
-                    type="primary" if is_active else "secondary",
-                ):
-                    go_to(page_key)
+                icon_color = "#ffffff" if is_active else "var(--mv-primary)"
+                with st.container(key=f"navicon_{page_key}"):
+                    render_nav_icon(page_key, f"navicon_{page_key}", icon_color)
+                    if st.button(
+                        label, key=f"nav_{page_key}", use_container_width=True,
+                        type="primary" if is_active else "secondary",
+                    ):
+                        go_to(page_key)
         with cols[-1]:
             name = st.session_state.get("student_name", "")
             sid = st.session_state.get("student_id", "")
@@ -1747,8 +1847,12 @@ def render_top_nav(current_page):
     if st.session_state.get("student_mobile_menu_open", False):
         with st.container(key="mobile_menu_student"):
             for page_key, label in STUDENT_NAV:
-                if st.button(label, key=f"mnav_{page_key}", use_container_width=True):
-                    go_to(page_key)
+                is_active = current_page == page_key or (page_key == "tests" and current_page == "test_detail")
+                icon_color = "var(--mv-primary)" if is_active else "var(--mv-muted)"
+                with st.container(key=f"mnavicon_{page_key}"):
+                    render_nav_icon(page_key, f"mnavicon_{page_key}", icon_color, left=16)
+                    if st.button(label, key=f"mnav_{page_key}", use_container_width=True):
+                        go_to(page_key)
 
     st.write("")
 
