@@ -1001,6 +1001,40 @@ def inject_global_css():
             background: var(--mv-input-bg) !important;
         }
 
+        /* ---- Profile "Edit Name" row: avatar preview + text input kept
+           side-by-side at EVERY screen size (same flex-row technique as
+           "_phone_row" above, and same reasoning: Streamlit's own
+           st.columns() stacks vertically below ~640px, which left the
+           avatar sitting alone as an oversized row above the input on
+           mobile). Unlike phone_row, this one isn't split into two fixed
+           tracks - the avatar is a fixed 38px circle and the input just
+           takes the rest of the row. ---- */
+        div[class*="_name_row"][data-testid="stVerticalBlock"],
+        div[class*="_name_row"] div[data-testid="stVerticalBlock"] {
+            display: flex !important;
+            flex-direction: row !important;
+            align-items: center !important;
+            gap: 10px !important;
+        }
+        div[class*="_name_row"][data-testid="stVerticalBlock"] > div,
+        div[class*="_name_row"] div[data-testid="stVerticalBlock"] > div {
+            margin: 0 !important;
+        }
+        div[class*="_name_row"][data-testid="stVerticalBlock"] > div:first-child,
+        div[class*="_name_row"] div[data-testid="stVerticalBlock"] > div:first-child {
+            flex: 0 0 auto !important;
+        }
+        div[class*="_name_row"][data-testid="stVerticalBlock"] > div:last-child,
+        div[class*="_name_row"] div[data-testid="stVerticalBlock"] > div:last-child {
+            flex: 1 1 auto !important;
+            min-width: 0 !important;
+        }
+        div[class*="_name_row"] input {
+            height: 44px !important;
+            width: 100% !important;
+            box-sizing: border-box !important;
+        }
+
         /* ---- Student per-submission calibration ---- */
         .calib-step-badge {
             display:inline-block; padding:4px 12px; border-radius:999px;
@@ -1109,6 +1143,16 @@ def _avatar_initials(name):
     return (parts[0][0] + parts[1][0]).upper()
 
 
+def _avatar_color(student_id, name=None):
+    """Same deterministic color-pick used by render_avatar(), pulled out
+    on its own so callers that need just the color (e.g. styling a real
+    st.button to look like an avatar, where the button's label has to be
+    plain text/emoji rather than the HTML span render_avatar() returns)
+    don't have to duplicate the seeding logic."""
+    seed = str(student_id or name or "?")
+    return random.Random(seed).choice(AVATAR_COLORS)
+
+
 def render_avatar(student_id, name, size=40, font_size=None):
     """
     Deterministic, no-network avatar: a solid-color circle with the
@@ -1123,9 +1167,7 @@ def render_avatar(student_id, name, size=40, font_size=None):
     inside a larger st.markdown(..., unsafe_allow_html=True) call, or
     rendered on its own.
     """
-    seed = str(student_id or name or "?")
-    rnd = random.Random(seed)
-    color = rnd.choice(AVATAR_COLORS)
+    color = _avatar_color(student_id, name)
     initials = _avatar_initials(name)
     if font_size is None:
         font_size = max(11, int(size * 0.42))
@@ -1607,10 +1649,17 @@ STUDENT_NAV = [
 
 
 def render_top_nav(current_page):
-    # Desktop: all navigation options stay visible on laptop/desktop.
+    # Desktop: nav pills for Home / Tests & Results / Analysis /
+    # Leaderboard, with the student's NAME + AVATAR on the far right
+    # acting as the Profile entry point - matching the reference design,
+    # which drops the 5th "Profile" pill from the row entirely and shows
+    # it as a personalized name+avatar instead. Clicking either the name
+    # or the avatar circle goes to Profile, same destination the old pill
+    # used to go to.
+    desktop_nav_items = [item for item in STUDENT_NAV if item[0] != "profile"]
     with st.container(key="top_nav"):
-        cols = st.columns(len(STUDENT_NAV))
-        for col, (page_key, label) in zip(cols, STUDENT_NAV):
+        cols = st.columns([1] * len(desktop_nav_items) + [1.3])
+        for col, (page_key, label) in zip(cols[:-1], desktop_nav_items):
             with col:
                 is_active = current_page == page_key or (page_key == "tests" and current_page == "test_detail")
                 if st.button(
@@ -1618,6 +1667,39 @@ def render_top_nav(current_page):
                     type="primary" if is_active else "secondary",
                 ):
                     go_to(page_key)
+        with cols[-1]:
+            name = st.session_state.get("student_name", "")
+            sid = st.session_state.get("student_id", "")
+            is_profile_active = current_page == "profile"
+            name_col, avatar_col = st.columns([3, 1], gap="small")
+            with name_col:
+                st.markdown(
+                    f"<div style='text-align:right; padding-top:9px; font-weight:600; "
+                    f"color:{'var(--mv-primary)' if is_profile_active else 'var(--mv-ink)'}; "
+                    f"font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;'>{name}</div>",
+                    unsafe_allow_html=True,
+                )
+            with avatar_col:
+                initials = _avatar_initials(name)
+                color = _avatar_color(sid, name)
+                # A real st.button here (not just an HTML span) so the
+                # avatar is clickable, same as the mobile version. Scoped
+                # with a compound class selector (.st-key-top_nav
+                # .st-key-top_nav_avatar_btn) so it reliably beats the
+                # generic ".st-key-top_nav button" pill-button rule that
+                # would otherwise stretch it to a full-width rounded pill
+                # like the other nav buttons.
+                st.markdown(
+                    f"<style>.st-key-top_nav .st-key-top_nav_avatar_btn button {{ "
+                    f"background:{color} !important; border-color:{color} !important; color:#fff !important; "
+                    f"border-radius:50% !important; width:34px !important; height:34px !important; "
+                    f"min-height:34px !important; padding:0 !important; font-size:13px !important; "
+                    f"font-weight:700 !important; float:right; }}</style>",
+                    unsafe_allow_html=True,
+                )
+                with st.container(key="top_nav_avatar_btn"):
+                    if st.button(initials, key="top_nav_avatar_click", help="Profile"):
+                        go_to("profile")
 
     # Mobile: a real toggle so the closed state is ☰ and the open state is ✕.
     # st.popover was removed because its trigger cannot reliably change to a
@@ -1641,7 +1723,25 @@ def render_top_nav(current_page):
         # keeping this icon too was a redundant, confusing duplicate.
         if not is_open:
             with st.container(key="mobile_top_bar_right"):
-                if st.button("👤", key="mobile_profile_btn", help="Profile"):
+                sid_now = st.session_state.get("student_id", "")
+                name_now = st.session_state.get("student_name", "")
+                avatar_initials = _avatar_initials(name_now)
+                avatar_color = _avatar_color(sid_now, name_now)
+                # This button's LABEL is plain text (the student's
+                # initials) since a real st.button can't hold the HTML
+                # <span> that render_avatar() returns - so instead we
+                # reuse the same color-picking logic (_avatar_color) and
+                # push a tiny scoped CSS override that recolors just this
+                # one button to match, giving the same personal avatar
+                # look as everywhere else in the app instead of a generic
+                # person icon.
+                st.markdown(
+                    f"<style>.st-key-mobile_top_bar_right button {{ "
+                    f"background:{avatar_color} !important; border-color:{avatar_color} !important; "
+                    f"color:#fff !important; font-weight:700 !important; }}</style>",
+                    unsafe_allow_html=True,
+                )
+                if st.button(avatar_initials, key="mobile_profile_btn", help="Profile"):
                     go_to("profile")
 
     if st.session_state.get("student_mobile_menu_open", False):
@@ -2458,20 +2558,21 @@ def page_profile():
     with st.container(key="card_profile_edit_name"):
         st.markdown("##### ✏️ Edit Name")
         st.caption("Updates your name everywhere in the app, including on your past test results.")
-        preview_col, input_col = st.columns([1, 4], gap="small")
         name_draft = st.session_state.get("prof_edit_name", student["name"])
-        with preview_col:
-            st.markdown(
-                f"<div style='display:flex; align-items:center; justify-content:center; height:100%; padding-top:22px;'>"
-                f"{render_avatar(sid, name_draft, size=44)}</div>",
-                unsafe_allow_html=True,
-            )
-        with input_col:
+        # Uses the same flex-row container technique as phone_field()'s
+        # "_phone_row" (see the matching CSS below): the live avatar
+        # preview and the text input are kept side-by-side at EVERY
+        # screen size, instead of the earlier st.columns([1,4]) version -
+        # which Streamlit stacks vertically below ~640px, leaving the
+        # avatar sitting alone as its own oversized row above the input
+        # (the "congested" mobile look this replaces).
+        with st.container(key="profile_name_row"):
+            st.markdown(render_avatar(sid, name_draft, size=38), unsafe_allow_html=True)
             new_name_input = st.text_input(
                 "Full name", value=student["name"], key="prof_edit_name",
                 label_visibility="collapsed",
             )
-        if st.button("💾 Save Name", key="prof_save_name_btn"):
+        if st.button("💾 Save Name", key="prof_save_name_btn", use_container_width=True):
             cleaned = new_name_input.strip()
             if not cleaned:
                 st.error("Name cannot be empty.")
