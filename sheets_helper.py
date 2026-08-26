@@ -609,6 +609,55 @@ def change_student_password(student_id, new_password):
     clear_data_caches()
 
 
+def update_student_name(student_id, new_name):
+    """
+    Updates a student's display name in the Students sheet, AND
+    propagates it to every PAST Results row belonging to that student.
+
+    The Results sheet stores the student's name denormalized in its own
+    'student' column (alongside student_id) - this is what lets the
+    leaderboard/analytics reads work directly off Results without joining
+    back to Students on every read. The tradeoff is that a name change
+    would otherwise only show up on brand-new submissions going forward,
+    while every past test-history row kept displaying the old, stale
+    name - which is exactly what a student changing their name on the
+    Profile page would not expect. This function keeps both sheets in
+    sync in one call.
+
+    All matching Results rows are updated in a SINGLE batch_update call
+    (rather than one API request per row) so a student with a long test
+    history doesn't trigger dozens of slow, rate-limit-prone writes.
+    """
+    new_name = (new_name or "").strip()
+    if not new_name:
+        raise ValueError("Name cannot be empty.")
+
+    students_ws = _cached_worksheet("Students")
+    row_idx = _find_student_row_idx(students_ws, student_id)
+    if not row_idx:
+        raise ValueError("Student not found.")
+    name_col_idx = STUDENTS_HEADER.index("name") + 1
+    col_letter = gspread.utils.rowcol_to_a1(1, name_col_idx).rstrip("1")
+    _with_retry(students_ws.update, f"{col_letter}{row_idx}", [[new_name]], value_input_option=RAW)
+
+    results_ws = _cached_worksheet("Results")
+    values = _with_retry(results_ws.get_all_values)
+    if values:
+        header = values[0]
+        if "student_id" in header and "student" in header:
+            sid_idx = header.index("student_id")
+            name_idx = header.index("student")
+            name_col_letter = gspread.utils.rowcol_to_a1(1, name_idx + 1).rstrip("1")
+            batch = []
+            for i, row in enumerate(values[1:], start=2):
+                if len(row) > sid_idx and row[sid_idx] == student_id and row[name_idx] != new_name:
+                    batch.append({"range": f"{name_col_letter}{i}", "values": [[new_name]]})
+            if batch:
+                _with_retry(results_ws.batch_update, batch, value_input_option=RAW)
+
+    clear_data_caches()
+
+
 def reset_password_via_security(phone, security_answer, new_password):
     student = get_student_by_phone(phone)
     if not student:
