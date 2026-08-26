@@ -2447,6 +2447,48 @@ def page_profile():
         f"</div>",
         unsafe_allow_html=True,
     )
+
+    # ---- Edit Name: its own card (not tucked inside an expander like
+    # Change Password below) since seeing your own avatar update live as
+    # you type is the whole point - burying that behind a click would
+    # defeat it. The live preview re-renders render_avatar() with
+    # whatever's currently typed, so the student can see their initials
+    # change in real time before committing, without touching st.form
+    # (which would only rerun on submit and freeze the preview).
+    with st.container(key="card_profile_edit_name"):
+        st.markdown("##### ✏️ Edit Name")
+        st.caption("Updates your name everywhere in the app, including on your past test results.")
+        preview_col, input_col = st.columns([1, 4], gap="small")
+        name_draft = st.session_state.get("prof_edit_name", student["name"])
+        with preview_col:
+            st.markdown(
+                f"<div style='display:flex; align-items:center; justify-content:center; height:100%; padding-top:22px;'>"
+                f"{render_avatar(sid, name_draft, size=44)}</div>",
+                unsafe_allow_html=True,
+            )
+        with input_col:
+            new_name_input = st.text_input(
+                "Full name", value=student["name"], key="prof_edit_name",
+                label_visibility="collapsed",
+            )
+        if st.button("💾 Save Name", key="prof_save_name_btn"):
+            cleaned = new_name_input.strip()
+            if not cleaned:
+                st.error("Name cannot be empty.")
+            elif cleaned == student["name"]:
+                st.info("That's already your current name.")
+            else:
+                with st.spinner("Updating your name everywhere..."):
+                    try:
+                        sh.update_student_name(sid, cleaned)
+                    except ValueError as e:
+                        st.error(str(e))
+                    else:
+                        clear_all_caches()
+                        st.session_state["student_name"] = cleaned
+                        st.success("Name updated!")
+                        st.rerun()
+
     with st.container(key="card_profile_info"):
         st.write(f"**Phone:** {sh.format_bd_phone(student['phone'])}")
 
@@ -3289,34 +3331,54 @@ def main():
 
     page = st.session_state.get("page", "home")
 
-    if page in ("mentor", "mentor_student_analysis"):
-        page_mentor()
-        return
+    # Everything below - the mentor panel, the login/signup screens, and
+    # every logged-in student page - is rendered inside ONE placeholder
+    # (main_area) that gets explicitly reset via .container() on every
+    # single run, instead of being written straight to the page body as
+    # separate top-level calls like before.
+    #
+    # WHY: a full-page swap (most visibly right after login, where the
+    # page goes from the login form straight to the logged-in Home page
+    # with its top nav) could show the OLD page's elements still sitting
+    # in the layout - faded via Streamlit's own "stale content" dimming,
+    # but not yet actually removed from the DOM - stacked visually on top
+    # of the NEW page's elements while the frontend was still catching up
+    # to the latest run. That's what produced the "two pages overlapping"
+    # screenshots. st.empty() gives us one placeholder node whose content
+    # is fully, synchronously replaced each run; putting the whole page
+    # body inside it (via `with main_area.container():`) means the old
+    # run's content is torn down as part of THIS run reaching that line,
+    # rather than left for Streamlit's default diffing to reconcile in
+    # its own time - closing the gap where both were visible at once.
+    main_area = st.empty()
+    with main_area.container():
+        if page in ("mentor", "mentor_student_analysis"):
+            page_mentor()
+        elif not is_student_logged_in:
+            # Login page: the mentor entry point lives inline below the
+            # login card (see page_student_auth), so no separate top
+            # button here.
+            page_student_auth()
+        else:
+            # Logged-in student pages: no separate "Mentor" button
+            # anywhere in the top bar (desktop or mobile) any more -
+            # Mentor Login now lives on the Profile page instead, so the
+            # nav stays a clean, consistent 4 items (Home / Tests &
+            # Results / Leaderboard / Profile) everywhere.
+            render_top_nav(page)
 
-    if not is_student_logged_in:
-        # Login page: the mentor entry point lives inline below the login
-        # card (see page_student_auth), so no separate top button here.
-        page_student_auth()
-        return
-
-    # Logged-in student pages: no separate "Mentor" button anywhere in the
-    # top bar (desktop or mobile) any more - Mentor Login now lives on the
-    # Profile page instead, so the nav stays a clean, consistent 4 items
-    # (Home / Tests & Results / Leaderboard / Profile) everywhere.
-    render_top_nav(page)
-
-    if page == "home":
-        page_home()
-    elif page in ("tests", "test_detail"):
-        page_tests_results()
-    elif page == "analysis":
-        page_student_analysis()
-    elif page == "leaderboard":
-        page_leaderboard()
-    elif page == "profile":
-        page_profile()
-    else:
-        page_home()
+            if page == "home":
+                page_home()
+            elif page in ("tests", "test_detail"):
+                page_tests_results()
+            elif page == "analysis":
+                page_student_analysis()
+            elif page == "leaderboard":
+                page_leaderboard()
+            elif page == "profile":
+                page_profile()
+            else:
+                page_home()
 
 
 if __name__ == "__main__":
