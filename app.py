@@ -562,18 +562,41 @@ def inject_global_css():
         .stProgress > div > div > div > div { background-color: var(--mv-primary) !important; }
 
         /* ---- Desktop navigation ---- */
-        .st-key-top_nav { margin-bottom: 10px; }
+        .st-key-top_nav {
+            margin-bottom: 14px;
+            border: 1px solid var(--mv-border);
+            border-radius: 20px;
+            padding: 10px 16px;
+            background: var(--mv-surface);
+        }
         .st-key-top_nav div[data-testid="stHorizontalBlock"] { gap: 10px; }
         .st-key-top_nav button {
             width: 100%;
             min-height: 44px;
             border-radius: 999px !important;
-            border: 1px solid rgba(128,128,128,0.25) !important;
+            border: 1px solid var(--mv-border) !important;
             padding: 9px 14px !important;
             font-size: 14px !important;
             white-space: nowrap !important;
         }
         .st-key-top_nav button[kind="primary"] { border: none !important; }
+        /* Inactive nav pills: white/light-gray text+icon (matching the
+           reference design), NOT the app's usual teal secondary-button
+           color - overridden here with a selector scoped to
+           ".st-key-top_nav .stButton" specifically (matching Streamlit's
+           real button-wrapper markup, ".stButton > button") so it beats
+           the app-wide ".stButton > button:not([kind=\"primary\"])" teal
+           rule by specificity alone, without touching secondary buttons
+           anywhere else in the app. Streamlit's native icon=":material/
+           ...:" rendering follows the button's own text color
+           automatically, so the icon recolors along with the label with
+           no extra rule needed. */
+        .st-key-top_nav .stButton > button:not([kind="primary"]) {
+            color: var(--mv-ink) !important;
+        }
+        .st-key-top_nav .stButton > button:not([kind="primary"]):hover {
+            color: var(--mv-primary) !important;
+        }
 
         /* Nav icons use Streamlit's native st.button(icon=":material/...:")
            support (see nav_icon() in app.py) - no custom CSS needed here,
