@@ -13,6 +13,7 @@ Run with: streamlit run app.py
 """
 
 import random
+import urllib.parse
 from datetime import datetime, date, time as dtime
 
 import cv2
@@ -575,40 +576,12 @@ def inject_global_css():
         }
         .st-key-top_nav button[kind="primary"] { border: none !important; }
 
-        /* ---- Custom nav icons (replaces emoji): a hand-drawn SVG sits
-           absolutely-positioned on top of the real st.button underneath
-           it, with pointer-events:none so every click still reaches the
-           actual button - the icon is purely decorative. Each icon+button
-           pair lives together inside its own st.container(key=
-           "navicon_..."/"mnavicon_...") so `position: relative` on that
-           wrapper is what the icon's `position: absolute` is measured
-           against. padding-left on the button makes room so the label
-           text doesn't sit underneath the icon. ---- */
-        [class*="st-key-navicon_"], [class*="st-key-mnavicon_"] {
-            position: relative;
-        }
-        [class*="st-key-navicon_"] .nav-icon-overlay,
-        [class*="st-key-mnavicon_"] .nav-icon-overlay {
-            position: absolute;
-            top: 50%;
-            transform: translateY(-50%);
-            pointer-events: none;
-            z-index: 2;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        [class*="st-key-navicon_"] .nav-icon-overlay svg,
-        [class*="st-key-mnavicon_"] .nav-icon-overlay svg {
-            width: 100%;
-            height: 100%;
-        }
-        [class*="st-key-navicon_"] button {
-            padding-left: 34px !important;
-        }
-        [class*="st-key-mnavicon_"] button {
-            padding-left: 40px !important;
-        }
+        /* Custom nav icons: see nav_icon_style() in app.py - each nav
+           button gets its own scoped <style> that draws its icon as a
+           ::before pseudo-element with a background-image data URI,
+           rather than a separate overlay element. Nothing needed here;
+           the rule is injected per-button since the icon/color differs
+           per button and per active state. */
 
         /* ---- Mobile top bar + custom expandable menu.
            Rebuilt WITHOUT st.columns AND without position:absolute - the
@@ -1725,22 +1698,36 @@ NAV_ICONS = {
 }
 
 
-def render_nav_icon(page_key, container_key, color, size=16, left=14):
+def nav_icon_style(page_key, container_key, color_hex, size=16, gap=7):
     """
-    Overlays a custom SVG icon on top of a real st.button - Streamlit
-    button labels can't render raw HTML/SVG, only plain text/emoji, so
-    this draws the icon as a separate, absolutely-positioned, click-
-    -through (pointer-events:none) element sitting on top of the button
-    beneath it. The button itself still receives every click normally;
-    the icon is purely decorative. Must be called right before/alongside
-    the st.button() that lives inside the SAME st.container(key=
-    container_key), and the matching CSS (search "nav-icon-overlay" in
-    inject_global_css) is what positions it and makes room for it via
-    padding-left on the button.
+    Draws a custom SVG icon INSIDE a real st.button using a scoped
+    ::before pseudo-element (a CSS background-image data URI), instead of
+    a separate overlay element sitting on top of the button.
+
+    This replaces an earlier absolute-positioned-overlay version that
+    looked right in theory but rendered the icon floating above the pill
+    instead of inside it - because the icon's own auto-generated wrapper
+    div still took up vertical space in the container before being
+    pulled out via position:absolute, throwing off the "center within
+    the container" math. A ::before pseudo-element has none of that
+    problem: it's generated INSIDE the button's own box, as an actual
+    child of the button's flex layout, so the browser centers the icon
+    and the label together as a single group automatically - matching
+    the reference design exactly, with no manual position/size guessing.
+
+    Must be called with unsafe_allow_html markdown right before the
+    st.button() that lives inside the SAME st.container(key=
+    container_key) - each button needs its own scoped <style> since the
+    icon and color differ per button and per active/inactive state.
     """
-    svg = NAV_ICONS.get(page_key, "").replace("currentColor", color)
+    svg = NAV_ICONS.get(page_key, "").replace("currentColor", color_hex)
+    data_uri = "data:image/svg+xml," + urllib.parse.quote(svg)
     st.markdown(
-        f"<div class='nav-icon-overlay' style='width:{size}px; height:{size}px; left:{left}px;'>{svg}</div>",
+        f"<style>.st-key-{container_key} button::before {{ "
+        f"content:''; display:inline-block; width:{size}px; height:{size}px; "
+        f"background-image:url(\"{data_uri}\"); background-size:contain; "
+        f"background-repeat:no-repeat; background-position:center; "
+        f"vertical-align:-3px; margin-right:{gap}px; flex-shrink:0; }}</style>",
         unsafe_allow_html=True,
     )
 
@@ -1759,9 +1746,13 @@ def render_top_nav(current_page):
         for col, (page_key, label) in zip(cols[:-1], desktop_nav_items):
             with col:
                 is_active = current_page == page_key or (page_key == "tests" and current_page == "test_detail")
-                icon_color = "#ffffff" if is_active else "var(--mv-primary)"
+                # Resolved hex, not var(--mv-primary): a CSS background-
+                # image data URI is generated once as a plain string, so
+                # it can't reference a CSS custom property - it needs the
+                # actual color baked in.
+                icon_color = "#ffffff" if is_active else "#4FB3A2"
                 with st.container(key=f"navicon_{page_key}"):
-                    render_nav_icon(page_key, f"navicon_{page_key}", icon_color)
+                    nav_icon_style(page_key, f"navicon_{page_key}", icon_color)
                     if st.button(
                         label, key=f"nav_{page_key}", use_container_width=True,
                         type="primary" if is_active else "secondary",
@@ -1848,9 +1839,9 @@ def render_top_nav(current_page):
         with st.container(key="mobile_menu_student"):
             for page_key, label in STUDENT_NAV:
                 is_active = current_page == page_key or (page_key == "tests" and current_page == "test_detail")
-                icon_color = "var(--mv-primary)" if is_active else "var(--mv-muted)"
+                icon_color = "#4FB3A2" if is_active else "#9BAAA2"
                 with st.container(key=f"mnavicon_{page_key}"):
-                    render_nav_icon(page_key, f"mnavicon_{page_key}", icon_color, left=16)
+                    nav_icon_style(page_key, f"mnavicon_{page_key}", icon_color)
                     if st.button(label, key=f"mnav_{page_key}", use_container_width=True):
                         go_to(page_key)
 
