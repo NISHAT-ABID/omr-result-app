@@ -3499,55 +3499,58 @@ def page_mentor():
 def main():
     inject_global_css()
 
-    if not check_app_password():
-        return
-
-    # Only run the sheet-initialization/spinner once per browser session -
-    # not on every single click/rerun. Re-running init_sheets() on every
-    # interaction was one of the causes of the extra delay/flicker on
-    # mobile (a "Connecting..." spinner flashing on every tap).
-    if not st.session_state.get("_sheets_ready"):
-        boot_placeholder = st.empty()
-        with boot_placeholder.container():
-            render_boot_loading_screen("Connecting...")
-        sh.init_sheets()
-        st.session_state["_sheets_ready"] = True
-        boot_placeholder.empty()
-
-    restore_page_from_url()
-
-    role = st.session_state.get("role")
-    is_student_logged_in = role == "student" and student_session_is_valid()
-
-    if not is_student_logged_in and st.session_state.get("role") == "student":
-        # session was invalidated (password changed / account disabled elsewhere)
-        for k in ("student_id", "student_name", "session_version", "role"):
-            st.session_state.pop(k, None)
-        st.warning("Your session has expired (password may have changed elsewhere). Please log in again.")
-
-    page = st.session_state.get("page", "home")
-
-    # Everything below - the mentor panel, the login/signup screens, and
-    # every logged-in student page - is rendered inside ONE placeholder
-    # (main_area) that gets explicitly reset via .container() on every
-    # single run, instead of being written straight to the page body as
-    # separate top-level calls like before.
+    # The ENTIRE visible app body - the app-password gate, the Google
+    # Sheets "Connecting..." boot sequence, the mentor panel, the login/
+    # signup screens, and every logged-in student page - is rendered
+    # inside ONE placeholder that gets explicitly, synchronously reset
+    # via .container() on every single run.
     #
-    # WHY: a full-page swap (most visibly right after login, where the
-    # page goes from the login form straight to the logged-in Home page
-    # with its top nav) could show the OLD page's elements still sitting
-    # in the layout - faded via Streamlit's own "stale content" dimming,
-    # but not yet actually removed from the DOM - stacked visually on top
-    # of the NEW page's elements while the frontend was still catching up
-    # to the latest run. That's what produced the "two pages overlapping"
-    # screenshots. st.empty() gives us one placeholder node whose content
-    # is fully, synchronously replaced each run; putting the whole page
-    # body inside it (via `with main_area.container():`) means the old
-    # run's content is torn down as part of THIS run reaching that line,
-    # rather than left for Streamlit's default diffing to reconcile in
-    # its own time - closing the gap where both were visible at once.
+    # WHY: an earlier version of this fix only wrapped the POST-LOGIN
+    # page section, leaving the app-password gate and the boot/
+    # "Connecting..." screen as separate, unwrapped top-level calls. That
+    # gap is exactly what let a stale boot-loading screen from a previous
+    # run stay visible, overlapping with the password form on the very
+    # next run - most visibly right after the app woke up from Streamlit
+    # Community Cloud's sleep-after-inactivity mode, since waking it
+    # resets session_state and re-runs both the password gate and the
+    # boot sequence in quick succession (see the "Connecting..." +
+    # password form overlap screenshot this fixes). Wrapping everything,
+    # including these two earlier screens, closes that gap the same way
+    # it was already closed for page-to-page navigation.
     main_area = st.empty()
     with main_area.container():
+        if not check_app_password():
+            return
+
+        # Only run the sheet-initialization/spinner once per browser
+        # session - not on every single click/rerun. Re-running
+        # init_sheets() on every interaction was one of the causes of the
+        # extra delay/flicker on mobile (a "Connecting..." spinner
+        # flashing on every tap).
+        if not st.session_state.get("_sheets_ready"):
+            render_boot_loading_screen("Connecting...")
+            sh.init_sheets()
+            st.session_state["_sheets_ready"] = True
+            # A full rerun (rather than manually clearing a nested
+            # placeholder) is what guarantees the boot screen is
+            # completely gone before the real page renders - main_area is
+            # a brand-new st.empty() each run, so the next run's content
+            # fully replaces this one with no lingering overlap window.
+            st.rerun()
+
+        restore_page_from_url()
+
+        role = st.session_state.get("role")
+        is_student_logged_in = role == "student" and student_session_is_valid()
+
+        if not is_student_logged_in and st.session_state.get("role") == "student":
+            # session was invalidated (password changed / account disabled elsewhere)
+            for k in ("student_id", "student_name", "session_version", "role"):
+                st.session_state.pop(k, None)
+            st.warning("Your session has expired (password may have changed elsewhere). Please log in again.")
+
+        page = st.session_state.get("page", "home")
+
         if page in ("mentor", "mentor_student_analysis"):
             page_mentor()
         elif not is_student_logged_in:
@@ -3559,8 +3562,7 @@ def main():
             # Logged-in student pages: no separate "Mentor" button
             # anywhere in the top bar (desktop or mobile) any more -
             # Mentor Login now lives on the Profile page instead, so the
-            # nav stays a clean, consistent 4 items (Home / Tests &
-            # Results / Leaderboard / Profile) everywhere.
+            # nav stays a clean, consistent set of items everywhere.
             render_top_nav(page)
 
             if page == "home":
