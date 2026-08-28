@@ -151,19 +151,32 @@ def inject_global_css():
            Venture palette as the only palette that ever exists. */
         :root {
             color-scheme: dark;
-            --mv-bg: #10201C;
-            --mv-surface: #18302A;
+            /* Colors below were pixel-sampled directly from the reference
+               design image (not eyeballed) for an exact match:
+               --mv-bg / --mv-surface: page and card background sampled at
+               #061112 / #0E1C1C. --mv-primary: the avatar-circle fill and
+               positive metric numbers (Marks/Correct/Average) sampled at
+               #26AB8C. --mv-accent: the icon's orange flourish sampled at
+               #F94D10. --mv-nav-active-bg is a NEW token (didn't exist
+               before) specifically for the active nav pill, which the
+               reference renders as a dark, muted teal-charcoal fill
+               (#142D2A) rather than a solid bright --mv-primary block -
+               using --mv-primary directly there would have been too
+               vivid/flat compared to the reference's more subdued look. */
+            --mv-bg: #061112;
+            --mv-surface: #0E1C1C;
             --mv-ink: #EAF2EF;
-            --mv-primary: #4FB3A2;
-            --mv-primary-hover: #6FC9BA;
-            --mv-primary-soft: rgba(79,179,162,0.20);
-            --mv-accent: #E68B75;
-            --mv-accent-soft: rgba(230,139,117,0.18);
+            --mv-primary: #26AB8C;
+            --mv-primary-hover: #34C29F;
+            --mv-primary-soft: rgba(38,171,140,0.20);
+            --mv-nav-active-bg: #142D2A;
+            --mv-accent: #F94D10;
+            --mv-accent-soft: rgba(249,77,16,0.18);
             --mv-muted: #9BAAA2;
-            --mv-border: rgba(230,240,235,0.16);
-            --mv-card-bg: rgba(230,240,235,0.06);
-            --mv-dot: rgba(230,240,235,0.12);
-            --mv-input-bg: #0E1F1A;
+            --mv-border: rgba(230,240,235,0.14);
+            --mv-card-bg: rgba(230,240,235,0.05);
+            --mv-dot: rgba(230,240,235,0.10);
+            --mv-input-bg: #071615;
             --surface: var(--mv-surface);
             --serif: 'Fraunces', Georgia, serif;
             --sans: 'IBM Plex Sans', -apple-system, sans-serif;
@@ -579,7 +592,11 @@ def inject_global_css():
             font-size: 14px !important;
             white-space: nowrap !important;
         }
-        .st-key-top_nav button[kind="primary"] { border: none !important; }
+        .st-key-top_nav .stButton > button[kind="primary"] {
+            border: none !important;
+            background-color: var(--mv-nav-active-bg) !important;
+            color: var(--mv-ink) !important;
+        }
         /* Inactive nav pills: white/light-gray text+icon (matching the
            reference design), NOT the app's usual teal secondary-button
            color - overridden here with a selector scoped to
@@ -918,6 +935,45 @@ def inject_global_css():
             }
         }
 
+        /* ---- Semantic metric-number coloring, matching the reference
+           design: positive values (Marks, Correct, Average, Skipped)
+           render in the app's teal, and Wrong renders in red - instead
+           of the generic "everything is var(--mv-ink) white" rule set
+           globally on [data-testid="stMetricValue"] further up. Targeted
+           with nth-child position since each card's columns always
+           appear in the same fixed order, and applied at EVERY screen
+           size (not just mobile) since the reference shows this
+           coloring at desktop width too. */
+        .st-key-card_home_last div[data-testid="column"]:nth-child(1) [data-testid="stMetricValue"],
+        .st-key-card_home_last div[data-testid="column"]:nth-child(2) [data-testid="stMetricValue"],
+        [class*="st-key-card_mentor_result_"] div[data-testid="column"]:nth-child(1) [data-testid="stMetricValue"] {
+            color: var(--mv-primary) !important;
+        }
+        .st-key-card_home_last div[data-testid="column"]:nth-child(3) [data-testid="stMetricValue"],
+        [class*="st-key-card_mentor_result_"] div[data-testid="column"]:nth-child(2) [data-testid="stMetricValue"] {
+            color: #F2434A !important;
+        }
+        /* card_submit_result column order is Correct, Wrong, Skipped, Marks */
+        .st-key-card_submit_result div[data-testid="column"]:nth-child(1) [data-testid="stMetricValue"],
+        .st-key-card_submit_result div[data-testid="column"]:nth-child(4) [data-testid="stMetricValue"] {
+            color: var(--mv-primary) !important;
+        }
+        .st-key-card_submit_result div[data-testid="column"]:nth-child(2) [data-testid="stMetricValue"] {
+            color: #F2434A !important;
+        }
+        [class*="st-key-acard_"] div[data-testid="column"]:nth-child(2) [data-testid="stMetricValue"] {
+            color: var(--mv-primary) !important;
+        }
+        [class*="st-key-acard_"] div[data-testid="column"]:nth-child(3) [data-testid="stMetricValue"] {
+            color: #F2434A !important;
+        }
+        /* "Overall Progress" card's Average value (2nd metric-box, raw
+           HTML not st.metric) - teal like the reference, Tests stays
+           the default white. */
+        .st-key-card_home_progress .metric-box:nth-child(2) .value {
+            color: var(--mv-primary) !important;
+        }
+
         .rank-badge {
             display: inline-block; padding: 4px 12px; border-radius: 999px;
             font-weight: 700; font-size: 13px;
@@ -1154,7 +1210,7 @@ def motivation_for(student_id):
 # stay readable with white initials on top and to feel at home next to
 # the app's teal/coral Med Venture palette rather than clashing with it.
 AVATAR_COLORS = [
-    "#4FB3A2", "#E68B75", "#7C9CE6", "#C77DE0", "#E0A23D",
+    "#26AB8C", "#F94D10", "#7C9CE6", "#C77DE0", "#E0A23D",
     "#5FBF6B", "#E0637D", "#4FA0E6", "#B0A23D", "#8B7DE0",
 ]
 
