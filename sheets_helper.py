@@ -276,6 +276,64 @@ def _force_phone_column_text_format(ws):
         pass  # cosmetic/defensive only - never block app startup on this
 
 
+def _safe_get_all_records(ws):
+    """
+    Crash-proof replacement for gspread's ws.get_all_records().
+
+    gspread's own get_all_records() RAISES GSpreadException the moment the
+    header row contains any blank or duplicate column name - and that's
+    exactly what an ordinary, harmless sheet can end up with: a worksheet
+    created with a couple of spare trailing columns (see cols=len(header)+2
+    in _get_or_create_worksheet), a header that grew over time (like
+    birth_date/gender being appended to Students here), or someone just
+    clicking into an empty column in the Sheets UI. Any of those leaves an
+    empty-string header cell, and gspread treats two empty-string headers
+    as "duplicates" and throws - which previously meant a single messy
+    column could crash EVERY page load of the whole app (any read through
+    get_all_students_df() / get_all_answer_keys() / get_all_results_df()
+    goes through this).
+
+    This reads the exact same raw grid but builds each row's dict by hand
+    instead of trusting gspread's strict (and fragile) header validation:
+    - a blank header cell becomes "_blank_<column index>" instead of ""
+    - a header cell that collides with an earlier one gets "_<n>" appended
+    so every column still gets a unique, stable key - no exception, and
+    every legitimate (non-blank, non-duplicate) column still reads under
+    its normal name exactly as before.
+    - short data rows are padded with "" (blank cell) so every column is
+      always present, matching gspread's own default_blank='' behavior.
+    - data rows longer than the header are truncated to the header's
+      width, since there's no header name to hang the extra cells on.
+    """
+    values = _with_retry(ws.get_all_values)
+    if not values:
+        return []
+
+    raw_header = values[0]
+    seen = {}
+    safe_header = []
+    for i, h in enumerate(raw_header):
+        name = (h or "").strip() or f"_blank_{i}"
+        if name in seen:
+            seen[name] += 1
+            name = f"{name}_{seen[name]}"
+        else:
+            seen[name] = 0
+        safe_header.append(name)
+
+    width = len(safe_header)
+    records = []
+    for row in values[1:]:
+        if not any(cell.strip() for cell in row):
+            continue  # skip fully blank rows, same as gspread's default
+        if len(row) < width:
+            row = row + [""] * (width - len(row))
+        elif len(row) > width:
+            row = row[:width]
+        records.append(dict(zip(safe_header, row)))
+    return records
+
+
 @st.cache_resource(show_spinner=False)
 def _cached_worksheet(title):
     header_map = {
@@ -317,7 +375,7 @@ def add_answer_key(exam_name, date_str, start_time_str, end_time_str,
     # number if a clash is spotted costs almost nothing and closes the
     # gap for the common case.
     for _attempt in range(5):
-        existing = _with_retry(ws.get_all_records)
+        existing = _safe_get_all_records(ws)
         key_id = f"K{len(existing) + 1:04d}"
         if any(str(r.get("key_id")) == key_id for r in existing):
             continue  # someone else just took this number - recompute and retry
@@ -334,7 +392,7 @@ def add_answer_key(exam_name, date_str, start_time_str, end_time_str,
 
 def get_all_answer_keys():
     ws = _cached_worksheet("AnswerKeys")
-    records = _with_retry(ws.get_all_records)
+    records = _safe_get_all_records(ws)
     return pd.DataFrame(records)
 
 
@@ -524,7 +582,7 @@ def _gen_temp_password(length=8):
 
 def _all_students_df():
     ws = _cached_worksheet("Students")
-    records = _with_retry(ws.get_all_records)
+    records = _safe_get_all_records(ws)
     df = pd.DataFrame(records)
     if not df.empty and "phone" in df.columns:
         # Belt-and-suspenders: get_all_records() can hand back a phone-like
@@ -577,7 +635,7 @@ def create_student(name, phone, password, security_question, security_answer):
     # signing up at almost the exact same instant could otherwise compute
     # the same next student_id from the same snapshot of existing rows.
     for _attempt in range(5):
-        existing = _with_retry(ws.get_all_records)
+        existing = _safe_get_all_records(ws)
         student_id = f"S{len(existing) + 1:04d}"
         if any(str(r.get("student_id")) == student_id for r in existing):
             continue
@@ -889,7 +947,7 @@ def update_result(student_id, key_id, new_marks=None, new_correct=None,
 
 def get_all_results_df():
     ws = _cached_worksheet("Results")
-    records = _with_retry(ws.get_all_records)
+    records = _safe_get_all_records(ws)
     df = pd.DataFrame(records)
     if not df.empty:
         for col in ["total", "answered", "skipped", "correct", "wrong_count", "marks", "accuracy"]:
