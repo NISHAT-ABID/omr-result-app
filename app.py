@@ -1084,39 +1084,11 @@ def inject_global_css():
             background: var(--mv-input-bg) !important;
         }
 
-        /* ---- Profile "Edit Name" row: avatar preview + text input kept
-           side-by-side at EVERY screen size (same flex-row technique as
-           "_phone_row" above, and same reasoning: Streamlit's own
-           st.columns() stacks vertically below ~640px, which left the
-           avatar sitting alone as an oversized row above the input on
-           mobile). Unlike phone_row, this one isn't split into two fixed
-           tracks - the avatar is a fixed 38px circle and the input just
-           takes the rest of the row. ---- */
-        div[class*="_name_row"][data-testid="stVerticalBlock"],
-        div[class*="_name_row"] div[data-testid="stVerticalBlock"] {
-            display: flex !important;
-            flex-direction: row !important;
-            align-items: center !important;
-            gap: 10px !important;
-        }
-        div[class*="_name_row"][data-testid="stVerticalBlock"] > div,
-        div[class*="_name_row"] div[data-testid="stVerticalBlock"] > div {
-            margin: 0 !important;
-        }
-        div[class*="_name_row"][data-testid="stVerticalBlock"] > div:first-child,
-        div[class*="_name_row"] div[data-testid="stVerticalBlock"] > div:first-child {
-            flex: 0 0 auto !important;
-        }
-        div[class*="_name_row"][data-testid="stVerticalBlock"] > div:last-child,
-        div[class*="_name_row"] div[data-testid="stVerticalBlock"] > div:last-child {
-            flex: 1 1 auto !important;
-            min-width: 0 !important;
-        }
-        div[class*="_name_row"] input {
-            height: 44px !important;
-            width: 100% !important;
-            box-sizing: border-box !important;
-        }
+        /* ---- Profile "Edit Name" row now uses plain st.columns() in
+           Python (see page_profile) instead of a custom flex-row CSS
+           hack - the hack made the text input invisible for this
+           particular avatar+input pairing, so it was removed rather than
+           further patched blind. Nothing needed here. ---- */
 
         /* ---- Student per-submission calibration ---- */
         .calib-step-badge {
@@ -2673,15 +2645,26 @@ def page_profile():
         st.markdown("##### ✏️ Edit Name")
         st.caption("Updates your name everywhere in the app, including on your past test results.")
         name_draft = st.session_state.get("prof_edit_name", student["name"])
-        # Uses the same flex-row container technique as phone_field()'s
-        # "_phone_row" (see the matching CSS below): the live avatar
-        # preview and the text input are kept side-by-side at EVERY
-        # screen size, instead of the earlier st.columns([1,4]) version -
-        # which Streamlit stacks vertically below ~640px, leaving the
-        # avatar sitting alone as its own oversized row above the input
-        # (the "congested" mobile look this replaces).
-        with st.container(key="profile_name_row"):
-            st.markdown(render_avatar(sid, name_draft, size=38), unsafe_allow_html=True)
+        # Plain st.columns() here - NOT the custom "_phone_row"-style flex
+        # CSS hack used elsewhere in this file. An earlier version tried
+        # that same trick for this avatar+input pair and it silently
+        # broke: the text input rendered with no visible box at all
+        # (avatar showing, input missing entirely) even on desktop width,
+        # unlike phone_field()'s selectbox+input pairing which the same
+        # technique works fine for. Rather than keep debugging a fragile
+        # CSS/DOM interaction blind, st.columns() is the simple, already
+        # proven-reliable pattern used successfully elsewhere in this app
+        # (e.g. the top-nav name+avatar) - the only tradeoff is it stacks
+        # vertically on very narrow phones, which is a minor cosmetic
+        # issue on a settings page, not a broken/invisible input.
+        avatar_col, input_col = st.columns([1, 6], gap="small")
+        with avatar_col:
+            st.markdown(
+                f"<div style='display:flex; align-items:center; justify-content:center; height:44px;'>"
+                f"{render_avatar(sid, name_draft, size=38)}</div>",
+                unsafe_allow_html=True,
+            )
+        with input_col:
             new_name_input = st.text_input(
                 "Full name", value=student["name"], key="prof_edit_name",
                 label_visibility="collapsed",
