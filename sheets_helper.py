@@ -525,6 +525,24 @@ def set_mentor_password(new_password):
     set_config_value("mentor_password", new_password)
 
 
+# ================= Mentor Profile (display name) =================
+# There's only ever one mentor login (a single shared password, not a row
+# per mentor like Students), so the "profile" is just an optional display
+# name stored in the generic Config key-value store - same pattern as the
+# mentor password above. Defaults to "Mentor" until someone sets one.
+
+def get_mentor_name():
+    saved = get_config_value("mentor_name", default=None)
+    return (saved or "").strip() or "Mentor"
+
+
+def set_mentor_name(new_name):
+    new_name = (new_name or "").strip()
+    if not new_name:
+        raise ValueError("Name cannot be empty.")
+    set_config_value("mentor_name", new_name)
+
+
 # ================= Password hashing & strength =================
 
 def _hash(value, salt):
