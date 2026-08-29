@@ -665,7 +665,17 @@ def inject_global_css():
            file for metric cards etc.), which is what was pushing the
            hamburger onto its own row underneath the logo instead of
            sitting beside it on the right. Forcing row+nowrap here keeps
-           logo and toggle on one line at every width. */
+           logo and toggle on one line at every width.
+           IMPORTANT: this row ALSO needs an explicit width:100% here -
+           the rule right above (".st-key-mobile_top_bar ... > div") was
+           written for the OLD structure and shrinks any direct child of
+           the outer container to its own content width. Since the
+           st.columns() row is now that direct child, it was inheriting
+           that shrink-to-content sizing too, collapsing the whole row
+           down to just "logo + toggle" width with nothing left over for
+           justify-content:space-between to actually distribute - which
+           is why the toggle button ended up sitting immediately next to
+           the logo instead of pushed to the far right. */
         .st-key-mobile_top_bar div[data-testid="stHorizontalBlock"] {
             display: flex !important;
             flex-direction: row !important;
@@ -673,6 +683,8 @@ def inject_global_css():
             justify-content: space-between !important;
             align-items: center !important;
             gap: 8px !important;
+            width: 100% !important;
+            flex: 1 1 100% !important;
         }
         .st-key-mobile_top_bar div[data-testid="column"] {
             width: auto !important;
