@@ -3186,25 +3186,27 @@ def render_answer_key_tab():
 # =========================================================================
 
 def page_mentor_dashboard():
-    st.subheader("📊 Mentor Dashboard")
+    st.markdown(f"### 👋 Welcome, {sh.get_mentor_name()}")
+    st.markdown("#### 📊 Dashboard")
     with st.spinner("Loading analytics..."):
         stats = sh.get_mentor_analytics()
-    st.markdown(
-        f"""
-        <div class='metric-row'>
-            <div class='metric-box'><div class='label'>Total Students</div><div class='value'>{stats['total_students']}</div></div>
-            <div class='metric-box'><div class='label'>Active Students</div><div class='value'>{stats['active_students']}</div></div>
-            <div class='metric-box'><div class='label'>Total Submissions</div><div class='value'>{stats['total_submissions']}</div></div>
-            <div class='metric-box'><div class='label'>Submissions Today</div><div class='value'>{stats['submissions_today']}</div></div>
-            <div class='metric-box'><div class='label'>Average Score</div><div class='value'>{stats['average_score_pct']}%</div></div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    if stats["active_exam"]:
-        st.success(f"🟢 Active exam right now: **{stats['active_exam']}**")
-    else:
-        st.info("No exam is active right now.")
+    with st.container(key="card_mentor_dashboard_stats"):
+        st.markdown(
+            f"""
+            <div class='metric-row'>
+                <div class='metric-box'><div class='label'>Total Students</div><div class='value'>{stats['total_students']}</div></div>
+                <div class='metric-box'><div class='label'>Active Students</div><div class='value'>{stats['active_students']}</div></div>
+                <div class='metric-box'><div class='label'>Total Submissions</div><div class='value'>{stats['total_submissions']}</div></div>
+                <div class='metric-box'><div class='label'>Submissions Today</div><div class='value'>{stats['submissions_today']}</div></div>
+                <div class='metric-box'><div class='label'>Average Score</div><div class='value'>{stats['average_score_pct']}%</div></div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if stats["active_exam"]:
+            st.success(f"🟢 Active exam right now: **{stats['active_exam']}**")
+        else:
+            st.info("No exam is active right now.")
 
 
 # =========================================================================
@@ -3494,49 +3496,125 @@ def page_mentor_calibration():
 
 
 # =========================================================================
-# Mentor: Settings (mentor password)
+# Mentor: Profile (same card layout/system as the student Profile page -
+# header with avatar + role badges, a "Profile Information" card with an
+# Update Profile toggle, an Account Status card, a Log Out card, and
+# Change Password tucked in an expander underneath. A mentor only really
+# has a display name + password (no phone/birth date/gender - those are
+# student-only concepts), so the editable surface here is intentionally
+# smaller, but the visual system is identical.
 # =========================================================================
 
-def page_mentor_settings():
-    st.subheader("🔑 Change Mentor Password")
-    st.caption("This password is for you (the mentor) only.")
-    # Plain widgets (no st.form) so the strength bar updates live while typing.
-    current_pw = st.text_input("Current password", type="password", key="cur_pw")
-    new_pw1 = st.text_input("New password", type="password", key="new_pw1")
-    if new_pw1:
-        score, label, _tips = sh.password_strength(new_pw1)
-        colors = ["#ef4444", "#ef4444", "#f59e0b", "#10b981", "#059669"]
-        st.markdown(
-            f"<div class='strength-bar'><div class='strength-fill' "
-            f"style='width:{(score+1)*20}%; background:{colors[score]};'></div></div>"
-            f"<small>Password strength: <b>{label}</b></small>",
-            unsafe_allow_html=True,
-        )
-    new_pw2 = st.text_input("Re-enter new password", type="password", key="new_pw2")
-    submitted = st.button("✅ Update Password", type="primary")
+def page_mentor_profile():
+    name = sh.get_mentor_name()
 
-    if submitted:
-        if current_pw != sh.get_mentor_password():
-            st.error("Current password is incorrect.")
-        elif not new_pw1:
-            st.error("New password cannot be empty.")
-        elif new_pw1 != new_pw2:
-            st.error("The two new password entries don't match.")
-        else:
-            _, _, tips = sh.password_strength(new_pw1)
-            if tips:
-                st.error("New password is too weak: " + ", ".join(tips))
+    # ---- Header: avatar + name + role/verified badges (same structure
+    # as the student profile header). Mentor's avatar deliberately uses
+    # the app's accent color (not the random per-student palette) so it
+    # reads as a distinct "admin" identity at a glance. ----
+    st.markdown(
+        f"""
+        <div style='display:flex; align-items:center; gap:16px; margin-bottom:14px; flex-wrap:wrap;'>
+            <span style='display:inline-flex; align-items:center; justify-content:center; width:64px; height:64px;
+                min-width:64px; border-radius:50%; background:var(--mv-accent); color:#fff; font-family:var(--sans);
+                font-weight:700; font-size:24px; letter-spacing:.02em;'>{_avatar_initials(name)}</span>
+            <div>
+                <div style='font-family:var(--serif); font-weight:600; font-size:23px; color:var(--mv-ink); line-height:1.2;'>{name}</div>
+                <div style='display:flex; align-items:center; gap:8px; margin-top:4px;'>
+                    <span style='font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--mv-muted); font-weight:700;'>Mentor</span>
+                    <span style='font-size:11px; padding:2px 10px; border-radius:999px; background:var(--mv-accent-soft); color:var(--mv-accent); font-weight:700;'>✓ Verified</span>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    left_col, right_col = st.columns([1.7, 1], gap="medium")
+
+    # ---- Left: Profile Information (view mode / edit mode), same toggle
+    # pattern as the student page - just Display Name is editable here. ----
+    with left_col:
+        with st.container(key="card_profile_info"):
+            hcol1, hcol2 = st.columns([2.4, 1.3])
+            with hcol1:
+                st.markdown("##### 👤 Profile Information")
+            with hcol2:
+                edit_open = st.session_state.get("mentor_profile_edit_open", False)
+                if st.button("✖ Cancel" if edit_open else "✏️ Update Profile",
+                             key="mentor_profile_toggle_edit_btn", use_container_width=True):
+                    st.session_state["mentor_profile_edit_open"] = not edit_open
+                    st.rerun()
+
+            if not st.session_state.get("mentor_profile_edit_open"):
+                fcol1, fcol2 = st.columns(2)
+                with fcol1:
+                    st.markdown(_profile_info_row("🧑‍🏫", "Display Name", name), unsafe_allow_html=True)
+                with fcol2:
+                    st.markdown(_profile_info_row("🎓", "Role", "MENTOR"), unsafe_allow_html=True)
             else:
-                with st.spinner("Updating..."):
-                    sh.set_mentor_password(new_pw1)
-                st.session_state["mentor_authed"] = False
-                st.success("Password changed! Please log in again with the new password.")
-                st.rerun()
+                new_name = st.text_input("Display name", value=name, key="mentor_profile_name_input")
+                if st.button("💾 Save Changes", type="primary", use_container_width=True, key="mentor_profile_save_btn"):
+                    cleaned = new_name.strip()
+                    if not cleaned:
+                        st.error("Name cannot be empty.")
+                    else:
+                        with st.spinner("Updating your profile..."):
+                            sh.set_mentor_name(cleaned)
+                        st.session_state["mentor_profile_edit_open"] = False
+                        st.success("Profile updated!")
+                        st.rerun()
 
-    st.divider()
-    if st.button("🚪 Log Out of Mentor Panel", key="mentor_settings_logout", use_container_width=True):
-        st.session_state["mentor_authed"] = False
-        go_to("home")
+    # ---- Right: Account Status + Log Out, same cards as the student page ----
+    with right_col:
+        with st.container(key="card_profile_status"):
+            st.markdown("##### 🛡️ Account Status")
+            st.markdown(
+                _profile_status_pill_html("Account Status", "Active", True),
+                unsafe_allow_html=True,
+            )
+
+        with st.container(key="card_profile_logout"):
+            st.markdown("##### 🚪 Log Out")
+            st.caption("Sign out from the mentor panel securely.")
+            if st.button("Log Out", use_container_width=True, key="mentor_profile_logout_btn"):
+                st.session_state["mentor_authed"] = False
+                go_to("home")
+
+    with st.expander("🔑 Change Password"):
+        st.caption("This password is for you (the mentor) only.")
+        # Plain widgets (no st.form) so the strength bar updates live while typing.
+        current_pw = st.text_input("Current password", type="password", key="mentor_prof_cur_pw")
+        new_pw1 = st.text_input("New password", type="password", key="mentor_prof_new_pw1")
+        if new_pw1:
+            score, label, _tips = sh.password_strength(new_pw1)
+            colors = ["#ef4444", "#ef4444", "#f59e0b", "#10b981", "#059669"]
+            st.markdown(
+                f"<div class='strength-bar'><div class='strength-fill' "
+                f"style='width:{(score+1)*20}%; background:{colors[score]};'></div></div>"
+                f"<small>Password strength: <b>{label}</b></small>",
+                unsafe_allow_html=True,
+            )
+        new_pw2 = st.text_input("Confirm new password", type="password", key="mentor_prof_new_pw2")
+        change_submitted = st.button("Update Password", type="primary", key="mentor_prof_pw_update_btn")
+
+        if change_submitted:
+            if current_pw != sh.get_mentor_password():
+                st.error("Current password is incorrect.")
+            elif not new_pw1:
+                st.error("New password cannot be empty.")
+            elif new_pw1 != new_pw2:
+                st.error("New passwords don't match.")
+            else:
+                _, _, tips = sh.password_strength(new_pw1)
+                if tips:
+                    st.error("New password is too weak: " + ", ".join(tips))
+                else:
+                    with st.spinner("Updating..."):
+                        sh.set_mentor_password(new_pw1)
+                    st.session_state["mentor_authed"] = False
+                    st.success("Password changed! Please log in again with the new password.")
+                    st.rerun()
 
 
 # =========================================================================
@@ -3565,72 +3643,132 @@ def is_mentor():
 
 
 MENTOR_NAV = [
-    ("m_dashboard", "📊 Dashboard"),
-    ("m_answerkey", "📝 Create Exam"),
-    ("m_calibration", "🎯 OMR Sheet Setup"),
-    ("m_students", "👥 Students"),
-    ("m_results", "🧾 Results"),
-    ("m_leaderboard", "🏆 Leaderboard"),
-    ("m_settings", "⚙️ Settings"),
+    ("m_dashboard", "Dashboard"),
+    ("m_answerkey", "Create Exam"),
+    ("m_calibration", "OMR Sheet Setup"),
+    ("m_students", "Students"),
+    ("m_results", "Results"),
+    ("m_leaderboard", "Leaderboard"),
+    ("m_profile", "Profile"),
 ]
 
+# Same native st.button(icon=":material/...:") approach as the student
+# nav's nav_icon() - see that function's comment for why (real, first-
+# party icon rendering instead of a fragile custom-SVG overlay).
+MENTOR_NAV_MATERIAL_ICONS = {
+    "m_dashboard": "dashboard",
+    "m_answerkey": "edit_document",
+    "m_calibration": "tune",
+    "m_students": "group",
+    "m_results": "fact_check",
+    "m_leaderboard": "emoji_events",
+    "m_profile": "person",
+}
 
-def page_mentor():
-    if not is_mentor():
-        return
 
-    st.header("👨‍🏫 Mentor Panel")
+def mentor_nav_icon(page_key):
+    name = MENTOR_NAV_MATERIAL_ICONS.get(page_key)
+    return f":material/{name}:" if name else None
 
-    current = st.session_state.get("mentor_page", "m_dashboard")
-    is_student_analysis = st.session_state.get("page") == "mentor_student_analysis"
-    active_nav = "m_students" if is_student_analysis else current
 
-    # Desktop: all mentor options remain visible on laptop/desktop.
+def render_mentor_top_nav(current_page):
+    """Mentor equivalent of render_top_nav() - same logo-left / flat-nav /
+    avatar-right desktop layout and same logo+hamburger mobile bar as the
+    student panel, so the whole app shares one consistent navigation
+    system instead of the mentor side looking like a different app.
+    Profile is reached via the avatar (desktop) / drawer (mobile), same
+    as the student side, and is excluded from the desktop pill row."""
+    desktop_nav_items = [item for item in MENTOR_NAV if item[0] != "m_profile"]
     with st.container(key="top_nav"):
-        cols = st.columns(len(MENTOR_NAV))
-        for col, (page_key, label) in zip(cols, MENTOR_NAV):
-            with col:
-                if st.button(
-                    label, key=f"mnav_{page_key}", use_container_width=True,
-                    type="primary" if active_nav == page_key else "secondary",
-                ):
-                    st.session_state["mentor_page"] = page_key
-                    st.session_state.pop("mentor_analysis_sid", None)
-                    st.session_state.pop("mentor_analysis_view_key_id", None)
-                    go_to("mentor")
+        logo_col, nav_col = st.columns([1.6, 8.4])
+        with logo_col:
+            st.markdown(
+                f"<div style='display:flex; align-items:center; gap:8px; height:100%; padding-top:2px;'>"
+                f"<div style='width:26px; height:26px; flex-shrink:0;'>{LOGO_SVG}</div>"
+                f"<span style='font-family:var(--serif); font-weight:600; font-size:16px; "
+                f"color:var(--mv-ink); white-space:nowrap;'>Med Venture</span></div>",
+                unsafe_allow_html=True,
+            )
+        with nav_col:
+            cols = st.columns([1] * len(desktop_nav_items) + [0.6])
+            for col, (page_key, label) in zip(cols[:-1], desktop_nav_items):
+                with col:
+                    is_active = current_page == page_key
+                    if st.button(
+                        label, key=f"mnav_{page_key}", use_container_width=True,
+                        type="primary" if is_active else "secondary",
+                        icon=mentor_nav_icon(page_key),
+                    ):
+                        st.session_state["mentor_page"] = page_key
+                        st.session_state.pop("mentor_analysis_sid", None)
+                        st.session_state.pop("mentor_analysis_view_key_id", None)
+                        go_to("mentor")
+            with cols[-1]:
+                mentor_name = sh.get_mentor_name()
+                initials = _avatar_initials(mentor_name)
+                # Mentor avatar uses the app's fixed accent color (not the
+                # random per-student palette) so it visibly reads as the
+                # admin/mentor identity rather than "just another student".
+                st.markdown(
+                    f"<style>.st-key-top_nav .st-key-top_nav_avatar_btn button {{ "
+                    f"background:var(--mv-accent) !important; border-color:var(--mv-accent) !important; color:#fff !important; "
+                    f"border-radius:50% !important; width:34px !important; height:34px !important; "
+                    f"min-height:34px !important; padding:0 !important; font-size:13px !important; "
+                    f"font-weight:700 !important; }}</style>",
+                    unsafe_allow_html=True,
+                )
+                with st.container(key="top_nav_avatar_btn"):
+                    if st.button(initials, key="top_nav_mentor_avatar_click", help="Profile"):
+                        st.session_state["mentor_page"] = "m_profile"
+                        st.session_state.pop("mentor_analysis_sid", None)
+                        st.session_state.pop("mentor_analysis_view_key_id", None)
+                        go_to("mentor")
 
-    # Mobile: ☰ when closed, ✕ when open. Built without st.columns for the
-    # same reason as the student nav above (see Bug-1 note in
-    # render_top_nav) - hamburger is the normal first element (top-left);
-    # Settings is pinned top-right via CSS on its own small container.
+    # Mobile: same simplified logo + hamburger/close toggle bar as the
+    # student panel - no separate quick-access icon button, since Profile
+    # is just one tap away in the drawer below like every other nav item.
     with st.container(key="mobile_top_bar"):
         is_open = st.session_state.get("mentor_mobile_menu_open", False)
-        if st.button("✕" if is_open else "☰", key="mentor_mobile_menu_toggle", help="Open menu" if not is_open else "Close menu"):
-            st.session_state["mentor_mobile_menu_open"] = not is_open
-            st.rerun()
-        # Only show the Settings shortcut when the menu is CLOSED - once
-        # open, "⚙️ Settings" is already in the list below, so keeping
-        # both was a redundant, confusing duplicate. Settings itself has
-        # both the password-change form and Log Out, matching the PC
-        # experience (a Settings nav item, not a bare logout icon).
-        if not is_open:
-            with st.container(key="mobile_top_bar_right"):
-                if st.button("⚙️", key="mobile_mentor_settings_btn", help="Settings"):
-                    st.session_state["mentor_page"] = "m_settings"
-                    st.session_state.pop("mentor_analysis_sid", None)
-                    st.session_state.pop("mentor_analysis_view_key_id", None)
-                    go_to("mentor")
+        st.markdown(
+            f"<div style='display:flex; align-items:center; gap:6px; height:40px;'>"
+            f"<div style='width:24px; height:24px; flex-shrink:0;'>{LOGO_SVG}</div>"
+            f"<span style='font-family:var(--serif); font-weight:600; font-size:15px; "
+            f"color:var(--mv-ink); white-space:nowrap;'>Med Venture</span></div>",
+            unsafe_allow_html=True,
+        )
+        with st.container(key="mobile_top_bar_right"):
+            if st.button("✕" if is_open else "☰", key="mentor_mobile_menu_toggle", help="Open menu" if not is_open else "Close menu"):
+                st.session_state["mentor_mobile_menu_open"] = not is_open
+                st.rerun()
 
     if st.session_state.get("mentor_mobile_menu_open", False):
+        st.markdown("<div class='mv-drawer-backdrop'></div>", unsafe_allow_html=True)
         with st.container(key="mobile_menu_mentor"):
+            st.markdown(
+                f"<div style='display:flex; align-items:center; gap:8px; margin-bottom:18px;'>"
+                f"<div style='width:24px; height:24px;'>{LOGO_SVG}</div>"
+                f"<span style='font-family:var(--serif); font-weight:600; font-size:15px; color:var(--mv-ink);'>Med Venture</span></div>",
+                unsafe_allow_html=True,
+            )
             for page_key, label in MENTOR_NAV:
-                if st.button(label, key=f"mmnav_{page_key}", use_container_width=True):
+                if st.button(label, key=f"mmnav_{page_key}", use_container_width=True, icon=mentor_nav_icon(page_key)):
                     st.session_state["mentor_page"] = page_key
                     st.session_state.pop("mentor_analysis_sid", None)
                     st.session_state.pop("mentor_analysis_view_key_id", None)
                     go_to("mentor")
 
     st.write("")
+
+
+def page_mentor():
+    if not is_mentor():
+        return
+
+    current = st.session_state.get("mentor_page", "m_dashboard")
+    is_student_analysis = st.session_state.get("page") == "mentor_student_analysis"
+    active_nav = "m_students" if is_student_analysis else current
+
+    render_mentor_top_nav(active_nav)
 
     if is_student_analysis:
         page_mentor_student_analysis()
@@ -3646,15 +3784,14 @@ def page_mentor():
         page_mentor_results()
     elif current == "m_leaderboard":
         page_mentor_leaderboard()
-    elif current == "m_settings":
-        page_mentor_settings()
+    elif current == "m_profile":
+        page_mentor_profile()
 
-    # The Settings page already has its own "Log Out of Mentor Panel"
-    # button right below the password form, so we don't repeat a second
-    # one (and a second explanatory caption) down here when Settings is
-    # the page being viewed - only show this convenience logout on the
-    # other mentor pages.
-    if current != "m_settings" or is_student_analysis:
+    # The Profile page already has its own "Log Out" card, so we don't
+    # repeat a second logout control down here when Profile is the page
+    # being viewed - only show this convenience logout on the other
+    # mentor pages, same pattern as the student side.
+    if current != "m_profile" or is_student_analysis:
         st.divider()
         if st.button("🚪 Log Out of Mentor Panel", key="mentor_bottom_logout"):
             st.session_state["mentor_authed"] = False
