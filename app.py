@@ -673,19 +673,62 @@ def inject_global_css():
         /* Matched via a wildcard too so a real st.container(key=
            "mobile_menu_...") gets the same look - see the note by the
            ".app-card" rule for why containers replaced raw split <div>s
-           throughout this file. */
+           throughout this file.
+           This is now a FIXED, SLIDE-OUT DRAWER from the right edge of
+           the screen (matching the reference design) instead of an
+           inline dropdown card that expanded the page content downward -
+           position:fixed + a slide-in animation, covering the full
+           viewport height, with its own shadow/border separating it from
+           the dimmed backdrop behind it (see ".mv-drawer-backdrop"
+           below, rendered right before this container in render_top_nav
+           when the menu is open). */
         .mobile-menu-card, [class*="st-key-mobile_menu_"] {
-            margin: 6px 0 10px;
-            padding: 8px;
-            border: 1px solid rgba(128,128,128,0.22);
-            border-radius: 14px;
-            background: rgba(127,127,127,0.045);
+            position: fixed;
+            top: 0;
+            right: 0;
+            height: 100vh;
+            width: min(82vw, 320px);
+            margin: 0;
+            padding: 20px 16px;
+            border: none;
+            border-left: 1px solid var(--mv-border);
+            border-radius: 0;
+            background: var(--mv-surface);
+            box-shadow: -10px 0 32px rgba(0,0,0,0.5);
+            z-index: 9999;
+            overflow-y: auto;
+            animation: mv-drawer-slide-in 0.22s ease-out;
         }
+        @keyframes mv-drawer-slide-in {
+            from { transform: translateX(100%); }
+            to { transform: translateX(0); }
+        }
+        .mv-drawer-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.55);
+            z-index: 9998;
+            animation: mv-backdrop-fade 0.22s ease-out;
+        }
+        @keyframes mv-backdrop-fade {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        /* Flat, plain-link style nav items inside the drawer (no pill
+           background/border by default), matching the reference's icon+
+           text list - a soft highlight only appears on hover/tap. */
         .mobile-menu-card button, [class*="st-key-mobile_menu_"] button {
-            border-radius: 10px !important;
-            min-height: 40px !important;
+            border-radius: 8px !important;
+            min-height: 46px !important;
             text-align: left !important;
-            margin-bottom: 4px !important;
+            margin-bottom: 6px !important;
+            background: transparent !important;
+            border: none !important;
+            font-size: 15px !important;
+        }
+        .mobile-menu-card button:hover, [class*="st-key-mobile_menu_"] button:hover {
+            background: var(--mv-card-bg) !important;
+            color: var(--mv-primary) !important;
         }
         .mobile-menu-card button:last-child, [class*="st-key-mobile_menu_"] button:last-child { margin-bottom: 0 !important; }
 
@@ -1734,104 +1777,93 @@ def nav_icon(page_key):
 
 
 def render_top_nav(current_page):
-    # Desktop: nav pills for Home / Tests & Results / Analysis /
-    # Leaderboard, with the student's NAME + AVATAR on the far right
-    # acting as the Profile entry point - matching the reference design,
-    # which drops the 5th "Profile" pill from the row entirely and shows
-    # it as a personalized name+avatar instead. Clicking either the name
-    # or the avatar circle goes to Profile, same destination the old pill
-    # used to go to.
+    # Desktop: logo on the far left, plain (no pill background/border)
+    # nav items, and the avatar circle on the far right - matching the
+    # reference design's flat, link-style nav bar instead of the earlier
+    # rounded-pill-button look. Active page is shown via bold teal text
+    # rather than a filled pill.
     desktop_nav_items = [item for item in STUDENT_NAV if item[0] != "profile"]
     with st.container(key="top_nav"):
-        cols = st.columns([1] * len(desktop_nav_items) + [1.3])
-        for col, (page_key, label) in zip(cols[:-1], desktop_nav_items):
-            with col:
-                is_active = current_page == page_key or (page_key == "tests" and current_page == "test_detail")
-                if st.button(
-                    label, key=f"nav_{page_key}", use_container_width=True,
-                    type="primary" if is_active else "secondary",
-                    icon=nav_icon(page_key),
-                ):
-                    go_to(page_key)
-        with cols[-1]:
-            name = st.session_state.get("student_name", "")
-            sid = st.session_state.get("student_id", "")
-            is_profile_active = current_page == "profile"
-            name_col, avatar_col = st.columns([3, 1], gap="small")
-            with name_col:
-                st.markdown(
-                    f"<div style='text-align:right; padding-top:9px; font-weight:600; "
-                    f"color:{'var(--mv-primary)' if is_profile_active else 'var(--mv-ink)'}; "
-                    f"font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;'>{name}</div>",
-                    unsafe_allow_html=True,
-                )
-            with avatar_col:
+        logo_col, nav_col = st.columns([1.6, 6.4])
+        with logo_col:
+            st.markdown(
+                f"<div style='display:flex; align-items:center; gap:8px; height:100%; padding-top:2px;'>"
+                f"<div style='width:26px; height:26px; flex-shrink:0;'>{LOGO_SVG}</div>"
+                f"<span style='font-family:var(--serif); font-weight:600; font-size:16px; "
+                f"color:var(--mv-ink); white-space:nowrap;'>Med Venture</span></div>",
+                unsafe_allow_html=True,
+            )
+        with nav_col:
+            cols = st.columns([1] * len(desktop_nav_items) + [0.6])
+            for col, (page_key, label) in zip(cols[:-1], desktop_nav_items):
+                with col:
+                    is_active = current_page == page_key or (page_key == "tests" and current_page == "test_detail")
+                    if st.button(
+                        label, key=f"nav_{page_key}", use_container_width=True,
+                        type="primary" if is_active else "secondary",
+                        icon=nav_icon(page_key),
+                    ):
+                        go_to(page_key)
+            with cols[-1]:
+                name = st.session_state.get("student_name", "")
+                sid = st.session_state.get("student_id", "")
                 initials = _avatar_initials(name)
                 color = _avatar_color(sid, name)
                 # A real st.button here (not just an HTML span) so the
-                # avatar is clickable, same as the mobile version. Scoped
-                # with a compound class selector (.st-key-top_nav
-                # .st-key-top_nav_avatar_btn) so it reliably beats the
-                # generic ".st-key-top_nav button" pill-button rule that
-                # would otherwise stretch it to a full-width rounded pill
-                # like the other nav buttons.
+                # avatar is clickable. Scoped with a compound class
+                # selector so it reliably beats the generic plain-link nav
+                # button rule and renders as a small solid circle instead.
                 st.markdown(
                     f"<style>.st-key-top_nav .st-key-top_nav_avatar_btn button {{ "
                     f"background:{color} !important; border-color:{color} !important; color:#fff !important; "
                     f"border-radius:50% !important; width:34px !important; height:34px !important; "
                     f"min-height:34px !important; padding:0 !important; font-size:13px !important; "
-                    f"font-weight:700 !important; float:right; }}</style>",
+                    f"font-weight:700 !important; }}</style>",
                     unsafe_allow_html=True,
                 )
                 with st.container(key="top_nav_avatar_btn"):
                     if st.button(initials, key="top_nav_avatar_click", help="Profile"):
                         go_to("profile")
 
-    # Mobile: a real toggle so the closed state is ☰ and the open state is ✕.
-    # st.popover was removed because its trigger cannot reliably change to a
-    # cross after opening. Rebuilt WITHOUT st.columns([1,3,1]) - a narrow
-    # spacer column plus two icon columns was overflowing the actual phone
-    # viewport width (Streamlit's own column engine reserves more minimum
-    # width per column than fits three-across on a real small screen),
-    # which pushed the profile icon off-screen and required horizontal
-    # scrolling to reach it. The hamburger button now just sits as the
-    # first, normal-flow element (top-left), and the profile button is
-    # wrapped in its own small container that's pinned to the top-right
-    # corner with CSS position:absolute - no column width math involved,
-    # so nothing can overflow the screen.
+    # Mobile: a simplified header showing ONLY the logo (left) and the
+    # hamburger/close toggle (right) - no inline avatar button any more,
+    # matching the reference's collapsed mobile header exactly. Tapping
+    # the toggle now opens the menu as a FIXED slide-out drawer sliding
+    # in from the right edge of the screen (see ".mobile-menu-card" /
+    # "[class*='st-key-mobile_menu_']" CSS in inject_global_css), instead
+    # of the earlier inline dropdown that expanded the page content
+    # downward. Profile is reached from inside that drawer's nav list,
+    # same as every other nav item.
     with st.container(key="mobile_top_bar"):
         is_open = st.session_state.get("student_mobile_menu_open", False)
-        if st.button("✕" if is_open else "☰", key="student_mobile_menu_toggle", help="Open menu" if not is_open else "Close menu"):
-            st.session_state["student_mobile_menu_open"] = not is_open
-            st.rerun()
-        # Only show the profile shortcut when the menu is CLOSED - once
-        # open, the menu list below already has "Profile" in it, so
-        # keeping this icon too was a redundant, confusing duplicate.
-        if not is_open:
+        logo_col, toggle_col = st.columns([1, 1])
+        with logo_col:
+            st.markdown(
+                f"<div style='display:flex; align-items:center; gap:6px; height:40px;'>"
+                f"<div style='width:24px; height:24px; flex-shrink:0;'>{LOGO_SVG}</div>"
+                f"<span style='font-family:var(--serif); font-weight:600; font-size:15px; "
+                f"color:var(--mv-ink); white-space:nowrap;'>Med Venture</span></div>",
+                unsafe_allow_html=True,
+            )
+        with toggle_col:
             with st.container(key="mobile_top_bar_right"):
-                sid_now = st.session_state.get("student_id", "")
-                name_now = st.session_state.get("student_name", "")
-                avatar_initials = _avatar_initials(name_now)
-                avatar_color = _avatar_color(sid_now, name_now)
-                # This button's LABEL is plain text (the student's
-                # initials) since a real st.button can't hold the HTML
-                # <span> that render_avatar() returns - so instead we
-                # reuse the same color-picking logic (_avatar_color) and
-                # push a tiny scoped CSS override that recolors just this
-                # one button to match, giving the same personal avatar
-                # look as everywhere else in the app instead of a generic
-                # person icon.
-                st.markdown(
-                    f"<style>.st-key-mobile_top_bar_right button {{ "
-                    f"background:{avatar_color} !important; border-color:{avatar_color} !important; "
-                    f"color:#fff !important; font-weight:700 !important; }}</style>",
-                    unsafe_allow_html=True,
-                )
-                if st.button(avatar_initials, key="mobile_profile_btn", help="Profile"):
-                    go_to("profile")
+                if st.button("✕" if is_open else "☰", key="student_mobile_menu_toggle", help="Open menu" if not is_open else "Close menu"):
+                    st.session_state["student_mobile_menu_open"] = not is_open
+                    st.rerun()
 
     if st.session_state.get("student_mobile_menu_open", False):
+        # Dim backdrop behind the slide-out drawer - purely visual (no JS,
+        # so tapping it doesn't close the menu; the ☰/✕ toggle above is
+        # the actual close control), matching the reference's dimmed
+        # background around the open drawer.
+        st.markdown("<div class='mv-drawer-backdrop'></div>", unsafe_allow_html=True)
         with st.container(key="mobile_menu_student"):
+            st.markdown(
+                f"<div style='display:flex; align-items:center; gap:8px; margin-bottom:18px;'>"
+                f"<div style='width:24px; height:24px;'>{LOGO_SVG}</div>"
+                f"<span style='font-family:var(--serif); font-weight:600; font-size:15px; color:var(--mv-ink);'>Med Venture</span></div>",
+                unsafe_allow_html=True,
+            )
             for page_key, label in STUDENT_NAV:
                 if st.button(label, key=f"mnav_{page_key}", use_container_width=True, icon=nav_icon(page_key)):
                     go_to(page_key)
