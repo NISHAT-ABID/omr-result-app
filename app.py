@@ -619,45 +619,60 @@ def inject_global_css():
            support (see nav_icon() in app.py) - no custom CSS needed here,
            it's rendered as real button markup. */
 
-        /* ---- Mobile top bar: logo (normal in-flow content) + a single
-           toggle button pinned to the top-right corner.
-           HISTORY, for whoever touches this next - three earlier
-           approaches were tried and abandoned here:
+        /* ---- Mobile top bar: logo (first child) + a single toggle
+           button (second child) pushed to the right via flex-row +
+           justify-content:space-between on the container.
+           HISTORY, for whoever touches this next:
            1) TWO absolutely-positioned buttons (hamburger + a separate
-              profile icon) - they landed exactly on top of each other.
+              profile icon) once landed exactly on top of each other.
            2) A ">" direct-child selector assuming stVerticalBlock sits
-              one level below the "st-key-*" class - silently matched
+              one level below the "st-key-*" class once silently matched
               nothing, since Streamlit puts that testid on the SAME
               element the class is on.
            3) st.columns([1,1]) for logo+toggle, with custom flex CSS
-              forcing the row to behave - this repeatedly failed in
-              different ways (columns stacking vertically on mobile per
-              Streamlit's own default, then a leftover "shrink child to
-              content width" rule from approach #2/#3's predecessor
-              collapsing the whole row so justify-content:space-between
-              had no room left to distribute).
-           This version sidesteps all of that: the logo is just normal
-           block content (no columns, no flex row to fight), and there is
-           only ONE absolutely-positioned element (the toggle), so #1's
-           overlap problem can't happen - it's simply pinned to the
-           container's own top-right corner via position:relative on the
-           container + position:absolute on the toggle's own sub-
-           container. Far fewer moving parts, far fewer ways to break.
+              forcing the row to behave, repeatedly failed in different
+              ways (columns stacking vertically on mobile per Streamlit's
+              own default, then a leftover "shrink child to content
+              width" rule collapsing the whole row).
+           4) position:absolute (top:0; right:0) on the toggle's own
+              container - the NEXT thing tried after #3 - looked correct
+              on paper but rendered the toggle pinned near the top-LEFT
+              instead, overlapping the logo. Root cause not fully
+              confirmed remotely, but the likely culprit is Streamlit
+              wrapping element-containers in something that changes the
+              CSS "containing block" for position:absolute (e.g. a
+              transform on an intermediate wrapper), so right:0 wasn't
+              measured against the element this code intended.
+           The fix that's actually proven reliable here (this exact
+           mechanism already worked for the mentor panel's identical
+           hamburger+settings layout) is much simpler: no columns, no
+           absolute positioning - just force the OUTER vertical block
+           (which Streamlit already puts BOTH the logo and the toggle's
+           container into, as two direct sibling children, since neither
+           uses st.columns() any more) into a flex ROW with
+           justify-content:space-between. With exactly two children and
+           no z-index/containing-block ambiguity, this just works.
            IMPORTANT: "display" is set in exactly two places only - hidden
            here (!important, every screen size) and shown-as-flex inside
            the max-width:900px media query further down, for the same
            !important-vs-!important reason noted before: putting
            "display:flex !important" in an unconditional rule would beat
            "display:none" at every width regardless of the media query. ---- */
-        .st-key-mobile_top_bar {
+        .st-key-mobile_top_bar,
+        .st-key-mobile_top_bar[data-testid="stVerticalBlock"] {
             display: none !important;
-            position: relative !important;
-            min-height: 40px !important;
         }
-        .st-key-mobile_top_bar_right {
-            position: absolute !important;
-            top: 0 !important;
-            right: 0 !important;
+        .st-key-mobile_top_bar[data-testid="stVerticalBlock"],
+        .st-key-mobile_top_bar div[data-testid="stVerticalBlock"] {
+            flex-direction: row !important;
+            justify-content: space-between !important;
+            align-items: center !important;
+            gap: 8px !important;
+        }
+        .st-key-mobile_top_bar[data-testid="stVerticalBlock"] > div,
+        .st-key-mobile_top_bar div[data-testid="stVerticalBlock"] > div {
+            width: auto !important;
+            flex: 0 0 auto !important;
         }
         .st-key-mobile_top_bar button {
             border-radius: 50% !important;
@@ -1148,8 +1163,10 @@ def inject_global_css():
         @media (max-width: 900px) {
             .block-container { max-width: 100%; padding-left: 1rem; padding-right: 1rem; }
             .st-key-top_nav { display: none !important; }
-            .st-key-mobile_top_bar {
-                display: block !important;
+            .st-key-mobile_top_bar,
+            .st-key-mobile_top_bar[data-testid="stVerticalBlock"],
+            .st-key-mobile_top_bar div[data-testid="stVerticalBlock"] {
+                display: flex !important;
             }
             .mv-hero { margin: -1rem -1rem 16px; padding: 26px 12px 18px; }
         }
@@ -1835,19 +1852,13 @@ def render_top_nav(current_page):
     # same as every other nav item.
     with st.container(key="mobile_top_bar"):
         is_open = st.session_state.get("student_mobile_menu_open", False)
-        # Logo renders as normal in-flow content (no columns needed for
-        # just one item), and the toggle button's own container is
-        # pinned to the top-right corner via position:absolute (see
-        # ".st-key-mobile_top_bar" / ".st-key-mobile_top_bar_right" CSS)
-        # instead of trying to lay both out side-by-side with
-        # st.columns() - that kept collapsing/refusing to push the
-        # toggle to the true right edge no matter how the surrounding
-        # flex CSS was adjusted. Absolute positioning sidesteps the whole
-        # problem: there's only ONE element being positioned here (the
-        # toggle), so there's no risk of it overlapping the logo, unlike
-        # an earlier attempt at absolute-positioning TWO buttons at once
-        # (see the note in the CSS about why that older attempt was
-        # abandoned).
+        # Logo renders first (normal in-flow content), then the toggle's
+        # own small container - as two direct sibling children of this
+        # outer container. See the CSS in inject_global_css (search
+        # "Mobile top bar: logo") for why this simple flex-row +
+        # justify-content:space-between mechanism is used instead of
+        # st.columns() or position:absolute, both of which were tried
+        # first and broke in different ways.
         st.markdown(
             f"<div style='display:flex; align-items:center; gap:6px; height:40px;'>"
             f"<div style='width:24px; height:24px; flex-shrink:0;'>{LOGO_SVG}</div>"
