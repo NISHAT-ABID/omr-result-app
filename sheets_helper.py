@@ -18,7 +18,7 @@ Worksheets (tabs) used inside one Google Sheet:
 
 4. Students   -> student_id, name, phone, password_hash, salt,
                  security_question, security_answer_hash, disabled,
-                 session_version, created_at
+                 session_version, created_at, birth_date, gender
 
 The Sheet ID is stored as SHEET_ID in .streamlit/secrets.toml.
 All worksheets are created automatically the first time the app runs.
@@ -67,6 +67,16 @@ students) in normal use. Callers should use this function instead of
 the separate has_submitted() + append_result() pattern for new
 submissions; append_result() is kept only for any code that still needs
 the old two-step form.
+
+IMPORTANT - Optional profile fields (birth_date, gender):
+These are intentionally NOT collected at signup - creating an account
+only ever needs name + phone + password (+ a security question for
+password recovery). birth_date/gender are purely optional and can be
+added or changed any time afterwards from the student's own Profile
+page (see update_student_extra_profile() below). Phone number is NEVER
+editable anywhere in this app, by design - it's the student's login
+identity - so there is deliberately no function/parameter anywhere that
+lets it be changed except by direct database/support access.
 """
 
 import hashlib
@@ -105,10 +115,15 @@ RESULTS_HEADER = [
 
 CONFIG_HEADER = ["config_key", "config_value"]
 
+# birth_date / gender are appended at the END of the header (not inserted
+# in the middle) so every existing hardcoded column reference elsewhere
+# in this file (e.g. "D{row_idx}:E{row_idx}" for password_hash/salt, or
+# "H{row_idx}" for disabled) keeps pointing at the same column letters it
+# always has - only new rows/edits ever touch the two new columns.
 STUDENTS_HEADER = [
     "student_id", "name", "phone", "password_hash", "salt",
     "security_question", "security_answer_hash", "disabled",
-    "session_version", "created_at",
+    "session_version", "created_at", "birth_date", "gender",
 ]
 PHONE_COL_INDEX = STUDENTS_HEADER.index("phone") + 1  # 1-based, for gspread.format()
 
@@ -547,6 +562,11 @@ def get_student_by_id(student_id):
 
 
 def create_student(name, phone, password, security_question, security_answer):
+    """Creates a new student account. Deliberately asks for the bare
+    minimum only - name, phone, password, security question/answer.
+    birth_date and gender are NOT collected here; they start blank and
+    can be filled in any time afterwards from the Profile page via
+    update_student_extra_profile()."""
     phone = _normalize_phone(phone)
     if not phone:
         raise ValueError("Please enter a valid phone number.")
@@ -566,7 +586,8 @@ def create_student(name, phone, password, security_question, security_answer):
         _with_retry(
             ws.append_row,
             [student_id, name.strip(), phone, pw_hash, salt,
-             security_question, ans_hash, False, 1, now_bd().strftime("%Y-%m-%d %H:%M:%S")],
+             security_question, ans_hash, False, 1, now_bd().strftime("%Y-%m-%d %H:%M:%S"),
+             "", ""],
             value_input_option=RAW,
         )
         clear_data_caches()
@@ -655,6 +676,39 @@ def update_student_name(student_id, new_name):
             if batch:
                 _with_retry(results_ws.batch_update, batch, value_input_option=RAW)
 
+    clear_data_caches()
+
+
+def update_student_extra_profile(student_id, birth_date=None, gender=None):
+    """Updates the optional Profile-page fields (birth date, gender) that
+    a student can add or change any time after signing up - these are
+    deliberately NOT asked for at signup (see create_student()).
+
+    Passing None for either argument leaves that column untouched, so
+    callers can update just one field without clobbering the other.
+    Passing an empty string clears that field.
+
+    Phone number is intentionally NOT a parameter here (or anywhere in
+    this app) - it's the student's login identity and is never editable
+    through self-service profile editing.
+    """
+    ws = _cached_worksheet("Students")
+    row_idx = _find_student_row_idx(ws, student_id)
+    if not row_idx:
+        raise ValueError("Student not found.")
+
+    updates = {}
+    if birth_date is not None:
+        updates["birth_date"] = birth_date
+    if gender is not None:
+        updates["gender"] = gender
+    if not updates:
+        return
+
+    for col, val in updates.items():
+        col_idx = STUDENTS_HEADER.index(col) + 1
+        col_letter = gspread.utils.rowcol_to_a1(1, col_idx).rstrip("1")
+        _with_retry(ws.update, f"{col_letter}{row_idx}", [[val]], value_input_option=RAW)
     clear_data_caches()
 
 
