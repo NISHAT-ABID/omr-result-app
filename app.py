@@ -582,7 +582,18 @@ def inject_global_css():
             padding: 10px 16px;
             background: var(--mv-surface);
         }
-        .st-key-top_nav div[data-testid="stHorizontalBlock"] { gap: 10px; align-items: center !important; }
+        /* align-items: center is the Bug-2 fix - without it, the desktop
+           nav row's columns default to stretch, so the 34px-tall round
+           avatar button and the 44px-tall pill nav buttons ended up
+           vertically misaligned (avatar sitting higher/lower than the
+           pill row instead of sharing the same center line). Centering
+           every column's content on this shared axis fixes that for both
+           the outer (logo | nav) row and the inner (nav item | ... |
+           avatar) row, regardless of any element's own height. */
+        .st-key-top_nav div[data-testid="stHorizontalBlock"] {
+            gap: 10px;
+            align-items: center !important;
+        }
         .st-key-top_nav button {
             width: 100%;
             min-height: 44px;
@@ -614,50 +625,56 @@ def inject_global_css():
         .st-key-top_nav .stButton > button:not([kind="primary"]):hover {
             color: var(--mv-primary) !important;
         }
+        /* The avatar button + its wrapping container/column always
+           centered on the shared row axis too, on top of the
+           align-items:center above - belt-and-suspenders so the round
+           avatar never drifts even if its column ends up a different
+           height than its siblings for any reason. */
+        .st-key-top_nav .st-key-top_nav_avatar_btn {
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            margin: 0 !important;
+        }
 
         /* Nav icons use Streamlit's native st.button(icon=":material/...:")
            support (see nav_icon() in app.py) - no custom CSS needed here,
            it's rendered as real button markup. */
 
-        /* ---- Mobile top bar: logo (first child) + a single toggle
-           button (second child) pushed to the right via flex-row +
-           justify-content:space-between on the container.
-           HISTORY, for whoever touches this next:
-           1) TWO absolutely-positioned buttons (hamburger + a separate
-              profile icon) once landed exactly on top of each other.
-           2) A ">" direct-child selector assuming stVerticalBlock sits
-              one level below the "st-key-*" class once silently matched
-              nothing, since Streamlit puts that testid on the SAME
-              element the class is on.
-           3) st.columns([1,1]) for logo+toggle, with custom flex CSS
-              forcing the row to behave, repeatedly failed in different
-              ways (columns stacking vertically on mobile per Streamlit's
-              own default, then a leftover "shrink child to content
-              width" rule collapsing the whole row).
-           4) position:absolute (top:0; right:0) on the toggle's own
-              container - the NEXT thing tried after #3 - looked correct
-              on paper but rendered the toggle pinned near the top-LEFT
-              instead, overlapping the logo. Root cause not fully
-              confirmed remotely, but the likely culprit is Streamlit
-              wrapping element-containers in something that changes the
-              CSS "containing block" for position:absolute (e.g. a
-              transform on an intermediate wrapper), so right:0 wasn't
-              measured against the element this code intended.
-           The fix that's actually proven reliable here (this exact
-           mechanism already worked for the mentor panel's identical
-           hamburger+settings layout) is much simpler: no columns, no
-           absolute positioning - just force the OUTER vertical block
-           (which Streamlit already puts BOTH the logo and the toggle's
-           container into, as two direct sibling children, since neither
-           uses st.columns() any more) into a flex ROW with
-           justify-content:space-between. With exactly two children and
-           no z-index/containing-block ambiguity, this just works.
+        /* ---- Mobile top bar + custom expandable menu.
+           Rebuilt WITHOUT st.columns AND without position:absolute - the
+           absolute-positioning version put the hamburger and profile/
+           settings buttons exactly on top of each other. The next attempt
+           (targeting ".st-key-mobile_top_bar > div[data-testid=
+           'stVerticalBlock']") silently matched nothing at all - the ">"
+           direct-child combinator assumed stVerticalBlock sits one level
+           BELOW the st-key-* class, but Streamlit puts that testid on the
+           SAME element the class is on, so the rule never applied and the
+           two buttons just fell back to Streamlit's default stacked
+           layout. Fixed by targeting the class itself directly (no ">"),
+           with a plain descendant version alongside it as a fallback.
            IMPORTANT: "display" is set in exactly two places only - hidden
            here (!important, every screen size) and shown-as-flex inside
-           the max-width:900px media query further down, for the same
-           !important-vs-!important reason noted before: putting
-           "display:flex !important" in an unconditional rule would beat
-           "display:none" at every width regardless of the media query. ---- */
+           the max-width:900px media query further down. Putting
+           "display: flex !important" in an *unconditional* rule (as an
+           earlier version of this file did) beat the "display: none"
+           default at every width regardless of the media query, since
+           !important always wins over a non-!important rule no matter
+           which one is declared first - that's what made this bar show
+           up on desktop too. Every other layout property (flex-direction,
+           gap, etc.) is safe to keep unconditional since it's inert while
+           display:none is in effect.
+           ALSO IMPORTANT (Bug-1 fix): every row inside this bar (the
+           logo+toggle header, and the drawer's own nav rows) is built
+           from plain markup / plain st.button calls now - NEVER
+           st.columns(). Streamlit stacks st.columns() vertically below
+           its own ~640px responsive breakpoint by default, which is
+           exactly what was pushing the hamburger toggle below the logo
+           on real phones (which are almost always narrower than that
+           breakpoint). Using direct children of this flex container
+           instead (each one a plain element-container div) sidesteps
+           that breakpoint entirely - a flex row has no such stacking
+           behavior. ---- */
         .st-key-mobile_top_bar,
         .st-key-mobile_top_bar[data-testid="stVerticalBlock"] {
             display: none !important;
@@ -1149,6 +1166,21 @@ def inject_global_css():
            particular avatar+input pairing, so it was removed rather than
            further patched blind. Nothing needed here. ---- */
 
+        /* ---- Profile page: Profile Information / Account Status / Log
+           Out cards (matches the reference dashboard-style design). Rows
+           inside the info card, and the status pill rows, are plain CSS -
+           real markup below, styled here so it's consistent with the
+           rest of the app's card look instead of a one-off. ---- */
+        .mv-profile-status-row {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 9px 0; border-bottom: 1px solid var(--mv-border);
+        }
+        .mv-profile-status-row:last-child { border-bottom: none; }
+        .mv-profile-status-label { font-size: 13.5px; color: var(--mv-muted); }
+        .mv-profile-status-pill {
+            font-size: 11px; padding: 3px 12px; border-radius: 999px; font-weight: 700;
+        }
+
         /* ---- Student per-submission calibration ---- */
         .calib-step-badge {
             display:inline-block; padding:4px 12px; border-radius:999px;
@@ -1244,6 +1276,12 @@ AVATAR_COLORS = [
     "#26AB8C", "#F94D10", "#7C9CE6", "#C77DE0", "#E0A23D",
     "#5FBF6B", "#E0637D", "#4FA0E6", "#B0A23D", "#8B7DE0",
 ]
+
+# Options offered on the Profile page's "Update Profile" form. Birth date
+# is intentionally NOT collected at signup (see phone_field()/signup view
+# below) - name + phone + password is all that's needed to create an
+# account - but a student can add/update it any time afterwards here.
+GENDER_OPTIONS = ["Not specified", "Male", "Female", "Other"]
 
 
 def _avatar_initials(name):
@@ -1632,6 +1670,11 @@ def _render_signup_view():
             # exactly the confusing behaviour we're fixing here. Plain widgets
             # rerun on every keystroke, so the strength bar updates live while
             # typing, before the button is ever pressed.
+            #
+            # Deliberately only name + phone + password + security question
+            # are asked here - no birth date / gender at signup. Those are
+            # optional and can be filled in any time afterwards from the
+            # Profile page (see page_profile()).
             name = st.text_input("Full name", key="su_name")
             su_code, phone_digits = phone_field("su")
             pw1 = st.text_input("Password", type="password", key="su_pw1")
@@ -1761,12 +1804,6 @@ STUDENT_NAV = [
     ("profile", "Profile"),
 ]
 
-# Custom, hand-drawn line-style icons for the student nav (no emoji) -
-# minimal single-stroke SVGs in the same monoline style as the reference
-# design, using "currentColor" for the stroke so render_nav_icon() below
-# can recolor each one per-button (matching active/inactive text color)
-# with a simple string replace, without needing a separate icon file per
-# state.
 # Nav icons via Streamlit's own native st.button(icon=...) support -
 # real, first-party rendering (not a CSS overlay or ::before hack) so it
 # can never fail to show up or misalign, unlike two earlier attempts at
@@ -1797,7 +1834,10 @@ def render_top_nav(current_page):
     # nav items, and the avatar circle on the far right - matching the
     # reference design's flat, link-style nav bar instead of the earlier
     # rounded-pill-button look. Active page is shown via bold teal text
-    # rather than a filled pill.
+    # rather than a filled pill. The whole row (including the avatar) is
+    # vertically centered via the ".st-key-top_nav div[data-testid=
+    # 'stHorizontalBlock']" align-items:center rule in inject_global_css -
+    # that's the Bug-2 fix (avatar not lining up with the pill buttons).
     desktop_nav_items = [item for item in STUDENT_NAV if item[0] != "profile"]
     with st.container(key="top_nav"):
         logo_col, nav_col = st.columns([1.6, 6.4])
@@ -1834,7 +1874,7 @@ def render_top_nav(current_page):
                     f"background:{color} !important; border-color:{color} !important; color:#fff !important; "
                     f"border-radius:50% !important; width:34px !important; height:34px !important; "
                     f"min-height:34px !important; padding:0 !important; font-size:13px !important; "
-                    f"font-weight:700 !important; margin:0 auto !important; display:flex !important; }}</style>",
+                    f"font-weight:700 !important; }}</style>",
                     unsafe_allow_html=True,
                 )
                 with st.container(key="top_nav_avatar_btn"):
@@ -1843,22 +1883,21 @@ def render_top_nav(current_page):
 
     # Mobile: a simplified header showing ONLY the logo (left) and the
     # hamburger/close toggle (right) - no inline avatar button any more,
-    # matching the reference's collapsed mobile header exactly. Tapping
-    # the toggle now opens the menu as a FIXED slide-out drawer sliding
-    # in from the right edge of the screen (see ".mobile-menu-card" /
-    # "[class*='st-key-mobile_menu_']" CSS in inject_global_css), instead
-    # of the earlier inline dropdown that expanded the page content
-    # downward. Profile is reached from inside that drawer's nav list,
-    # same as every other nav item.
+    # matching the reference's collapsed mobile header exactly.
+    #
+    # Bug-1 fix: this used to be built with st.columns([1, 1]) for the
+    # logo/toggle pair, which Streamlit stacks vertically below its own
+    # ~640px responsive breakpoint (true for virtually every phone) - that
+    # was exactly what pushed the hamburger button below the logo instead
+    # of sitting beside it. Rebuilt below with NO st.columns: the logo
+    # markdown and the toggle button (wrapped in its own small container)
+    # are both plain, direct children of "mobile_top_bar", which the
+    # ".st-key-mobile_top_bar" CSS in inject_global_css already forces
+    # into a single flex row with the logo on the left and the toggle on
+    # the right (justify-content: space-between) - the same pattern
+    # already used successfully for the mentor top bar below.
     with st.container(key="mobile_top_bar"):
         is_open = st.session_state.get("student_mobile_menu_open", False)
-        # Logo renders first (normal in-flow content), then the toggle's
-        # own small container - as two direct sibling children of this
-        # outer container. See the CSS in inject_global_css (search
-        # "Mobile top bar: logo") for why this simple flex-row +
-        # justify-content:space-between mechanism is used instead of
-        # st.columns() or position:absolute, both of which were tried
-        # first and broke in different ways.
         st.markdown(
             f"<div style='display:flex; align-items:center; gap:6px; height:40px;'>"
             f"<div style='width:24px; height:24px; flex-shrink:0;'>{LOGO_SVG}</div>"
@@ -2675,72 +2714,154 @@ def page_leaderboard():
 # Student: Profile
 # =========================================================================
 
+def _profile_info_row(icon, label, value):
+    """One row inside the Profile Information card - small icon chip +
+    label + value, matching the reference dashboard design."""
+    return (
+        f"<div style='display:flex; align-items:center; gap:12px; padding:9px 0;'>"
+        f"<div style='width:34px; height:34px; border-radius:9px; background:var(--mv-primary-soft); "
+        f"display:flex; align-items:center; justify-content:center; font-size:15px; flex-shrink:0;'>{icon}</div>"
+        f"<div style='min-width:0;'>"
+        f"<div style='font-size:11px; color:var(--mv-muted);'>{label}</div>"
+        f"<div style='font-size:14.5px; font-weight:600; color:var(--mv-ink); margin-top:1px; "
+        f"overflow:hidden; text-overflow:ellipsis; white-space:nowrap;'>{value}</div>"
+        f"</div></div>"
+    )
+
+
+def _profile_status_pill_html(label, active_label, active, active_color="#26AB8C", bad_color="#F2434A"):
+    color = bad_color if not active else active_color
+    return (
+        f"<div class='mv-profile-status-row'>"
+        f"<span class='mv-profile-status-label'>{label}</span>"
+        f"<span class='mv-profile-status-pill' style='background:{color}22; color:{color};'>{active_label}</span>"
+        f"</div>"
+    )
+
+
 def page_profile():
     sid = st.session_state["student_id"]
     student = sh.get_student_by_id(sid)
+    name = student["name"]
+    disabled = sh._to_bool(student.get("disabled", False))
+    birth_date_val = (student.get("birth_date") or "").strip()
+    gender_val = (student.get("gender") or "").strip()
+
+    # ---- Header: avatar + name + role/verified badges ----
     st.markdown(
-        f"<div style='display:flex; align-items:center; gap:12px; margin-bottom:4px;'>"
-        f"{render_avatar(sid, student['name'], size=52)}"
-        f"<h3 style='margin:0;'>{student['name']}</h3>"
-        f"</div>",
+        f"""
+        <div style='display:flex; align-items:center; gap:16px; margin-bottom:14px; flex-wrap:wrap;'>
+            {render_avatar(sid, name, size=64, font_size=24)}
+            <div>
+                <div style='font-family:var(--serif); font-weight:600; font-size:23px; color:var(--mv-ink); line-height:1.2;'>{name}</div>
+                <div style='display:flex; align-items:center; gap:8px; margin-top:4px;'>
+                    <span style='font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--mv-muted); font-weight:700;'>Student</span>
+                    <span style='font-size:11px; padding:2px 10px; border-radius:999px; background:var(--mv-primary-soft); color:var(--mv-primary); font-weight:700;'>✓ Verified</span>
+                </div>
+            </div>
+        </div>
+        """,
         unsafe_allow_html=True,
     )
 
-    # ---- Edit Name: its own card (not tucked inside an expander like
-    # Change Password below) since seeing your own avatar update live as
-    # you type is the whole point - burying that behind a click would
-    # defeat it. The live preview re-renders render_avatar() with
-    # whatever's currently typed, so the student can see their initials
-    # change in real time before committing, without touching st.form
-    # (which would only rerun on submit and freeze the preview).
-    with st.container(key="card_profile_edit_name"):
-        st.markdown("##### ✏️ Edit Name")
-        st.caption("Updates your name everywhere in the app, including on your past test results.")
-        name_draft = st.session_state.get("prof_edit_name", student["name"])
-        # Plain st.columns() here - NOT the custom "_phone_row"-style flex
-        # CSS hack used elsewhere in this file. An earlier version tried
-        # that same trick for this avatar+input pair and it silently
-        # broke: the text input rendered with no visible box at all
-        # (avatar showing, input missing entirely) even on desktop width,
-        # unlike phone_field()'s selectbox+input pairing which the same
-        # technique works fine for. Rather than keep debugging a fragile
-        # CSS/DOM interaction blind, st.columns() is the simple, already
-        # proven-reliable pattern used successfully elsewhere in this app
-        # (e.g. the top-nav name+avatar) - the only tradeoff is it stacks
-        # vertically on very narrow phones, which is a minor cosmetic
-        # issue on a settings page, not a broken/invisible input.
-        avatar_col, input_col = st.columns([1, 6], gap="small")
-        with avatar_col:
+    left_col, right_col = st.columns([1.7, 1], gap="medium")
+
+    # ---- Left: Profile Information (view mode / edit mode) ----
+    with left_col:
+        with st.container(key="card_profile_info"):
+            hcol1, hcol2 = st.columns([2.4, 1.3])
+            with hcol1:
+                st.markdown("##### 👤 Profile Information")
+            with hcol2:
+                edit_open = st.session_state.get("profile_edit_open", False)
+                if st.button("✖ Cancel" if edit_open else "✏️ Update Profile",
+                             key="profile_toggle_edit_btn", use_container_width=True):
+                    st.session_state["profile_edit_open"] = not edit_open
+                    st.rerun()
+
+            if not st.session_state.get("profile_edit_open"):
+                fcol1, fcol2 = st.columns(2)
+                with fcol1:
+                    st.markdown(_profile_info_row("📞", "Phone", sh.format_bd_phone(student["phone"])), unsafe_allow_html=True)
+                    st.markdown(_profile_info_row("🚻", "Gender", gender_val or "N/A"), unsafe_allow_html=True)
+                with fcol2:
+                    st.markdown(_profile_info_row("🎂", "Birth Date", birth_date_val or "N/A"), unsafe_allow_html=True)
+                    st.markdown(_profile_info_row("🎓", "Role", "STUDENT"), unsafe_allow_html=True)
+            else:
+                # ---- Edit mode: Name / Birth Date / Gender only. Phone is
+                # intentionally NOT offered here at all - it's the
+                # student's login identity, so there's simply no field for
+                # it in this form (nothing to explain to the student,
+                # nothing for them to accidentally try to change). ----
+                new_name = st.text_input("Full name", value=name, key="profile_edit_name_input")
+
+                bcol1, bcol2 = st.columns(2)
+                with bcol1:
+                    want_birth_date = st.checkbox(
+                        "Add / update birth date", value=bool(birth_date_val),
+                        key="profile_edit_bd_toggle",
+                    )
+                    new_birth_date = None
+                    if want_birth_date:
+                        try:
+                            default_bd_val = (
+                                datetime.strptime(birth_date_val, "%Y-%m-%d").date()
+                                if birth_date_val else date(2005, 1, 1)
+                            )
+                        except Exception:
+                            default_bd_val = date(2005, 1, 1)
+                        new_birth_date = st.date_input(
+                            "Birth date", value=default_bd_val, key="profile_edit_bd_input",
+                            min_value=date(1950, 1, 1), max_value=date.today(),
+                        )
+                with bcol2:
+                    gender_idx = GENDER_OPTIONS.index(gender_val) if gender_val in GENDER_OPTIONS else 0
+                    new_gender = st.selectbox(
+                        "Gender", GENDER_OPTIONS, index=gender_idx, key="profile_edit_gender_input",
+                    )
+
+                st.caption("📞 Your phone number is your login ID, so it can't be changed here.")
+
+                if st.button("💾 Save Changes", type="primary", use_container_width=True, key="profile_save_btn"):
+                    cleaned_name = new_name.strip()
+                    if not cleaned_name:
+                        st.error("Name cannot be empty.")
+                    else:
+                        with st.spinner("Updating your profile..."):
+                            try:
+                                if cleaned_name != name:
+                                    sh.update_student_name(sid, cleaned_name)
+                                    st.session_state["student_name"] = cleaned_name
+                                sh.update_student_extra_profile(
+                                    sid,
+                                    birth_date=(new_birth_date.strftime("%Y-%m-%d") if want_birth_date and new_birth_date else ""),
+                                    gender=(new_gender if new_gender != "Not specified" else ""),
+                                )
+                                clear_all_caches()
+                            except ValueError as e:
+                                st.error(str(e))
+                            else:
+                                st.session_state["profile_edit_open"] = False
+                                st.success("Profile updated!")
+                                st.rerun()
+
+    # ---- Right: Account Status + Log Out ----
+    with right_col:
+        with st.container(key="card_profile_status"):
+            st.markdown("##### 🛡️ Account Status")
             st.markdown(
-                f"<div style='display:flex; align-items:center; justify-content:center; height:44px;'>"
-                f"{render_avatar(sid, name_draft, size=38)}</div>",
+                _profile_status_pill_html("Account Status", "Disabled" if disabled else "Active", not disabled)
+                + _profile_status_pill_html("Block Status", "Blocked" if disabled else "Not Blocked", not disabled),
                 unsafe_allow_html=True,
             )
-        with input_col:
-            new_name_input = st.text_input(
-                "Full name", value=student["name"], key="prof_edit_name",
-                label_visibility="collapsed",
-            )
-        if st.button("💾 Save Name", key="prof_save_name_btn", use_container_width=True):
-            cleaned = new_name_input.strip()
-            if not cleaned:
-                st.error("Name cannot be empty.")
-            elif cleaned == student["name"]:
-                st.info("That's already your current name.")
-            else:
-                with st.spinner("Updating your name everywhere..."):
-                    try:
-                        sh.update_student_name(sid, cleaned)
-                    except ValueError as e:
-                        st.error(str(e))
-                    else:
-                        clear_all_caches()
-                        st.session_state["student_name"] = cleaned
-                        st.success("Name updated!")
-                        st.rerun()
 
-    with st.container(key="card_profile_info"):
-        st.write(f"**Phone:** {sh.format_bd_phone(student['phone'])}")
+        with st.container(key="card_profile_logout"):
+            st.markdown("##### 🚪 Log Out")
+            st.caption("Sign out from your account securely.")
+            if st.button("Log Out", use_container_width=True, key="profile_logout_btn_new"):
+                for k in ("student_id", "student_name", "session_version", "role"):
+                    st.session_state.pop(k, None)
+                go_to("home")
 
     with st.expander("🔑 Change Password"):
         # Plain widgets (no st.form) so the strength bar updates live while
@@ -2779,17 +2900,12 @@ def page_profile():
                         st.session_state.pop(k, None)
                     st.rerun()
 
-    # ---- Mentor Login now lives here instead of a separate top-of-page
-    # button/bar, per request: keeps the student nav to 4 items everywhere. ----
+    # ---- Mentor Login lives here so the student nav stays a clean,
+    # consistent set of items everywhere. ----
     with st.container(key="card_profile_mentor"):
         st.markdown("Are you a mentor?")
         if st.button("👨‍🏫 Mentor Login", use_container_width=True, key="profile_mentor_login_btn"):
             go_to("mentor")
-
-    if st.button("🚪 Log Out", use_container_width=True):
-        for k in ("student_id", "student_name", "session_version", "role"):
-            st.session_state.pop(k, None)
-        go_to("home")
 
 
 # =========================================================================
@@ -3483,10 +3599,9 @@ def page_mentor():
                     st.session_state.pop("mentor_analysis_view_key_id", None)
                     go_to("mentor")
 
-    # Mobile: ☰ when closed, ✕ when open. Rebuilt without st.columns([1,3,1])
-    # for the same reason as the student nav above - three columns don't
-    # reliably fit a real phone viewport, which pushed the Settings icon
-    # off-screen. Hamburger is the normal first element (top-left);
+    # Mobile: ☰ when closed, ✕ when open. Built without st.columns for the
+    # same reason as the student nav above (see Bug-1 note in
+    # render_top_nav) - hamburger is the normal first element (top-left);
     # Settings is pinned top-right via CSS on its own small container.
     with st.container(key="mobile_top_bar"):
         is_open = st.session_state.get("mentor_mobile_menu_open", False)
