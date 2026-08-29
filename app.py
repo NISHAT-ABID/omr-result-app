@@ -582,7 +582,7 @@ def inject_global_css():
             padding: 10px 16px;
             background: var(--mv-surface);
         }
-        .st-key-top_nav div[data-testid="stHorizontalBlock"] { gap: 10px; }
+        .st-key-top_nav div[data-testid="stHorizontalBlock"] { gap: 10px; align-items: center !important; }
         .st-key-top_nav button {
             width: 100%;
             min-height: 44px;
@@ -656,6 +656,29 @@ def inject_global_css():
         .st-key-mobile_top_bar[data-testid="stVerticalBlock"] > div,
         .st-key-mobile_top_bar div[data-testid="stVerticalBlock"] > div {
             width: auto !important;
+            flex: 0 0 auto !important;
+        }
+        /* The logo+toggle row now uses REAL st.columns() (a
+           stHorizontalBlock), not individually-placed buttons like
+           before - Streamlit stacks st.columns() vertically by default
+           below ~640px (the same recurring issue fixed elsewhere in this
+           file for metric cards etc.), which is what was pushing the
+           hamburger onto its own row underneath the logo instead of
+           sitting beside it on the right. Forcing row+nowrap here keeps
+           logo and toggle on one line at every width. */
+        .st-key-mobile_top_bar div[data-testid="stHorizontalBlock"] {
+            display: flex !important;
+            flex-direction: row !important;
+            flex-wrap: nowrap !important;
+            justify-content: space-between !important;
+            align-items: center !important;
+            gap: 8px !important;
+        }
+        .st-key-mobile_top_bar div[data-testid="column"] {
+            width: auto !important;
+            min-width: 0 !important;
+        }
+        .st-key-mobile_top_bar div[data-testid="column"]:last-child {
             flex: 0 0 auto !important;
         }
         .st-key-mobile_top_bar button {
@@ -1818,7 +1841,7 @@ def render_top_nav(current_page):
                     f"background:{color} !important; border-color:{color} !important; color:#fff !important; "
                     f"border-radius:50% !important; width:34px !important; height:34px !important; "
                     f"min-height:34px !important; padding:0 !important; font-size:13px !important; "
-                    f"font-weight:700 !important; }}</style>",
+                    f"font-weight:700 !important; margin:0 auto !important; display:flex !important; }}</style>",
                     unsafe_allow_html=True,
                 )
                 with st.container(key="top_nav_avatar_btn"):
