@@ -172,6 +172,17 @@ def inject_global_css():
             --mv-nav-active-bg: #142D2A;
             --mv-accent: #F94D10;
             --mv-accent-soft: rgba(249,77,16,0.18);
+            /* Extra accent colors used for varied icon-chip backgrounds
+               (Profile Information rows, the stats strip) so each stat
+               reads as visually distinct rather than everything sharing
+               one or two tones - matches the reference design's mixed
+               teal/blue/gold/purple icon palette. */
+            --mv-blue: #3B82F6;
+            --mv-blue-soft: rgba(59,130,246,0.20);
+            --mv-purple: #8B5CF6;
+            --mv-purple-soft: rgba(139,92,246,0.20);
+            --mv-danger: #F2434A;
+            --mv-danger-soft: rgba(242,67,74,0.16);
             --mv-muted: #9BAAA2;
             --mv-border: rgba(230,240,235,0.14);
             --mv-card-bg: rgba(230,240,235,0.05);
@@ -596,17 +607,24 @@ def inject_global_css():
         }
         .st-key-top_nav button {
             width: 100%;
-            min-height: 44px;
-            border-radius: 999px !important;
-            border: 1px solid var(--mv-border) !important;
-            padding: 9px 14px !important;
+            min-height: 40px;
+            border-radius: 6px !important;
+            border: none !important;
+            border-bottom: 2px solid transparent !important;
+            padding: 8px 10px !important;
             font-size: 14px !important;
             white-space: nowrap !important;
+            background: transparent !important;
         }
+        /* Active nav item: plain underline instead of a filled pill,
+           matching the reference design's flat tab-bar look - no
+           background box any more, just teal text + a teal underline. */
         .st-key-top_nav .stButton > button[kind="primary"] {
             border: none !important;
-            background-color: var(--mv-nav-active-bg) !important;
-            color: var(--mv-ink) !important;
+            border-bottom: 2px solid var(--mv-primary) !important;
+            border-radius: 0 !important;
+            background: transparent !important;
+            color: var(--mv-primary) !important;
         }
         /* Inactive nav pills: white/light-gray text+icon (matching the
            reference design), NOT the app's usual teal secondary-button
@@ -621,9 +639,11 @@ def inject_global_css():
            no extra rule needed. */
         .st-key-top_nav .stButton > button:not([kind="primary"]) {
             color: var(--mv-ink) !important;
+            background: transparent !important;
         }
         .st-key-top_nav .stButton > button:not([kind="primary"]):hover {
             color: var(--mv-primary) !important;
+            background: transparent !important;
         }
         /* The avatar button + its wrapping container/column always
            centered on the shared row axis too, on top of the
@@ -1261,6 +1281,70 @@ def inject_global_css():
             font-size: 19px; flex-shrink: 0;
         }
         .st-key-card_profile_mentor div[data-testid="stHorizontalBlock"] { align-items: center !important; }
+
+        /* ---- Account Status card: a large, very faint shield watermark
+           in the corner (matching the reference design's decorative
+           background icon), implemented as a CSS-only ::after pseudo-
+           element with a negative z-index - this paints behind the
+           card's real content automatically (no extra markup, no
+           fiddling with z-index on the actual status rows, so there's
+           no risk of accidentally covering real content). ---- */
+        .st-key-card_profile_status { position: relative; overflow: hidden; }
+        .st-key-card_profile_status::after {
+            content: "🛡️";
+            position: absolute; right: -14px; bottom: -22px;
+            font-size: 118px; line-height: 1; opacity: 0.05;
+            z-index: -1; pointer-events: none;
+        }
+
+        /* ---- Log Out card: a destructive-red icon chip and a red-
+           outlined button instead of the app's usual teal, since signing
+           out is a distinct, deliberate action - matches the reference
+           design's red accent on this one card only. Scoped tightly to
+           ".st-key-card_profile_logout" (the same container key is
+           reused by both the student and mentor Profile pages, so this
+           one rule covers both) so no other button in the app is
+           affected. ---- */
+        .mv-logout-icon {
+            width: 34px; height: 34px; border-radius: 9px;
+            background: var(--mv-danger-soft); color: var(--mv-danger);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 16px; flex-shrink: 0;
+        }
+        .st-key-card_profile_logout .stButton > button:not([kind="primary"]) {
+            border-color: var(--mv-danger) !important;
+            color: var(--mv-danger) !important;
+        }
+        .st-key-card_profile_logout .stButton > button:not([kind="primary"]):hover {
+            background: var(--mv-danger-soft) !important;
+        }
+
+        /* ---- Change Password: a clickable title row (icon-less plain-
+           text button, left-aligned, bold) + a caption line underneath
+           that's always visible - replaces the old st.expander so the
+           description text ("Update your password regularly...") shows
+           even before it's opened, matching the reference design. The
+           actual toggle-open/closed behavior is a normal session_state
+           flag (same pattern as "Update Profile" elsewhere on this
+           page), not a custom overlay/hack, so it's exactly as reliable
+           as every other toggle in the app. ---- */
+        .st-key-card_profile_changepw .stButton > button:not([kind="primary"]) {
+            background: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+            color: var(--mv-ink) !important;
+            font-weight: 700 !important;
+            font-size: 15px !important;
+            text-align: left !important;
+            justify-content: flex-start !important;
+            padding: 4px 0 !important;
+            min-height: unset !important;
+        }
+        .st-key-card_profile_changepw .stButton > button:not([kind="primary"]):hover {
+            color: var(--mv-primary) !important;
+            background: transparent !important;
+            transform: none !important;
+        }
 
         /* ---- Student per-submission calibration ---- */
         .calib-step-badge {
@@ -2803,12 +2887,14 @@ def page_leaderboard():
 # Student: Profile
 # =========================================================================
 
-def _profile_info_row(icon, label, value):
+def _profile_info_row(icon, label, value, icon_bg="var(--mv-primary-soft)"):
     """One row inside the Profile Information card - small icon chip +
-    label + value, matching the reference dashboard design."""
+    label + value, matching the reference dashboard design. icon_bg lets
+    each row use a distinct chip color (phone/gender/birth date/role all
+    read differently at a glance) instead of every row sharing one tone."""
     return (
         f"<div style='display:flex; align-items:center; gap:12px; padding:9px 0;'>"
-        f"<div style='width:34px; height:34px; border-radius:9px; background:var(--mv-primary-soft); "
+        f"<div style='width:34px; height:34px; border-radius:9px; background:{icon_bg}; "
         f"display:flex; align-items:center; justify-content:center; font-size:15px; flex-shrink:0;'>{icon}</div>"
         f"<div style='min-width:0;'>"
         f"<div style='font-size:11px; color:var(--mv-muted);'>{label}</div>"
@@ -2884,7 +2970,7 @@ def render_profile_stats_strip(stats):
     """
     with st.container(key="card_profile_stats"):
         cols = st.columns(4)
-        for col, stat in zip(cols, stats):
+        for idx, (col, stat) in enumerate(zip(cols, stats)):
             with col:
                 st.markdown(
                     _profile_stat_card_html(stat["icon"], stat["icon_bg"], stat["number"], stat["label"]),
@@ -2892,7 +2978,13 @@ def render_profile_stats_strip(stats):
                 )
                 target_page = stat.get("go_to_page")
                 if target_page:
-                    if st.button(stat["link_text"], key=f"profile_stat_{target_page}", use_container_width=True):
+                    # Keyed by position (idx) as well as target_page - two
+                    # stats can legitimately point at the same page (e.g.
+                    # "Tests Completed" and "Total Exams" both link to
+                    # "tests"), and Streamlit requires every widget key on
+                    # a page to be unique, so target_page alone isn't
+                    # enough to guarantee that.
+                    if st.button(stat["link_text"], key=f"profile_stat_{idx}_{target_page}", use_container_width=True):
                         if target_page.startswith("mentor:"):
                             st.session_state["mentor_page"] = target_page.split("mentor:", 1)[1]
                             st.session_state.pop("mentor_analysis_sid", None)
@@ -2917,19 +3009,16 @@ def page_profile():
     gender_val = (student.get("gender") or "").strip()
 
     # ---- Stats used in the strip beside the header: tests completed,
-    # average score, overall leaderboard rank, and "days active" (the
-    # number of distinct calendar days this student has submitted a
-    # test on) - all derived from data already being cached elsewhere in
-    # the app, so this adds no extra Google Sheets calls. ----
+    # average score, overall leaderboard rank - all derived from data
+    # already being cached elsewhere in the app, so this adds no extra
+    # Google Sheets calls. ----
     results = cached_results()
     my_results = results[results["student_id"] == sid] if not results.empty else results
     tests_completed = len(my_results)
     if not my_results.empty:
         avg_pct = round((my_results["marks"] / my_results["total"]).mean() * 100, 1)
-        days_active = int(my_results["timestamp"].astype(str).str.split(" ").str[0].nunique())
     else:
         avg_pct = 0.0
-        days_active = 0
     rank, _out_of = cached_rank(sid)
 
     header_col, stats_col = st.columns([1.3, 2.4], gap="medium")
@@ -2953,18 +3042,18 @@ def page_profile():
         )
 
     # ---- Stats strip: Tests Completed / Average Score / Leaderboard
-    # Rank / Days Active, each with a "View X →" shortcut into the page
+    # Rank / Total Exams, each with a "View X →" shortcut into the page
     # that actually shows that data. ----
     with stats_col:
         render_profile_stats_strip([
             {"icon": "📋", "icon_bg": "var(--mv-primary-soft)", "number": tests_completed,
              "label": "Tests Completed", "link_text": "View Results →", "go_to_page": "tests"},
-            {"icon": "📈", "icon_bg": "var(--mv-primary-soft)", "number": f"{avg_pct}%",
+            {"icon": "📈", "icon_bg": "var(--mv-blue-soft)", "number": f"{avg_pct}%",
              "label": "Average Score", "link_text": "View Analysis →", "go_to_page": "analysis"},
             {"icon": "🏆", "icon_bg": "var(--mv-accent-soft)", "number": (f"#{rank}" if rank else "—"),
              "label": "Leaderboard Rank", "link_text": "View Leaderboard →", "go_to_page": "leaderboard"},
-            {"icon": "📅", "icon_bg": "var(--mv-primary-soft)", "number": days_active,
-             "label": "Days Active", "caption": "Keep Going! 🚀" if days_active else "Start today! 🚀"},
+            {"icon": "📚", "icon_bg": "var(--mv-purple-soft)", "number": tests_completed,
+             "label": "Total Exams", "link_text": "View Results →", "go_to_page": "tests"},
         ])
 
     left_col, right_col = st.columns([1.7, 1], gap="medium")
@@ -2985,11 +3074,11 @@ def page_profile():
             if not st.session_state.get("profile_edit_open"):
                 fcol1, fcol2 = st.columns(2)
                 with fcol1:
-                    st.markdown(_profile_info_row("📞", "Phone", sh.format_bd_phone(student["phone"])), unsafe_allow_html=True)
-                    st.markdown(_profile_info_row("🚻", "Gender", gender_val or "N/A"), unsafe_allow_html=True)
+                    st.markdown(_profile_info_row("📞", "Phone", sh.format_bd_phone(student["phone"]), "var(--mv-primary-soft)"), unsafe_allow_html=True)
+                    st.markdown(_profile_info_row("🚻", "Gender", gender_val or "N/A", "var(--mv-blue-soft)"), unsafe_allow_html=True)
                 with fcol2:
-                    st.markdown(_profile_info_row("🎂", "Birth Date", birth_date_val or "N/A"), unsafe_allow_html=True)
-                    st.markdown(_profile_info_row("🎓", "Role", "STUDENT"), unsafe_allow_html=True)
+                    st.markdown(_profile_info_row("🎂", "Birth Date", birth_date_val or "N/A", "var(--mv-accent-soft)"), unsafe_allow_html=True)
+                    st.markdown(_profile_info_row("🎓", "Role", "STUDENT", "var(--mv-purple-soft)"), unsafe_allow_html=True)
             else:
                 # ---- Edit mode: Name / Birth Date / Gender only. Phone is
                 # intentionally NOT offered here at all - it's the
@@ -3059,49 +3148,63 @@ def page_profile():
             )
 
         with st.container(key="card_profile_logout"):
-            st.markdown("##### 🚪 Log Out")
+            st.markdown(
+                "<div style='display:flex; align-items:center; gap:10px;'>"
+                "<div class='mv-logout-icon'>🚪</div>"
+                "<span style='font-weight:700; font-size:15px; color:var(--mv-ink);'>Log Out</span>"
+                "</div>",
+                unsafe_allow_html=True,
+            )
             st.caption("Sign out from your account securely.")
             if st.button("Log Out", use_container_width=True, key="profile_logout_btn_new"):
                 for k in ("student_id", "student_name", "session_version", "role"):
                     st.session_state.pop(k, None)
                 go_to("home")
 
-    with st.expander("🔑 Change Password"):
-        # Plain widgets (no st.form) so the strength bar updates live while
-        # typing, instead of only appearing after the button is clicked.
-        cur_pw = st.text_input("Current password", type="password", key="prof_cur_pw")
-        new_pw1 = st.text_input("New password", type="password", key="prof_new_pw1")
-        if new_pw1:
-            score, label, _tips = sh.password_strength(new_pw1)
-            colors = ["#ef4444", "#ef4444", "#f59e0b", "#10b981", "#059669"]
-            st.markdown(
-                f"<div class='strength-bar'><div class='strength-fill' "
-                f"style='width:{(score+1)*20}%; background:{colors[score]};'></div></div>"
-                f"<small>Password strength: <b>{label}</b></small>",
-                unsafe_allow_html=True,
-            )
-        new_pw2 = st.text_input("Confirm new password", type="password", key="prof_new_pw2")
-        change_submitted = st.button("Update Password", type="primary")
+    with st.container(key="card_profile_changepw"):
+        pw_open = st.session_state.get("profile_changepw_open", False)
+        if st.button(f"🔑  Change Password {'▾' if pw_open else '▸'}",
+                     key="profile_changepw_toggle_btn", use_container_width=True):
+            st.session_state["profile_changepw_open"] = not pw_open
+            st.rerun()
+        st.caption("Update your password regularly to keep your account secure.")
 
-        if change_submitted:
-            try:
-                sh.authenticate_student(student["phone"], cur_pw)
-            except ValueError:
-                st.error("Current password is incorrect.")
-            else:
-                _, _, tips = sh.password_strength(new_pw1)
-                if tips:
-                    st.error("New password is too weak: " + ", ".join(tips))
-                elif new_pw1 != new_pw2:
-                    st.error("New passwords don't match.")
+        if pw_open:
+            # Plain widgets (no st.form) so the strength bar updates live while
+            # typing, instead of only appearing after the button is clicked.
+            cur_pw = st.text_input("Current password", type="password", key="prof_cur_pw")
+            new_pw1 = st.text_input("New password", type="password", key="prof_new_pw1")
+            if new_pw1:
+                score, label, _tips = sh.password_strength(new_pw1)
+                colors = ["#ef4444", "#ef4444", "#f59e0b", "#10b981", "#059669"]
+                st.markdown(
+                    f"<div class='strength-bar'><div class='strength-fill' "
+                    f"style='width:{(score+1)*20}%; background:{colors[score]};'></div></div>"
+                    f"<small>Password strength: <b>{label}</b></small>",
+                    unsafe_allow_html=True,
+                )
+            new_pw2 = st.text_input("Confirm new password", type="password", key="prof_new_pw2")
+            change_submitted = st.button("Update Password", type="primary")
+
+            if change_submitted:
+                try:
+                    sh.authenticate_student(student["phone"], cur_pw)
+                except ValueError:
+                    st.error("Current password is incorrect.")
                 else:
-                    with st.spinner("Updating..."):
-                        sh.change_student_password(sid, new_pw1)
-                        clear_all_caches()
-                    st.success("Password updated. Please log in again.")
-                    for k in ("student_id", "student_name", "session_version", "role"):
-                        st.session_state.pop(k, None)
-                    st.rerun()
+                    _, _, tips = sh.password_strength(new_pw1)
+                    if tips:
+                        st.error("New password is too weak: " + ", ".join(tips))
+                    elif new_pw1 != new_pw2:
+                        st.error("New passwords don't match.")
+                    else:
+                        with st.spinner("Updating..."):
+                            sh.change_student_password(sid, new_pw1)
+                            clear_all_caches()
+                        st.success("Password updated. Please log in again.")
+                        for k in ("student_id", "student_name", "session_version", "role"):
+                            st.session_state.pop(k, None)
+                        st.rerun()
 
     # ---- Mentor Login lives here so the student nav stays a clean,
     # consistent set of items everywhere. Icon chip + title/description
@@ -3772,11 +3875,11 @@ def page_mentor_profile():
         render_profile_stats_strip([
             {"icon": "👥", "icon_bg": "var(--mv-primary-soft)", "number": stats["total_students"],
              "label": "Total Students", "link_text": "View Students →", "go_to_page": "mentor:m_students"},
-            {"icon": "📈", "icon_bg": "var(--mv-primary-soft)", "number": f"{stats['average_score_pct']}%",
+            {"icon": "📈", "icon_bg": "var(--mv-blue-soft)", "number": f"{stats['average_score_pct']}%",
              "label": "Average Score", "link_text": "View Results →", "go_to_page": "mentor:m_results"},
             {"icon": "🏆", "icon_bg": "var(--mv-accent-soft)", "number": stats["total_submissions"],
              "label": "Total Submissions", "link_text": "View Leaderboard →", "go_to_page": "mentor:m_leaderboard"},
-            {"icon": "📝", "icon_bg": "var(--mv-primary-soft)", "number": exams_created,
+            {"icon": "📝", "icon_bg": "var(--mv-purple-soft)", "number": exams_created,
              "label": "Exams Created", "caption": "Keep creating! 🚀" if exams_created else "Create your first! 🚀"},
         ])
 
@@ -3799,9 +3902,9 @@ def page_mentor_profile():
             if not st.session_state.get("mentor_profile_edit_open"):
                 fcol1, fcol2 = st.columns(2)
                 with fcol1:
-                    st.markdown(_profile_info_row("🧑‍🏫", "Display Name", name), unsafe_allow_html=True)
+                    st.markdown(_profile_info_row("🧑‍🏫", "Display Name", name, "var(--mv-accent-soft)"), unsafe_allow_html=True)
                 with fcol2:
-                    st.markdown(_profile_info_row("🎓", "Role", "MENTOR"), unsafe_allow_html=True)
+                    st.markdown(_profile_info_row("🎓", "Role", "MENTOR", "var(--mv-purple-soft)"), unsafe_allow_html=True)
             else:
                 new_name = st.text_input("Display name", value=name, key="mentor_profile_name_input")
                 if st.button("💾 Save Changes", type="primary", use_container_width=True, key="mentor_profile_save_btn"):
@@ -3825,46 +3928,59 @@ def page_mentor_profile():
             )
 
         with st.container(key="card_profile_logout"):
-            st.markdown("##### 🚪 Log Out")
+            st.markdown(
+                "<div style='display:flex; align-items:center; gap:10px;'>"
+                "<div class='mv-logout-icon'>🚪</div>"
+                "<span style='font-weight:700; font-size:15px; color:var(--mv-ink);'>Log Out</span>"
+                "</div>",
+                unsafe_allow_html=True,
+            )
             st.caption("Sign out from the mentor panel securely.")
             if st.button("Log Out", use_container_width=True, key="mentor_profile_logout_btn"):
                 st.session_state["mentor_authed"] = False
                 go_to("home")
 
-    with st.expander("🔑 Change Password"):
-        st.caption("This password is for you (the mentor) only.")
-        # Plain widgets (no st.form) so the strength bar updates live while typing.
-        current_pw = st.text_input("Current password", type="password", key="mentor_prof_cur_pw")
-        new_pw1 = st.text_input("New password", type="password", key="mentor_prof_new_pw1")
-        if new_pw1:
-            score, label, _tips = sh.password_strength(new_pw1)
-            colors = ["#ef4444", "#ef4444", "#f59e0b", "#10b981", "#059669"]
-            st.markdown(
-                f"<div class='strength-bar'><div class='strength-fill' "
-                f"style='width:{(score+1)*20}%; background:{colors[score]};'></div></div>"
-                f"<small>Password strength: <b>{label}</b></small>",
-                unsafe_allow_html=True,
-            )
-        new_pw2 = st.text_input("Confirm new password", type="password", key="mentor_prof_new_pw2")
-        change_submitted = st.button("Update Password", type="primary", key="mentor_prof_pw_update_btn")
+    with st.container(key="card_profile_changepw"):
+        pw_open = st.session_state.get("mentor_profile_changepw_open", False)
+        if st.button(f"🔑  Change Password {'▾' if pw_open else '▸'}",
+                     key="mentor_profile_changepw_toggle_btn", use_container_width=True):
+            st.session_state["mentor_profile_changepw_open"] = not pw_open
+            st.rerun()
+        st.caption("Update your password regularly to keep your account secure.")
 
-        if change_submitted:
-            if current_pw != sh.get_mentor_password():
-                st.error("Current password is incorrect.")
-            elif not new_pw1:
-                st.error("New password cannot be empty.")
-            elif new_pw1 != new_pw2:
-                st.error("New passwords don't match.")
-            else:
-                _, _, tips = sh.password_strength(new_pw1)
-                if tips:
-                    st.error("New password is too weak: " + ", ".join(tips))
+        if pw_open:
+            # Plain widgets (no st.form) so the strength bar updates live while typing.
+            current_pw = st.text_input("Current password", type="password", key="mentor_prof_cur_pw")
+            new_pw1 = st.text_input("New password", type="password", key="mentor_prof_new_pw1")
+            if new_pw1:
+                score, label, _tips = sh.password_strength(new_pw1)
+                colors = ["#ef4444", "#ef4444", "#f59e0b", "#10b981", "#059669"]
+                st.markdown(
+                    f"<div class='strength-bar'><div class='strength-fill' "
+                    f"style='width:{(score+1)*20}%; background:{colors[score]};'></div></div>"
+                    f"<small>Password strength: <b>{label}</b></small>",
+                    unsafe_allow_html=True,
+                )
+            new_pw2 = st.text_input("Confirm new password", type="password", key="mentor_prof_new_pw2")
+            change_submitted = st.button("Update Password", type="primary", key="mentor_prof_pw_update_btn")
+
+            if change_submitted:
+                if current_pw != sh.get_mentor_password():
+                    st.error("Current password is incorrect.")
+                elif not new_pw1:
+                    st.error("New password cannot be empty.")
+                elif new_pw1 != new_pw2:
+                    st.error("New passwords don't match.")
                 else:
-                    with st.spinner("Updating..."):
-                        sh.set_mentor_password(new_pw1)
-                    st.session_state["mentor_authed"] = False
-                    st.success("Password changed! Please log in again with the new password.")
-                    st.rerun()
+                    _, _, tips = sh.password_strength(new_pw1)
+                    if tips:
+                        st.error("New password is too weak: " + ", ".join(tips))
+                    else:
+                        with st.spinner("Updating..."):
+                            sh.set_mentor_password(new_pw1)
+                        st.session_state["mentor_authed"] = False
+                        st.success("Password changed! Please log in again with the new password.")
+                        st.rerun()
 
 
 # =========================================================================
