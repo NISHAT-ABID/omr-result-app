@@ -13,7 +13,7 @@ Run with: streamlit run app.py
 """
 
 import random
-from datetime import datetime, date, time as dtime
+from datetime import datetime, date, time as dtime, timedelta
 
 import cv2
 import numpy as np
@@ -2124,6 +2124,9 @@ def page_home():
             remaining = active["end_dt"] - sh.now_bd()
             mins_left = max(0, int(remaining.total_seconds() // 60))
             st.markdown(f"#### 🟢 Active Test: {active['exam_name'] or active['key_id']}")
+            start_label, end_label = _format_exam_window(active["start_dt"], active["end_dt"])
+            total_duration_min = int((active["end_dt"] - active["start_dt"]).total_seconds() // 60)
+            st.caption(f"🗓️ {start_label}  →  {end_label}   ·   ⏱️ {_format_duration(total_duration_min)}")
             c1, c2 = st.columns(2)
             c1.metric("Questions", active["total_questions"])
             c2.metric("Time Left", f"{mins_left} min")
@@ -3374,6 +3377,91 @@ def _time_input_12h(label, key_prefix, default_hour_24=9, default_minute=0):
     return dtime(hour_24, int(minute))
 
 
+# Preset exam-duration options (minutes) shown as quick-pick pills, plus a
+# "Custom" option that reveals a free-entry minutes field - covers the
+# common cases (30/60/90/120 min) with one tap, while still allowing any
+# other length.
+DURATION_PRESETS = [15, 30, 45, 60, 90, 120, 180]
+
+
+def _duration_picker(key_prefix, default_minutes=60):
+    """Renders a duration picker (preset pills + custom minutes field) and
+    returns the chosen duration as an int number of minutes."""
+    preset_labels = [f"{m} min" for m in DURATION_PRESETS] + ["Custom"]
+    default_label = f"{default_minutes} min" if default_minutes in DURATION_PRESETS else "Custom"
+    default_idx = preset_labels.index(default_label)
+    choice = st.radio(
+        "Duration", preset_labels, horizontal=True, index=default_idx,
+        label_visibility="collapsed", key=f"{key_prefix}_choice",
+    )
+    if choice == "Custom":
+        return int(st.number_input(
+            "Custom duration (minutes)", min_value=1, max_value=1440,
+            value=default_minutes, step=5, key=f"{key_prefix}_custom",
+        ))
+    return DURATION_PRESETS[preset_labels.index(choice)]
+
+
+def _format_exam_window(start_dt, end_dt):
+    """Human-friendly 'Aug 22, 2026 · 08:00 PM  →  Aug 23, 2026 · 08:00 AM'
+    style labels for a start/end datetime pair. Always shows the full date
+    on both sides (not just when they differ) so an overnight exam window
+    is never ambiguous at a glance."""
+    fmt = "%b %d, %Y · %I:%M %p"
+
+    def _clean(dt):
+        # strip a leading zero from the 12-hour hour only (keep the date's
+        # own leading zeros, e.g. "Aug 05" should stay "Aug 05")
+        s = dt.strftime(fmt)
+        hour_part, _, rest = s.partition(":")
+        date_part, _, hour_only = hour_part.rpartition(" ")
+        return f"{date_part} {hour_only.lstrip('0') or '0'}:{rest}"
+
+    return _clean(start_dt), _clean(end_dt)
+
+
+def _format_duration(total_minutes):
+    total_minutes = int(total_minutes)
+    hours, minutes = divmod(total_minutes, 60)
+    parts = []
+    if hours:
+        parts.append(f"{hours}h")
+    if minutes or not parts:
+        parts.append(f"{minutes}m")
+    return " ".join(parts)
+
+
+def _render_exam_window_summary(start_dt, end_dt, duration_min):
+    """Small card shown on the exam-creation form (and reused on the
+    student Home page's Active Test card) summarizing exactly when the
+    exam opens, when it closes, and how long it runs - including a clear
+    flag when the exam rolls over into the next calendar day (e.g. an
+    8 PM start with a 12-hour duration ending 8 AM the next morning)."""
+    start_label, end_label = _format_exam_window(start_dt, end_dt)
+    crosses_midnight = start_dt.date() != end_dt.date()
+    overnight_note = (
+        "<div style='font-size:12px; color:var(--mv-accent); margin-top:3px;'>"
+        "⚠️ Ends the next day - the date is auto-adjusted for you.</div>"
+        if crosses_midnight else ""
+    )
+    st.markdown(
+        f"""
+        <div class='app-card' style='display:flex; align-items:center; gap:18px; flex-wrap:wrap; margin-top:6px;'>
+            <div style='flex:1; min-width:240px;'>
+                <div style='font-size:11px; color:var(--mv-muted); text-transform:uppercase; letter-spacing:.06em;'>Exam Window</div>
+                <div style='font-size:15px; font-weight:700; margin-top:2px;'>🟢 {start_label} &nbsp;→&nbsp; 🔴 {end_label}</div>
+                {overnight_note}
+            </div>
+            <div>
+                <div style='font-size:11px; color:var(--mv-muted); text-transform:uppercase; letter-spacing:.06em;'>Duration</div>
+                <div style='font-size:15px; font-weight:700; margin-top:2px;'>⏱️ {_format_duration(duration_min)}</div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def render_answer_key_tab():
     st.subheader("🗓️ Create Exam & Set Answer Key")
 
@@ -3404,7 +3492,20 @@ def render_answer_key_tab():
     exam_name = st.text_input("Exam name", placeholder="e.g. Physics Model Test - 3")
     d = st.date_input("Exam date", value=date.today())
     start_t = _time_input_12h("Start time", "mentor_start_t", default_hour_24=9, default_minute=0)
-    end_t = _time_input_12h("End time", "mentor_end_t", default_hour_24=9, default_minute=30)
+
+    st.markdown("**Exam duration**")
+    duration_min = _duration_picker("mentor_duration", default_minutes=30)
+
+    # The end date/time is now ALWAYS derived from start + duration instead
+    # of being picked separately - this is what makes an overnight exam
+    # (e.g. starts 10 PM, runs 12 hours) automatically land on the next
+    # calendar day instead of silently producing an end time earlier than
+    # the start time on the same date (which the old two-independent-
+    # time-pickers version could do with no warning at all).
+    start_dt_preview = datetime.combine(d, start_t)
+    end_dt_preview = start_dt_preview + timedelta(minutes=duration_min)
+
+    _render_exam_window_summary(start_dt_preview, end_dt_preview, duration_min)
 
     st.divider()
 
@@ -3437,16 +3538,41 @@ def render_answer_key_tab():
             st.rerun()
     with tool_col2:
         with st.popover("⌨️ Fill Quickly with Text", use_container_width=True):
-            text_val = st.text_input(f"{total_q} characters (A/B/C/D), no spaces", key="quick_text_ans")
-            if st.button("Apply Text"):
+            # Wrapped in a real st.form: without this, clicking "Apply Text"
+            # right after typing - without first pressing Enter or clicking
+            # somewhere else to blur the field - could submit the OLD,
+            # not-yet-committed value of the text_input (a plain text_input
+            # only guarantees its value is saved to session_state on blur/
+            # Enter, and a bare button click can race that, especially
+            # inside a popover). That's what was causing "You must enter
+            # exactly 100 characters" even right after typing 100 of them.
+            # A form batches every widget's live on-screen value together
+            # at the exact moment its own submit button is clicked, which
+            # removes that race entirely - Apply Text now always reads
+            # exactly what's typed, every time.
+            with st.form(key="quick_fill_form", clear_on_submit=True):
+                text_val = st.text_input(
+                    f"{total_q} characters (A/B/C/D), no spaces", key="quick_text_ans"
+                )
+                apply_clicked = st.form_submit_button("Apply Text", use_container_width=True)
+            if apply_clicked:
                 cleaned = text_val.strip().upper().replace(" ", "")
                 if len(cleaned) != total_q or any(c not in "ABCD" for c in cleaned):
-                    st.error(f"You must enter exactly {total_q} A/B/C/D characters.")
+                    st.error(
+                        f"You must enter exactly {total_q} A/B/C/D characters "
+                        f"(got {len(cleaned)})."
+                    )
                 else:
                     store = _answers_store()
                     for i, c in enumerate(cleaned):
                         store[i + 1] = c
                         st.session_state.pop(f"ans_q_{i + 1}", None)
+                    # Rerunning immediately (right after the store is
+                    # updated and every widget key for this batch is
+                    # cleared) is what makes the currently-visible bubble
+                    # page reflect the applied answers right away, instead
+                    # of only showing up after switching pages and back.
+                    st.success(f"✅ Applied all {total_q} answers - updated below.")
                     st.rerun()
 
     _inject_bubble_grid_css()
@@ -3492,8 +3618,13 @@ def render_answer_key_tab():
             st.error(f"You must answer all {total_q} questions (currently {answered} answered).")
         else:
             answer_string = _build_answer_string(total_q)
-            start_str = f"{d.strftime('%Y-%m-%d')} {start_t.strftime('%H:%M')}"
-            end_str = f"{d.strftime('%Y-%m-%d')} {end_t.strftime('%H:%M')}"
+            # Recomputed here (not just reused from the live preview above)
+            # so the saved value always matches exactly what's currently
+            # selected in the form at the moment Save is clicked.
+            start_dt_final = datetime.combine(d, start_t)
+            end_dt_final = start_dt_final + timedelta(minutes=duration_min)
+            start_str = start_dt_final.strftime("%Y-%m-%d %H:%M")
+            end_str = end_dt_final.strftime("%Y-%m-%d %H:%M")
             with st.spinner("Saving..."):
                 key_id = sh.add_answer_key(
                     exam_name.strip(), d.strftime("%Y-%m-%d"), start_str, end_str,
