@@ -1181,6 +1181,87 @@ def inject_global_css():
             font-size: 11px; padding: 3px 12px; border-radius: 999px; font-weight: 700;
         }
 
+        /* ---- Profile stats strip (Tests Completed / Average Score /
+           Leaderboard Rank / Days Active on the student page, and the
+           equivalent mentor stats on the mentor page) - one bordered
+           card, 4 plain columns, no per-column border/background so it
+           reads as a single unified strip matching the reference design.
+           The "View X →" / "Keep Going!" line under each stat is a real
+           st.button styled as a plain teal link (student side) or a
+           static caption (mentor side / the 4th "Days Active" stat) -
+           scoped narrowly to this card so it never affects any other
+           button in the app. ---- */
+        .st-key-card_profile_stats { padding: 18px 20px !important; }
+        .st-key-card_profile_stats div[data-testid="column"] { text-align: center; }
+        .st-key-card_profile_stats .stButton { display: flex; justify-content: center; }
+        .st-key-card_profile_stats .stButton > button:not([kind="primary"]) {
+            background: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+            color: var(--mv-primary) !important;
+            font-size: 12.5px !important;
+            font-weight: 600 !important;
+            padding: 2px 0 !important;
+            margin-top: 2px !important;
+            min-height: unset !important;
+            width: auto !important;
+        }
+        .st-key-card_profile_stats .stButton > button:not([kind="primary"]):hover {
+            text-decoration: underline; background: transparent !important; transform: none !important;
+        }
+
+        /* ---- Small down-chevron next to the top-nav avatar (student and
+           mentor) - purely decorative, matching the reference design's
+           "avatar + caret" combo. The avatar button itself still does all
+           the actual navigation (click anywhere on the circle -> Profile);
+           the chevron is a plain, non-interactive span sitting in its own
+           narrow column right next to it. ---- */
+        .mv-nav-avatar-chevron {
+            display: flex; align-items: center; justify-content: center;
+            height: 34px; color: var(--mv-muted); font-size: 13px;
+        }
+
+        /* ---- Neon-glow profile cards: every card on the Profile page
+           (Profile Information / Account Status / Log Out / stats strip /
+           "Are you a mentor?") gets a soft teal border-glow on top of the
+           app's normal card shadow, matching the reference design's
+           slightly "lit up" card edges. Scoped to "card_profile_*" keys
+           only (via the [class*=...] wildcard) so this never touches
+           unrelated cards elsewhere in the app (Home, Tests, Analysis,
+           etc. keep the plain look). Strengthens a little further on
+           hover for a subtle interactive feel. ---- */
+        [class*="st-key-card_profile_"] {
+            border-color: rgba(38,171,140,0.30) !important;
+            box-shadow: 0 0 0 1px rgba(38,171,140,0.10), 0 0 22px rgba(38,171,140,0.12),
+                        0 1px 2px rgba(18,32,28,0.05), 0 6px 18px rgba(18,32,28,0.05) !important;
+        }
+        [class*="st-key-card_profile_"]:hover {
+            border-color: rgba(38,171,140,0.45) !important;
+            box-shadow: 0 0 0 1px rgba(38,171,140,0.18), 0 0 28px rgba(38,171,140,0.18),
+                        0 2px 4px rgba(18,32,28,0.07), 0 10px 26px rgba(18,32,28,0.09) !important;
+        }
+        /* Neon ring around the big avatar on the Profile page header -
+           a soft glowing halo (teal for students, accent-orange for the
+           mentor) instead of a plain flat circle. Applied via a small
+           wrapper span (see _profile_hero_avatar_html() in app.py) so it
+           never affects the small avatars used elsewhere (leaderboard
+           rows, student-management list, top-nav). */
+        .mv-avatar-glow-ring {
+            display: inline-flex; border-radius: 50%; padding: 3px;
+        }
+
+        /* ---- "Are you a mentor?" card: icon chip + title/description on
+           the left, a compact Mentor Login button on the right - matches
+           the reference design instead of the earlier plain "text above
+           a full-width button" layout. ---- */
+        .mv-mentor-cta-icon {
+            width: 42px; height: 42px; border-radius: 11px;
+            background: var(--mv-accent-soft); color: var(--mv-accent);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 19px; flex-shrink: 0;
+        }
+        .st-key-card_profile_mentor div[data-testid="stHorizontalBlock"] { align-items: center !important; }
+
         /* ---- Student per-submission calibration ---- */
         .calib-step-badge {
             display:inline-block; padding:4px 12px; border-radius:999px;
@@ -1850,7 +1931,7 @@ def render_top_nav(current_page):
                 unsafe_allow_html=True,
             )
         with nav_col:
-            cols = st.columns([1] * len(desktop_nav_items) + [0.6])
+            cols = st.columns([1] * len(desktop_nav_items) + [0.85])
             for col, (page_key, label) in zip(cols[:-1], desktop_nav_items):
                 with col:
                     is_active = current_page == page_key or (page_key == "tests" and current_page == "test_detail")
@@ -1877,9 +1958,17 @@ def render_top_nav(current_page):
                     f"font-weight:700 !important; }}</style>",
                     unsafe_allow_html=True,
                 )
-                with st.container(key="top_nav_avatar_btn"):
-                    if st.button(initials, key="top_nav_avatar_click", help="Profile"):
-                        go_to("profile")
+                # Avatar + a small decorative chevron beside it, matching
+                # the reference design - the chevron itself is inert
+                # markup (not a separate button); clicking the avatar
+                # circle is what navigates to Profile, same as before.
+                avatar_sub, chevron_sub = st.columns([2, 1])
+                with avatar_sub:
+                    with st.container(key="top_nav_avatar_btn"):
+                        if st.button(initials, key="top_nav_avatar_click", help="Profile"):
+                            go_to("profile")
+                with chevron_sub:
+                    st.markdown("<div class='mv-nav-avatar-chevron'>⌄</div>", unsafe_allow_html=True)
 
     # Mobile: a simplified header showing ONLY the logo (left) and the
     # hamburger/close toggle (right) - no inline avatar button any more,
@@ -2739,6 +2828,86 @@ def _profile_status_pill_html(label, active_label, active, active_color="#26AB8C
     )
 
 
+def _profile_stat_card_html(icon, icon_bg, number, label):
+    """One stat's icon + big number + small label, centered - used inside
+    the profile stats strip (see render_profile_stats_strip below). Pure
+    markup only; the clickable "View X →" link (or static caption)
+    underneath is rendered separately as a real st.button/st.markdown
+    right after this, since a link has to be an actual Streamlit widget
+    to navigate anywhere."""
+    return (
+        f"<div>"
+        f"<div style='width:48px; height:48px; border-radius:50%; background:{icon_bg}; "
+        f"display:flex; align-items:center; justify-content:center; margin:0 auto 10px; font-size:20px;'>{icon}</div>"
+        f"<div style='font-family:var(--mono); font-size:25px; font-weight:700; color:var(--mv-ink); line-height:1.1;'>{number}</div>"
+        f"<div style='font-size:12px; color:var(--mv-muted); margin-top:3px;'>{label}</div>"
+        f"</div>"
+    )
+
+
+def _profile_hero_avatar_html(inner_avatar_html, glow_color):
+    """Wraps a render_avatar()/manual-avatar HTML snippet in a soft glowing
+    ring - used ONLY for the big avatar on the Profile page headers (both
+    student and mentor), never for the small avatars used elsewhere in the
+    app (leaderboard rows, student-management list, top-nav), so this
+    stays a Profile-page-specific visual flourish rather than changing the
+    look of avatars everywhere."""
+    return (
+        f"<span class='mv-avatar-glow-ring' style='box-shadow: "
+        f"0 0 0 2px {glow_color}, 0 0 16px 2px {glow_color}99, 0 0 34px 6px {glow_color}40;'>"
+        f"{inner_avatar_html}</span>"
+    )
+
+
+def render_profile_stats_strip(stats):
+    """Renders the 4-stat strip card at the top of a Profile page (student
+    or mentor) - one bordered card, 4 equal columns, each with an icon,
+    a big number, a label, and either a clickable "View X →" link (real
+    st.button, styled as plain text via the ".st-key-card_profile_stats"
+    CSS) or a static caption underneath.
+
+    `stats` is a list of exactly 4 dicts, each either:
+      {"icon", "icon_bg", "number", "label", "link_text", "go_to_page": "..."}
+      {"icon", "icon_bg", "number", "label", "caption": "..."}  (no link)
+
+    go_to_page is normally a top-level app page name (passed straight to
+    go_to()) - but for the mentor Profile page, where links need to land
+    on a specific tab *inside* the mentor panel rather than a top-level
+    page, prefix it "mentor:<mentor_page_key>" (e.g. "mentor:m_students")
+    and this sets st.session_state["mentor_page"] accordingly before
+    calling go_to("mentor"), same as every other mentor nav button in
+    the app does.
+
+    Kept as one small shared function (rather than copy-pasted per page)
+    so the student and mentor Profile pages can never visually drift
+    apart from each other.
+    """
+    with st.container(key="card_profile_stats"):
+        cols = st.columns(4)
+        for col, stat in zip(cols, stats):
+            with col:
+                st.markdown(
+                    _profile_stat_card_html(stat["icon"], stat["icon_bg"], stat["number"], stat["label"]),
+                    unsafe_allow_html=True,
+                )
+                target_page = stat.get("go_to_page")
+                if target_page:
+                    if st.button(stat["link_text"], key=f"profile_stat_{target_page}", use_container_width=True):
+                        if target_page.startswith("mentor:"):
+                            st.session_state["mentor_page"] = target_page.split("mentor:", 1)[1]
+                            st.session_state.pop("mentor_analysis_sid", None)
+                            st.session_state.pop("mentor_analysis_view_key_id", None)
+                            go_to("mentor")
+                        else:
+                            go_to(target_page)
+                else:
+                    st.markdown(
+                        f"<div style='font-size:12.5px; color:var(--mv-primary); font-weight:600; "
+                        f"margin-top:4px;'>{stat.get('caption', '')}</div>",
+                        unsafe_allow_html=True,
+                    )
+
+
 def page_profile():
     sid = st.session_state["student_id"]
     student = sh.get_student_by_id(sid)
@@ -2747,22 +2916,56 @@ def page_profile():
     birth_date_val = (student.get("birth_date") or "").strip()
     gender_val = (student.get("gender") or "").strip()
 
+    # ---- Stats used in the strip beside the header: tests completed,
+    # average score, overall leaderboard rank, and "days active" (the
+    # number of distinct calendar days this student has submitted a
+    # test on) - all derived from data already being cached elsewhere in
+    # the app, so this adds no extra Google Sheets calls. ----
+    results = cached_results()
+    my_results = results[results["student_id"] == sid] if not results.empty else results
+    tests_completed = len(my_results)
+    if not my_results.empty:
+        avg_pct = round((my_results["marks"] / my_results["total"]).mean() * 100, 1)
+        days_active = int(my_results["timestamp"].astype(str).str.split(" ").str[0].nunique())
+    else:
+        avg_pct = 0.0
+        days_active = 0
+    rank, _out_of = cached_rank(sid)
+
+    header_col, stats_col = st.columns([1.3, 2.4], gap="medium")
+
     # ---- Header: avatar + name + role/verified badges ----
-    st.markdown(
-        f"""
-        <div style='display:flex; align-items:center; gap:16px; margin-bottom:14px; flex-wrap:wrap;'>
-            {render_avatar(sid, name, size=64, font_size=24)}
-            <div>
-                <div style='font-family:var(--serif); font-weight:600; font-size:23px; color:var(--mv-ink); line-height:1.2;'>{name}</div>
-                <div style='display:flex; align-items:center; gap:8px; margin-top:4px;'>
-                    <span style='font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--mv-muted); font-weight:700;'>Student</span>
-                    <span style='font-size:11px; padding:2px 10px; border-radius:999px; background:var(--mv-primary-soft); color:var(--mv-primary); font-weight:700;'>✓ Verified</span>
+    with header_col:
+        st.markdown(
+            f"""
+            <div style='display:flex; align-items:center; gap:16px; margin-bottom:14px; flex-wrap:wrap;'>
+                {_profile_hero_avatar_html(render_avatar(sid, name, size=64, font_size=24), "#26AB8C")}
+                <div>
+                    <div style='font-family:var(--serif); font-weight:600; font-size:23px; color:var(--mv-ink); line-height:1.2;'>{name}</div>
+                    <div style='display:flex; align-items:center; gap:8px; margin-top:4px;'>
+                        <span style='font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--mv-muted); font-weight:700;'>Student</span>
+                        <span style='font-size:11px; padding:2px 10px; border-radius:999px; background:var(--mv-primary-soft); color:var(--mv-primary); font-weight:700;'>✓ Verified</span>
+                    </div>
                 </div>
             </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+            """,
+            unsafe_allow_html=True,
+        )
+
+    # ---- Stats strip: Tests Completed / Average Score / Leaderboard
+    # Rank / Days Active, each with a "View X →" shortcut into the page
+    # that actually shows that data. ----
+    with stats_col:
+        render_profile_stats_strip([
+            {"icon": "📋", "icon_bg": "var(--mv-primary-soft)", "number": tests_completed,
+             "label": "Tests Completed", "link_text": "View Results →", "go_to_page": "tests"},
+            {"icon": "📈", "icon_bg": "var(--mv-primary-soft)", "number": f"{avg_pct}%",
+             "label": "Average Score", "link_text": "View Analysis →", "go_to_page": "analysis"},
+            {"icon": "🏆", "icon_bg": "var(--mv-accent-soft)", "number": (f"#{rank}" if rank else "—"),
+             "label": "Leaderboard Rank", "link_text": "View Leaderboard →", "go_to_page": "leaderboard"},
+            {"icon": "📅", "icon_bg": "var(--mv-primary-soft)", "number": days_active,
+             "label": "Days Active", "caption": "Keep Going! 🚀" if days_active else "Start today! 🚀"},
+        ])
 
     left_col, right_col = st.columns([1.7, 1], gap="medium")
 
@@ -2901,11 +3104,25 @@ def page_profile():
                     st.rerun()
 
     # ---- Mentor Login lives here so the student nav stays a clean,
-    # consistent set of items everywhere. ----
+    # consistent set of items everywhere. Icon chip + title/description
+    # on the left, a compact button on the right - matches the reference
+    # design instead of the earlier plain text-above-full-width-button. ----
     with st.container(key="card_profile_mentor"):
-        st.markdown("Are you a mentor?")
-        if st.button("👨‍🏫 Mentor Login", use_container_width=True, key="profile_mentor_login_btn"):
-            go_to("mentor")
+        text_col, btn_col = st.columns([3.2, 1.3])
+        with text_col:
+            st.markdown(
+                "<div style='display:flex; align-items:center; gap:14px;'>"
+                "<div class='mv-mentor-cta-icon'>🎓</div>"
+                "<div>"
+                "<div style='font-weight:700; font-size:15px; color:var(--mv-ink);'>Are you a mentor?</div>"
+                "<div style='font-size:12.5px; color:var(--mv-muted); margin-top:2px;'>"
+                "Join our mentor community and help others achieve their goals.</div>"
+                "</div></div>",
+                unsafe_allow_html=True,
+            )
+        with btn_col:
+            if st.button("👨‍🏫 Mentor Login", use_container_width=True, key="profile_mentor_login_btn"):
+                go_to("mentor")
 
 
 # =========================================================================
@@ -3508,27 +3725,60 @@ def page_mentor_calibration():
 def page_mentor_profile():
     name = sh.get_mentor_name()
 
+    # ---- Stats used in the strip beside the header - the mentor-side
+    # equivalent of the student's Tests Completed / Average Score /
+    # Leaderboard Rank / Days Active strip. Reuses the same cached
+    # analytics + answer-key list already used elsewhere, so this adds
+    # no extra Google Sheets calls. ----
+    stats = sh.get_mentor_analytics()
+    keys_df = cached_answer_keys()
+    exams_created = 0 if keys_df.empty else len(keys_df)
+
+    header_col, stats_col = st.columns([1.3, 2.4], gap="medium")
+
     # ---- Header: avatar + name + role/verified badges (same structure
     # as the student profile header). Mentor's avatar deliberately uses
     # the app's accent color (not the random per-student palette) so it
     # reads as a distinct "admin" identity at a glance. ----
-    st.markdown(
-        f"""
-        <div style='display:flex; align-items:center; gap:16px; margin-bottom:14px; flex-wrap:wrap;'>
-            <span style='display:inline-flex; align-items:center; justify-content:center; width:64px; height:64px;
-                min-width:64px; border-radius:50%; background:var(--mv-accent); color:#fff; font-family:var(--sans);
-                font-weight:700; font-size:24px; letter-spacing:.02em;'>{_avatar_initials(name)}</span>
-            <div>
-                <div style='font-family:var(--serif); font-weight:600; font-size:23px; color:var(--mv-ink); line-height:1.2;'>{name}</div>
-                <div style='display:flex; align-items:center; gap:8px; margin-top:4px;'>
-                    <span style='font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--mv-muted); font-weight:700;'>Mentor</span>
-                    <span style='font-size:11px; padding:2px 10px; border-radius:999px; background:var(--mv-accent-soft); color:var(--mv-accent); font-weight:700;'>✓ Verified</span>
+    with header_col:
+        mentor_avatar_html = (
+            f"<span style='display:inline-flex; align-items:center; justify-content:center; width:64px; height:64px;"
+            f"min-width:64px; border-radius:50%; background:var(--mv-accent); color:#fff; font-family:var(--sans);"
+            f"font-weight:700; font-size:24px; letter-spacing:.02em;'>{_avatar_initials(name)}</span>"
+        )
+        st.markdown(
+            f"""
+            <div style='display:flex; align-items:center; gap:16px; margin-bottom:14px; flex-wrap:wrap;'>
+                {_profile_hero_avatar_html(mentor_avatar_html, "#F94D10")}
+                <div>
+                    <div style='font-family:var(--serif); font-weight:600; font-size:23px; color:var(--mv-ink); line-height:1.2;'>{name}</div>
+                    <div style='display:flex; align-items:center; gap:8px; margin-top:4px;'>
+                        <span style='font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--mv-muted); font-weight:700;'>Mentor</span>
+                        <span style='font-size:11px; padding:2px 10px; border-radius:999px; background:var(--mv-accent-soft); color:var(--mv-accent); font-weight:700;'>✓ Verified</span>
+                    </div>
                 </div>
             </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+            """,
+            unsafe_allow_html=True,
+        )
+
+    # ---- Stats strip: Total Students / Average Score / Total
+    # Submissions / Exams Created, each with a "View X →" shortcut into
+    # the page that actually shows that data - same shared renderer and
+    # visual system as the student Profile page. Each link uses the
+    # "mentor:<mentor_page_key>" convention (see render_profile_stats_strip)
+    # so it lands on the right tab inside the mentor panel. ----
+    with stats_col:
+        render_profile_stats_strip([
+            {"icon": "👥", "icon_bg": "var(--mv-primary-soft)", "number": stats["total_students"],
+             "label": "Total Students", "link_text": "View Students →", "go_to_page": "mentor:m_students"},
+            {"icon": "📈", "icon_bg": "var(--mv-primary-soft)", "number": f"{stats['average_score_pct']}%",
+             "label": "Average Score", "link_text": "View Results →", "go_to_page": "mentor:m_results"},
+            {"icon": "🏆", "icon_bg": "var(--mv-accent-soft)", "number": stats["total_submissions"],
+             "label": "Total Submissions", "link_text": "View Leaderboard →", "go_to_page": "mentor:m_leaderboard"},
+            {"icon": "📝", "icon_bg": "var(--mv-primary-soft)", "number": exams_created,
+             "label": "Exams Created", "caption": "Keep creating! 🚀" if exams_created else "Create your first! 🚀"},
+        ])
 
     left_col, right_col = st.columns([1.7, 1], gap="medium")
 
@@ -3690,7 +3940,7 @@ def render_mentor_top_nav(current_page):
                 unsafe_allow_html=True,
             )
         with nav_col:
-            cols = st.columns([1] * len(desktop_nav_items) + [0.6])
+            cols = st.columns([1] * len(desktop_nav_items) + [0.85])
             for col, (page_key, label) in zip(cols[:-1], desktop_nav_items):
                 with col:
                     is_active = current_page == page_key
@@ -3717,12 +3967,18 @@ def render_mentor_top_nav(current_page):
                     f"font-weight:700 !important; }}</style>",
                     unsafe_allow_html=True,
                 )
-                with st.container(key="top_nav_avatar_btn"):
-                    if st.button(initials, key="top_nav_mentor_avatar_click", help="Profile"):
-                        st.session_state["mentor_page"] = "m_profile"
-                        st.session_state.pop("mentor_analysis_sid", None)
-                        st.session_state.pop("mentor_analysis_view_key_id", None)
-                        go_to("mentor")
+                # Avatar + a small decorative chevron beside it, same
+                # visual pattern as the student nav's avatar.
+                avatar_sub, chevron_sub = st.columns([2, 1])
+                with avatar_sub:
+                    with st.container(key="top_nav_avatar_btn"):
+                        if st.button(initials, key="top_nav_mentor_avatar_click", help="Profile"):
+                            st.session_state["mentor_page"] = "m_profile"
+                            st.session_state.pop("mentor_analysis_sid", None)
+                            st.session_state.pop("mentor_analysis_view_key_id", None)
+                            go_to("mentor")
+                with chevron_sub:
+                    st.markdown("<div class='mv-nav-avatar-chevron'>⌄</div>", unsafe_allow_html=True)
 
     # Mobile: same simplified logo + hamburger/close toggle bar as the
     # student panel - no separate quick-access icon button, since Profile
