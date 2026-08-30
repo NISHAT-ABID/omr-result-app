@@ -2422,7 +2422,9 @@ def render_result_detail(result_row, key_row):
         f"`Score: {correct}/{total}` &nbsp; `❌ Wrong {wrong_count}` &nbsp; "
         f"`⚪ Skipped {skipped}` &nbsp; `✅ Correct {correct}`"
     )
-    if bool(result_row.get("edited_by_mentor")):
+    # Google Sheets may return the checkbox/boolean as the text "TRUE"/"FALSE".
+    # Do not use bool("FALSE"), because any non-empty string is truthy in Python.
+    if sh._to_bool(result_row.get("edited_by_mentor", False)):
         st.caption("ℹ️ This result was reviewed/edited by your mentor.")
 
     import json as _json
@@ -2624,6 +2626,29 @@ def page_tests_results():
                                             negative_marking=active_now.get("negative_marking", False),
                                             negative_value=active_now.get("negative_marks_value", 0.0),
                                         )
+
+                                        # Enforce the app's scoring contract here as a
+                                        # final guard. A correct answer is +1 mark;
+                                        # each wrong answer loses the configured
+                                        # negative value; skipped answers lose 0.
+                                        # This is intentionally applied only when
+                                        # negative marking is enabled, so normal
+                                        # exams keep the scanner's original marks.
+                                        neg_enabled = sh._to_bool(
+                                            active_now.get("negative_marking", False)
+                                        )
+                                        if neg_enabled:
+                                            neg_per_wrong = max(
+                                                0.0,
+                                                float(active_now.get("negative_marks_value", 0.0) or 0.0),
+                                            )
+                                            result["marks"] = round(
+                                                float(result.get("correct", 0))
+                                                - float(result.get("wrong_count", 0)) * neg_per_wrong,
+                                                4,
+                                            )
+                                            result["negative_marking"] = True
+                                            result["negative_value"] = neg_per_wrong
                                         # Atomic check-and-write: re-verifies against a FRESH
                                         # (uncached) read of the Results sheet right before
                                         # writing, so a near-simultaneous duplicate request
@@ -2647,6 +2672,12 @@ def page_tests_results():
                                                 r2.metric("Wrong ❌", result["wrong_count"])
                                                 r3.metric("Skipped ⚪", result["skipped"])
                                                 r4.metric("🏆 Marks", result["marks"])
+                                                if sh._to_bool(result.get("negative_marking", False)):
+                                                    st.caption(
+                                                        f"Negative marking: {result['wrong_count']} wrong × "
+                                                        f"{float(result.get('negative_value', 0.0)):.2f} "
+                                                        f"deducted · skipped = no deduction"
+                                                    )
 
                                             rows = omr_scanner.build_review_rows(student_answers, key_string)
                                             review_rows = [r for r in rows if r["status"] in ("wrong", "skipped")]
@@ -4065,8 +4096,15 @@ def page_mentor_results():
 
     st.markdown("#### Submissions")
     for _, row in exam_results.iterrows():
-        with st.expander(f"{row['student']} — Marks: {row['marks']}"
-                          f"{' (edited)' if bool(row.get('edited_by_mentor')) else ''}"):
+        # Google Sheets commonly returns boolean cells as the text "TRUE"/"FALSE".
+        # Python's bool("FALSE") is True, which made every untouched result show
+        # "(edited)" before the mentor had edited anything. Parse the stored value
+        # semantically instead.
+        edited_flag = sh._to_bool(row.get("edited_by_mentor", False))
+        edited_suffix = " (edited)" if edited_flag else ""
+        with st.expander(
+            f"{row['student']} — Marks: {row['marks']}{edited_suffix}"
+        ):
             with st.container(key=f"card_mentor_result_{row['student_id']}_{key_id}"):
                 c1, c2, c3 = st.columns(3)
                 c1.metric("Correct", int(row["correct"]))
