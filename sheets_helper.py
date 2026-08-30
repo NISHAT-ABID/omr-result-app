@@ -104,6 +104,7 @@ RAW = "RAW"  # value_input_option used for every write - see module docstring
 ANSWERKEYS_HEADER = [
     "key_id", "exam_name", "date", "start_time", "end_time",
     "total_questions", "answer_string", "negative_marking", "negative_marks_value",
+    "duration_minutes",
 ]
 
 RESULTS_HEADER = [
@@ -364,7 +365,8 @@ def clear_data_caches():
 
 def add_answer_key(exam_name, date_str, start_time_str, end_time_str,
                     total_questions, answer_string,
-                    negative_marking=False, negative_marks_value=0.0):
+                    negative_marking=False, negative_marks_value=0.0,
+                    duration_minutes=0):
     ws = _cached_worksheet("AnswerKeys")
     # Small collision-retry loop: two mentors saving an exam at almost the
     # exact same instant could otherwise both compute the same next
@@ -382,7 +384,8 @@ def add_answer_key(exam_name, date_str, start_time_str, end_time_str,
         _with_retry(
             ws.append_row,
             [key_id, exam_name, date_str, start_time_str, end_time_str,
-             total_questions, answer_string, negative_marking, negative_marks_value],
+             total_questions, answer_string, negative_marking, negative_marks_value,
+             duration_minutes],
             value_input_option=RAW,
         )
         clear_data_caches()
@@ -412,6 +415,7 @@ def get_answer_key_by_id(key_id):
         "total_questions": _to_int(row.get("total_questions"), len(str(row["answer_string"]))),
         "negative_marking": _to_bool(row.get("negative_marking", False)),
         "negative_marks_value": _to_float(row.get("negative_marks_value"), 0.0),
+        "duration_minutes": _to_int(row.get("duration_minutes"), 0),
     }
 
 
@@ -419,7 +423,8 @@ def get_active_answer_key(now=None):
     """
     Finds which answer key is active right now.
     Returns: dict {key_id, exam_name, answer_string, total_questions,
-                   start_dt, end_dt, negative_marking, negative_marks_value}
+                   start_dt, end_dt, negative_marking, negative_marks_value,
+                   duration_minutes}
     or None.
     """
     if now is None:
@@ -443,6 +448,7 @@ def get_active_answer_key(now=None):
                 "end_dt": end_dt,
                 "negative_marking": _to_bool(row.get("negative_marking", False)),
                 "negative_marks_value": _to_float(row.get("negative_marks_value"), 0.0),
+                "duration_minutes": _to_int(row.get("duration_minutes"), 0),
             }
     return None
 
@@ -470,6 +476,7 @@ def get_upcoming_answer_key(now=None):
         "key_id": best_row["key_id"],
         "exam_name": best_row.get("exam_name", ""),
         "start_dt": best_dt,
+        "duration_minutes": _to_int(best_row.get("duration_minutes"), 0),
     }
 
 
