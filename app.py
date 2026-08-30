@@ -3137,6 +3137,57 @@ def page_profile():
                                 st.success("Profile updated!")
                                 st.rerun()
 
+        # ---- Change Password lives right under Profile Information (in
+        # the same left column) instead of as its own full-width section
+        # below both columns - that used to leave a large empty gap here
+        # whenever the right column (Account Status + Log Out) ended up
+        # taller than this one, since the two columns aren't forced to
+        # match height. Putting it here fills that gap naturally. ----
+        with st.container(key="card_profile_changepw"):
+            pw_open = st.session_state.get("profile_changepw_open", False)
+            if st.button(f"🔑  Change Password {'▾' if pw_open else '▸'}",
+                         key="profile_changepw_toggle_btn", use_container_width=True):
+                st.session_state["profile_changepw_open"] = not pw_open
+                st.rerun()
+            st.caption("Update your password regularly to keep your account secure.")
+
+            if pw_open:
+                # Plain widgets (no st.form) so the strength bar updates live while
+                # typing, instead of only appearing after the button is clicked.
+                cur_pw = st.text_input("Current password", type="password", key="prof_cur_pw")
+                new_pw1 = st.text_input("New password", type="password", key="prof_new_pw1")
+                if new_pw1:
+                    score, label, _tips = sh.password_strength(new_pw1)
+                    colors = ["#ef4444", "#ef4444", "#f59e0b", "#10b981", "#059669"]
+                    st.markdown(
+                        f"<div class='strength-bar'><div class='strength-fill' "
+                        f"style='width:{(score+1)*20}%; background:{colors[score]};'></div></div>"
+                        f"<small>Password strength: <b>{label}</b></small>",
+                        unsafe_allow_html=True,
+                    )
+                new_pw2 = st.text_input("Confirm new password", type="password", key="prof_new_pw2")
+                change_submitted = st.button("Update Password", type="primary")
+
+                if change_submitted:
+                    try:
+                        sh.authenticate_student(student["phone"], cur_pw)
+                    except ValueError:
+                        st.error("Current password is incorrect.")
+                    else:
+                        _, _, tips = sh.password_strength(new_pw1)
+                        if tips:
+                            st.error("New password is too weak: " + ", ".join(tips))
+                        elif new_pw1 != new_pw2:
+                            st.error("New passwords don't match.")
+                        else:
+                            with st.spinner("Updating..."):
+                                sh.change_student_password(sid, new_pw1)
+                                clear_all_caches()
+                            st.success("Password updated. Please log in again.")
+                            for k in ("student_id", "student_name", "session_version", "role"):
+                                st.session_state.pop(k, None)
+                            st.rerun()
+
     # ---- Right: Account Status + Log Out ----
     with right_col:
         with st.container(key="card_profile_status"):
@@ -3160,51 +3211,6 @@ def page_profile():
                 for k in ("student_id", "student_name", "session_version", "role"):
                     st.session_state.pop(k, None)
                 go_to("home")
-
-    with st.container(key="card_profile_changepw"):
-        pw_open = st.session_state.get("profile_changepw_open", False)
-        if st.button(f"🔑  Change Password {'▾' if pw_open else '▸'}",
-                     key="profile_changepw_toggle_btn", use_container_width=True):
-            st.session_state["profile_changepw_open"] = not pw_open
-            st.rerun()
-        st.caption("Update your password regularly to keep your account secure.")
-
-        if pw_open:
-            # Plain widgets (no st.form) so the strength bar updates live while
-            # typing, instead of only appearing after the button is clicked.
-            cur_pw = st.text_input("Current password", type="password", key="prof_cur_pw")
-            new_pw1 = st.text_input("New password", type="password", key="prof_new_pw1")
-            if new_pw1:
-                score, label, _tips = sh.password_strength(new_pw1)
-                colors = ["#ef4444", "#ef4444", "#f59e0b", "#10b981", "#059669"]
-                st.markdown(
-                    f"<div class='strength-bar'><div class='strength-fill' "
-                    f"style='width:{(score+1)*20}%; background:{colors[score]};'></div></div>"
-                    f"<small>Password strength: <b>{label}</b></small>",
-                    unsafe_allow_html=True,
-                )
-            new_pw2 = st.text_input("Confirm new password", type="password", key="prof_new_pw2")
-            change_submitted = st.button("Update Password", type="primary")
-
-            if change_submitted:
-                try:
-                    sh.authenticate_student(student["phone"], cur_pw)
-                except ValueError:
-                    st.error("Current password is incorrect.")
-                else:
-                    _, _, tips = sh.password_strength(new_pw1)
-                    if tips:
-                        st.error("New password is too weak: " + ", ".join(tips))
-                    elif new_pw1 != new_pw2:
-                        st.error("New passwords don't match.")
-                    else:
-                        with st.spinner("Updating..."):
-                            sh.change_student_password(sid, new_pw1)
-                            clear_all_caches()
-                        st.success("Password updated. Please log in again.")
-                        for k in ("student_id", "student_name", "session_version", "role"):
-                            st.session_state.pop(k, None)
-                        st.rerun()
 
     # ---- Mentor Login lives here so the student nav stays a clean,
     # consistent set of items everywhere. Icon chip + title/description
@@ -3918,6 +3924,52 @@ def page_mentor_profile():
                         st.success("Profile updated!")
                         st.rerun()
 
+        # ---- Change Password lives right under Profile Information (in
+        # the same left column), same as the student page - fills the
+        # gap left by the shorter left column instead of sitting below
+        # both columns as its own full-width section. ----
+        with st.container(key="card_profile_changepw"):
+            pw_open = st.session_state.get("mentor_profile_changepw_open", False)
+            if st.button(f"🔑  Change Password {'▾' if pw_open else '▸'}",
+                         key="mentor_profile_changepw_toggle_btn", use_container_width=True):
+                st.session_state["mentor_profile_changepw_open"] = not pw_open
+                st.rerun()
+            st.caption("Update your password regularly to keep your account secure.")
+
+            if pw_open:
+                # Plain widgets (no st.form) so the strength bar updates live while typing.
+                current_pw = st.text_input("Current password", type="password", key="mentor_prof_cur_pw")
+                new_pw1 = st.text_input("New password", type="password", key="mentor_prof_new_pw1")
+                if new_pw1:
+                    score, label, _tips = sh.password_strength(new_pw1)
+                    colors = ["#ef4444", "#ef4444", "#f59e0b", "#10b981", "#059669"]
+                    st.markdown(
+                        f"<div class='strength-bar'><div class='strength-fill' "
+                        f"style='width:{(score+1)*20}%; background:{colors[score]};'></div></div>"
+                        f"<small>Password strength: <b>{label}</b></small>",
+                        unsafe_allow_html=True,
+                    )
+                new_pw2 = st.text_input("Confirm new password", type="password", key="mentor_prof_new_pw2")
+                change_submitted = st.button("Update Password", type="primary", key="mentor_prof_pw_update_btn")
+
+                if change_submitted:
+                    if current_pw != sh.get_mentor_password():
+                        st.error("Current password is incorrect.")
+                    elif not new_pw1:
+                        st.error("New password cannot be empty.")
+                    elif new_pw1 != new_pw2:
+                        st.error("New passwords don't match.")
+                    else:
+                        _, _, tips = sh.password_strength(new_pw1)
+                        if tips:
+                            st.error("New password is too weak: " + ", ".join(tips))
+                        else:
+                            with st.spinner("Updating..."):
+                                sh.set_mentor_password(new_pw1)
+                            st.session_state["mentor_authed"] = False
+                            st.success("Password changed! Please log in again with the new password.")
+                            st.rerun()
+
     # ---- Right: Account Status + Log Out, same cards as the student page ----
     with right_col:
         with st.container(key="card_profile_status"):
@@ -3939,48 +3991,6 @@ def page_mentor_profile():
             if st.button("Log Out", use_container_width=True, key="mentor_profile_logout_btn"):
                 st.session_state["mentor_authed"] = False
                 go_to("home")
-
-    with st.container(key="card_profile_changepw"):
-        pw_open = st.session_state.get("mentor_profile_changepw_open", False)
-        if st.button(f"🔑  Change Password {'▾' if pw_open else '▸'}",
-                     key="mentor_profile_changepw_toggle_btn", use_container_width=True):
-            st.session_state["mentor_profile_changepw_open"] = not pw_open
-            st.rerun()
-        st.caption("Update your password regularly to keep your account secure.")
-
-        if pw_open:
-            # Plain widgets (no st.form) so the strength bar updates live while typing.
-            current_pw = st.text_input("Current password", type="password", key="mentor_prof_cur_pw")
-            new_pw1 = st.text_input("New password", type="password", key="mentor_prof_new_pw1")
-            if new_pw1:
-                score, label, _tips = sh.password_strength(new_pw1)
-                colors = ["#ef4444", "#ef4444", "#f59e0b", "#10b981", "#059669"]
-                st.markdown(
-                    f"<div class='strength-bar'><div class='strength-fill' "
-                    f"style='width:{(score+1)*20}%; background:{colors[score]};'></div></div>"
-                    f"<small>Password strength: <b>{label}</b></small>",
-                    unsafe_allow_html=True,
-                )
-            new_pw2 = st.text_input("Confirm new password", type="password", key="mentor_prof_new_pw2")
-            change_submitted = st.button("Update Password", type="primary", key="mentor_prof_pw_update_btn")
-
-            if change_submitted:
-                if current_pw != sh.get_mentor_password():
-                    st.error("Current password is incorrect.")
-                elif not new_pw1:
-                    st.error("New password cannot be empty.")
-                elif new_pw1 != new_pw2:
-                    st.error("New passwords don't match.")
-                else:
-                    _, _, tips = sh.password_strength(new_pw1)
-                    if tips:
-                        st.error("New password is too weak: " + ", ".join(tips))
-                    else:
-                        with st.spinner("Updating..."):
-                            sh.set_mentor_password(new_pw1)
-                        st.session_state["mentor_authed"] = False
-                        st.success("Password changed! Please log in again with the new password.")
-                        st.rerun()
 
 
 # =========================================================================
