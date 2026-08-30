@@ -19,6 +19,7 @@ import cv2
 import numpy as np
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 from PIL import Image, ImageOps
 from streamlit_image_coordinates import streamlit_image_coordinates
 
@@ -2254,12 +2255,140 @@ def render_top_nav(current_page):
 
 
 # =========================================================================
+# Student: Exam Room / Question PDF
+# =========================================================================
+
+def _render_question_pdf(pdf_bytes, remaining_seconds=None, key_id=""):
+    """Render a PDF inside the app. When remaining_seconds is supplied, the
+    viewer has a live countdown and reloads the page at expiry. History mode
+    passes None, so old question papers open normally without a fake timer."""
+    import base64
+
+    b64 = base64.b64encode(pdf_bytes).decode("ascii")
+    safe_seconds = max(0, int(remaining_seconds)) if remaining_seconds is not None else 0
+    height = 760
+    timer_script = f"""
+      let left = {safe_seconds};
+      const timer = document.getElementById("timer");
+      const pdf = document.getElementById("pdf");
+      const expired = document.getElementById("expired");
+      function tick() {{
+        if (left <= 0) {{
+          pdf.style.display = "none";
+          expired.style.display = "block";
+          timer.textContent = "Time over";
+          try {{ window.parent.location.reload(); }} catch (e) {{}}
+          return;
+        }}
+        const h = Math.floor(left / 3600);
+        const m = Math.floor((left % 3600) / 60);
+        const s = left % 60;
+        timer.textContent =
+          String(h).padStart(2,"0") + ":" +
+          String(m).padStart(2,"0") + ":" +
+          String(s).padStart(2,"0");
+        left -= 1;
+        setTimeout(tick, 1000);
+      }}
+      tick();
+    """ if remaining_seconds is not None else """
+      document.getElementById("timer").style.display = "none";
+      document.getElementById("expired").style.display = "none";
+    """
+    html = f"""
+    <div style="font-family:system-ui,sans-serif;">
+      <div style="display:flex;justify-content:space-between;align-items:center;
+                  gap:12px;margin:0 0 10px;padding:10px 14px;border:1px solid #d9e3df;
+                  border-radius:12px;background:#f8fbfa;">
+        <div><b>📄 Question Paper</b></div>
+        <div id="timer" style="font-weight:800;white-space:nowrap;">--:--:--</div>
+      </div>
+      <div id="expired" style="display:none;padding:28px 18px;border:1px solid #e5d8d3;
+           border-radius:12px;text-align:center;background:#fffaf8;">
+        <div style="font-size:28px;">⏱️</div>
+        <div style="font-weight:800;font-size:17px;margin-top:6px;">Question-viewing time is over</div>
+        <div style="color:#66736d;margin-top:5px;">The PDF is now locked. Continue below to submit your OMR.</div>
+      </div>
+      <iframe id="pdf" src="data:application/pdf;base64,{b64}"
+              style="width:100%;height:{height}px;border:1px solid #d9e3df;
+                     border-radius:12px;background:white;"></iframe>
+    </div>
+    <script>{timer_script}</script>
+    """
+    components.html(html, height=height + 70, scrolling=True)
+
+
+def _parse_bd_dt(value):
+    try:
+        return datetime.strptime(str(value), "%Y-%m-%d %H:%M:%S")
+    except (TypeError, ValueError):
+        return None
+
+
+def render_student_exam_room(sid, key):
+    session = sh.get_exam_session(sid, key["key_id"])
+    if not session:
+        st.warning("This exam has not been opened yet.")
+        if st.button("← Back"):
+            st.session_state.pop("exam_room_key_id", None)
+            st.rerun()
+        return
+
+    expires = _parse_bd_dt(session.get("expires_at"))
+    now = sh.now_bd()
+    remaining = int((expires - now).total_seconds()) if expires else 0
+
+    st.markdown(f"### 📖 {key.get('exam_name') or key['key_id']}")
+    st.caption(
+        f"{key['total_questions']} questions · "
+        f"Question viewing time: {_format_duration(key.get('duration_minutes', 0) or 0)}"
+    )
+
+    if session.get("status") in ("completed", "submitted") or remaining <= 0:
+        if session.get("status") == "started" and remaining <= 0:
+            sh.set_exam_session_status(sid, key["key_id"], "expired")
+        st.warning("⏱️ Question-paper time is over. The question PDF is no longer available.")
+        if st.button("📤 Continue to OMR Submission", type="primary", use_container_width=True):
+            st.session_state["submit_key_id"] = key["key_id"]
+            st.session_state.pop("exam_room_key_id", None)
+            go_to("tests")
+        return
+
+    pdf_id = key.get("question_pdf_file_id")
+    if not pdf_id:
+        st.error("This exam has no question PDF attached.")
+        return
+
+    pdf_bytes = sh.get_question_pdf_bytes(pdf_id)
+    if not pdf_bytes:
+        st.error("The question PDF could not be loaded.")
+        return
+
+    _render_question_pdf(pdf_bytes, remaining, key["key_id"])
+
+    if st.button("✅ Complete Exam & Go to OMR", type="primary", use_container_width=True):
+        sh.set_exam_session_status(sid, key["key_id"], "completed")
+        st.session_state["submit_key_id"] = key["key_id"]
+        st.session_state.pop("exam_room_key_id", None)
+        go_to("tests")
+
+
+# =========================================================================
 # Student: Home
 # =========================================================================
 
 def page_home():
     sid = st.session_state["student_id"]
     name = st.session_state["student_name"]
+
+    room_key_id = st.session_state.get("exam_room_key_id")
+    if room_key_id:
+        room_key = sh.get_answer_key_by_id(room_key_id)
+        if room_key:
+            render_student_exam_room(sid, room_key)
+            return
+        st.session_state.pop("exam_room_key_id", None)
+
     st.markdown(f"### 👋 Welcome, {name}")
 
     active = cached_active_answer_key()
@@ -2285,8 +2414,19 @@ def page_home():
             if already:
                 st.info("You already submitted this test. Check it in Tests & Results.")
             else:
-                if st.button("📤 Quick OMR Submit", type="primary", use_container_width=True):
-                    go_to("tests", quick_submit=True)
+                if active.get("question_pdf_file_id"):
+                    if st.button("📖 Open Exam", type="primary", use_container_width=True):
+                        sh.start_exam_session(
+                            sid, active["key_id"],
+                            active.get("duration_minutes") or int(
+                                (active["end_dt"] - active["start_dt"]).total_seconds() // 60
+                            ),
+                        )
+                        st.session_state["exam_room_key_id"] = active["key_id"]
+                        st.rerun()
+                else:
+                    if st.button("📤 Quick OMR Submit", type="primary", use_container_width=True):
+                        go_to("tests", quick_submit=True)
         else:
             upcoming = cached_upcoming_answer_key()
             if upcoming:
@@ -2446,6 +2586,18 @@ def render_result_detail(result_row, key_row):
         rows.append({"q": q, "given": None, "correct": answer_string[q - 1].upper(), "status": "skipped"})
     rows.sort(key=lambda r: r["q"])
 
+    pdf_id = str(key_row.get("question_pdf_file_id", "") or "")
+    if pdf_id:
+        with st.expander("📄 View Question Paper"):
+            try:
+                pdf_bytes = sh.get_question_pdf_bytes(pdf_id)
+                if pdf_bytes:
+                    _render_question_pdf(pdf_bytes, 10**9, result_row["key_id"])
+                else:
+                    st.info("Question PDF is unavailable.")
+            except Exception:
+                st.info("Question PDF is unavailable.")
+
     st.markdown("#### Wrong & Skipped Answers")
     render_omr_review(rows)
 
@@ -2473,13 +2625,32 @@ def page_tests_results():
         else:
             if st.button("← Back to Tests & Results"):
                 st.session_state["view_key_id"] = None
+                st.session_state.pop("submit_key_id", None)
                 st.rerun()
             render_result_detail(match.iloc[0], key_match.iloc[0])
         return
 
     st.markdown("### 📝 Submit OMR / Test History")
 
-    active = cached_active_answer_key()
+    requested_submit_key = st.session_state.get("submit_key_id")
+    if requested_submit_key:
+        requested_key = sh.get_answer_key_by_id(requested_submit_key)
+        if requested_key:
+            # Build the same shape the existing submission UI expects. The
+            # global exam window may already be closed; a student who started
+            # the exam is still allowed to submit the OMR afterward.
+            active = requested_key
+            try:
+                active["start_dt"] = datetime.strptime(
+                    f"{active['date']} 00:00", "%Y-%m-%d %H:%M"
+                )
+                active["end_dt"] = active["start_dt"]
+            except Exception:
+                pass
+        else:
+            active = cached_active_answer_key()
+    else:
+        active = cached_active_answer_key()
 
     with st.container(key="card_submit_omr"):
         st.markdown("#### 📤 Submit Your OMR Sheet")
@@ -2605,9 +2776,9 @@ def page_tests_results():
                             st.session_state[submitting_key] = True
                             try:
                                 with st.spinner("Reading your answers..."):
-                                    active_now = sh.get_active_answer_key()
+                                    active_now = sh.get_answer_key_by_id(key_id)
                                     if not active_now:
-                                        st.error("The test window has just closed. Your result can't be recorded.")
+                                        st.error("This exam could not be loaded. Your result can't be recorded.")
                                     elif sh.has_submitted(sid, active_now["key_id"]):
                                         st.warning("You've already submitted this test.")
                                     else:
@@ -2663,6 +2834,8 @@ def page_tests_results():
                                         if not saved:
                                             st.warning("You've already submitted this test (from another tab or device).")
                                         else:
+                                            sh.set_exam_session_status(sid, key_id, "submitted")
+                                            st.session_state.pop("submit_key_id", None)
                                             _reset_submission_state()
                                             st.success("✅ Result saved!")
 
@@ -3817,6 +3990,18 @@ def render_answer_key_tab():
 
     st.divider()
 
+    st.markdown("#### 📄 Question Paper")
+    question_pdf = st.file_uploader(
+        "Upload the question PDF from your device",
+        type=["pdf"],
+        key="mentor_question_pdf",
+        help="Students will open this PDF directly inside the app when they start the exam.",
+    )
+    if question_pdf is not None:
+        st.caption(f"Selected: **{question_pdf.name}** · {question_pdf.size / 1024:.0f} KB")
+
+    st.divider()
+
     st.markdown("#### ➖ Negative Marking (Optional)")
     negative_marking = st.checkbox(
         "Enable negative marking for this exam (marks deducted for wrong answers; skipped questions are not penalized)",
@@ -3924,6 +4109,8 @@ def render_answer_key_tab():
         answered = _count_answered(total_q)
         if not exam_name.strip():
             st.error("Please enter an exam name.")
+        elif question_pdf is None:
+            st.error("Please upload the question PDF before saving this exam.")
         elif answered != total_q:
             st.error(f"You must answer all {total_q} questions (currently {answered} answered).")
         else:
@@ -3935,12 +4122,21 @@ def render_answer_key_tab():
             start_str = start_dt_final.strftime("%Y-%m-%d %H:%M")
             end_str = end_dt_final.strftime("%Y-%m-%d %H:%M")
             with st.spinner("Saving..."):
-                key_id = sh.add_answer_key(
-                    exam_name.strip(), d.strftime("%Y-%m-%d"), start_str, end_str,
-                    total_q, answer_string,
-                    negative_marking=negative_marking, negative_marks_value=negative_value,
-                    duration_minutes=duration_min,
-                )
+                try:
+                    pdf_file_id, pdf_file_name = sh.upload_question_pdf(
+                        question_pdf.getvalue(), question_pdf.name
+                    )
+                    key_id = sh.add_answer_key(
+                        exam_name.strip(), d.strftime("%Y-%m-%d"), start_str, end_str,
+                        total_q, answer_string,
+                        negative_marking=negative_marking, negative_marks_value=negative_value,
+                        duration_minutes=duration_min,
+                        question_pdf_file_id=pdf_file_id,
+                        question_pdf_name=pdf_file_name,
+                    )
+                except Exception as e:
+                    st.error(f"Could not save the question PDF/exam: {e}")
+                    return
                 st.session_state["mentor_answers"] = {}
                 for q in range(1, total_q + 1):
                     st.session_state.pop(f"ans_q_{q}", None)
