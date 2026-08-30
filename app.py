@@ -3431,7 +3431,9 @@ def _inject_bubble_grid_css():
         }
         [class*="st-key-answer_row_"] div[data-testid="stHorizontalBlock"] {
             display: grid !important;
-            grid-template-columns: 30px minmax(0, 1fr) !important;
+            /* 46px is intentional: Q20/Q100 must stay as "20"/"100",
+               never wrap into 2 over 0 or 10 over 0. */
+            grid-template-columns: 46px minmax(0, 1fr) !important;
             align-items: center !important;
             column-gap: 4px !important;
             width: 100% !important;
@@ -3443,10 +3445,17 @@ def _inject_bubble_grid_css():
             max-width: 100% !important;
         }
         .q-num-badge {
-            display: block; min-width: 0; font-weight: 600;
-            color: var(--mv-ink); opacity: 0.75;
+            display: block;
+            width: 46px;
+            min-width: 46px;
+            max-width: 46px;
+            font-weight: 600;
+            color: var(--mv-ink);
+            opacity: 0.75;
             padding-top: 2px;
             text-align: left;
+            white-space: nowrap !important;
+            overflow: visible !important;
         }
         /* The OUTER 1-20 | 21-40 (or 1-25 | 26-50) grid is deliberately
            left alone on desktop. On phones Streamlit may stack those two
@@ -3461,7 +3470,15 @@ def _inject_bubble_grid_css():
                 padding: 2px 6px 2px 4px !important;
                 font-size: 12px !important;
             }
-            .q-num-badge { font-size: 13px; }
+            [class*="st-key-answer_row_"] div[data-testid="stHorizontalBlock"] {
+                grid-template-columns: 32px minmax(0, 1fr) !important;
+            }
+            .q-num-badge {
+                width: 32px;
+                min-width: 32px;
+                max-width: 32px;
+                font-size: 13px;
+            }
         }
         @media (max-width: 360px) {
             [class*="st-key-answer_row_"] div[role="radiogroup"] {
@@ -3481,14 +3498,11 @@ def _inject_bubble_grid_css():
 
 def _answers_store():
     """Single dict in session_state holding every question's chosen answer,
-    independent from any individual widget's mount/unmount lifecycle. Using
-    ONE dict (instead of one session_state key per question tied 1:1 to a
-    widget) is what protects against Streamlit losing answers when a page
-    of the bubble-grid (e.g. Q1-50) is unmounted while the mentor is on the
-    other page (Q51-100) - the data lives here regardless of which
-    questions are currently rendered on screen."""
+    independent from any individual widget's mount/unmount lifecycle."""
     if "mentor_answers" not in st.session_state:
         st.session_state["mentor_answers"] = {}
+    if "mentor_answer_widget_version" not in st.session_state:
+        st.session_state["mentor_answer_widget_version"] = 0
     return st.session_state["mentor_answers"]
 
 
@@ -3509,14 +3523,19 @@ def _build_answer_string(total_q):
 def _render_bubble_block(q_start, q_end):
     store = _answers_store()
     options = ["A", "B", "C", "D"]
+    widget_version = st.session_state.get("mentor_answer_widget_version", 0)
     for q in range(q_start, q_end + 1):
         # Give every question its own stable DOM scope. This is critical:
         # answer_bubble_grid also contains the OUTER two-column layout, so
         # applying row CSS directly to answer_bubble_grid accidentally styled
         # that outer layout as if it were a question row.
+        #
+        # The version suffix is equally important: Quick Fill replaces the
+        # entire answer set. A fresh widget key guarantees Streamlit cannot
+        # reuse an already-mounted radio's old browser/widget state.
         with st.container(key=f"answer_row_{q}"):
             num_col, radio_col = st.columns([0.55, 3], gap="small")
-            widget_key = f"ans_q_{q}"
+            widget_key = f"ans_q_{q}_v{widget_version}"
             with num_col:
                 st.markdown(f"<div class='q-num-badge'>{q}</div>", unsafe_allow_html=True)
             with radio_col:
@@ -3717,8 +3736,9 @@ def render_answer_key_tab():
 
     if st.session_state.get("mentor_answer_total_q") != total_q:
         st.session_state["mentor_answers"] = {}
-        for q in range(1, 101):
-            st.session_state.pop(f"ans_q_{q}", None)
+        st.session_state["mentor_answer_widget_version"] = (
+            st.session_state.get("mentor_answer_widget_version", 0) + 1
+        )
         st.session_state["mentor_answer_total_q"] = total_q
         st.session_state["mentor_answer_page"] = 1
 
@@ -3790,8 +3810,9 @@ def render_answer_key_tab():
     with tool_col1:
         if st.button("🗑️ Clear All", use_container_width=True):
             st.session_state["mentor_answers"] = {}
-            for q in range(1, total_q + 1):
-                st.session_state.pop(f"ans_q_{q}", None)
+            st.session_state["mentor_answer_widget_version"] = (
+                st.session_state.get("mentor_answer_widget_version", 0) + 1
+            )
             st.rerun()
     with tool_col2:
         with st.popover("⌨️ Fill Quickly with Text", use_container_width=True):
@@ -3820,15 +3841,16 @@ def render_answer_key_tab():
                         f"(got {len(cleaned)})."
                     )
                 else:
-                    # Keep ONE source of truth and explicitly seed each
-                    # radio widget's next-run value. Then rerun so Streamlit
-                    # rebuilds the digital OMR from those values. The earlier
-                    # same-run approach could leave already-mounted widget
-                    # state visually stale after the popover form submitted.
+                    # Keep ONE source of truth for the answer key.
+                    # Incrementing the widget version forces the next render
+                    # to create fresh radio widgets, so Streamlit cannot
+                    # reuse a previously-mounted radio value over the newly
+                    # applied Quick Fill answers.
                     new_answers = {i + 1: c for i, c in enumerate(cleaned)}
                     st.session_state["mentor_answers"] = new_answers
-                    for i, c in enumerate(cleaned):
-                        st.session_state[f"ans_q_{i + 1}"] = c
+                    st.session_state["mentor_answer_widget_version"] = (
+                        st.session_state.get("mentor_answer_widget_version", 0) + 1
+                    )
                     st.session_state["mentor_answer_page"] = 1
                     st.rerun()
 
