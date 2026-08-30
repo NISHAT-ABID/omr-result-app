@@ -1359,6 +1359,10 @@ def inject_global_css():
 
         @media (max-width: 900px) {
             .block-container { max-width: 100%; padding-left: 1rem; padding-right: 1rem; }
+            .st-key-card_profile_mentor div[data-testid="stHorizontalBlock"],
+            .st-key-card_profile_mentor div[data-testid="column"] {
+                min-width: 0 !important;
+            }
             .st-key-top_nav { display: none !important; }
             .st-key-mobile_top_bar,
             .st-key-mobile_top_bar[data-testid="stVerticalBlock"],
@@ -1376,6 +1380,113 @@ def inject_global_css():
         }
         @media (min-width: 1400px) {
             .block-container { max-width: 1280px; }
+        }
+
+        /* ---- Mobile layout hardening ----
+           Keep content inside the viewport and turn the reusable metric /
+           leaderboard rows into explicit grids. Streamlit's own responsive
+           column stacking is useful for some page sections, but it is not
+           reliable for compact cards: long labels can force a column wider
+           than the phone and make neighbouring values overlap. */
+        .mv-mobile-hide-instruction {
+            margin: 4px 0 10px;
+            color: var(--mv-muted);
+            font-size: 12px;
+            line-height: 1.5;
+        }
+
+        .metric-row {
+            min-width: 0;
+        }
+        .metric-box {
+            min-width: 0;
+            overflow: hidden;
+            box-sizing: border-box;
+        }
+
+        .lb-row {
+            min-width: 0;
+            box-sizing: border-box;
+        }
+        .lb-row > * {
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        [class*="st-key-card_"] {
+            min-width: 0 !important;
+            box-sizing: border-box !important;
+        }
+        [class*="st-key-card_"] div[data-testid="column"] {
+            min-width: 0 !important;
+        }
+
+        @media (max-width: 767px) {
+            .mv-mobile-hide-instruction {
+                display: none !important;
+            }
+
+            .metric-row {
+                display: grid !important;
+                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+                gap: 8px !important;
+            }
+            .metric-box {
+                width: 100% !important;
+                flex: none !important;
+                text-align: center;
+                padding: 10px 8px !important;
+            }
+            .metric-box .label,
+            .metric-box .value {
+                min-width: 0 !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+            }
+            .metric-box .label {
+                font-size: 10.5px !important;
+                line-height: 1.25 !important;
+            }
+            .metric-box .value {
+                font-size: 17px !important;
+            }
+
+            .st-key-card_profile_stats div[data-testid="stHorizontalBlock"] {
+                display: grid !important;
+                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+                gap: 12px 4px !important;
+            }
+            .st-key-card_profile_stats div[data-testid="column"] {
+                width: 100% !important;
+                min-width: 0 !important;
+                max-width: 100% !important;
+                text-align: center !important;
+            }
+
+            .lb-row {
+                display: grid !important;
+                grid-template-columns: minmax(28px, auto) minmax(0, 1fr) !important;
+                gap: 7px 9px !important;
+                align-items: center !important;
+                padding: 9px 10px !important;
+            }
+            .lb-row > span {
+                min-width: 0 !important;
+            }
+            .lb-row > span:nth-child(n+3) {
+                justify-self: start !important;
+                width: 100% !important;
+                font-size: 12px !important;
+                white-space: nowrap !important;
+            }
+            .lb-row > span:nth-child(2) {
+                width: 100% !important;
+                min-width: 0 !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+                white-space: nowrap !important;
+            }
         }
 
         /* ---- Themed spinner (recolors Streamlit's built-in spinner to
@@ -3247,49 +3358,65 @@ def _inject_bubble_grid_css():
     st.markdown(
         """
         <style>
-        .st-key-answer_bubble_grid div[data-testid="stRadio"] { margin-bottom: -14px; }
-        .st-key-answer_bubble_grid div[data-testid="stRadio"] > label { display: none; }
-        .st-key-answer_bubble_grid div[role="radiogroup"] { gap: 6px; }
-        .st-key-answer_bubble_grid div[role="radiogroup"] label {
-            border: 1px solid rgba(128,128,128,0.35);
-            border-radius: 999px;
-            padding: 2px 10px 2px 6px;
-            margin-right: 0 !important;
-        }
-        .q-num-badge {
-            display: inline-block; min-width: 28px; font-weight: 600;
-            color: var(--mv-ink); opacity: 0.75; padding-top: 6px;
-        }
-        /* Force number + options to stay on the SAME row on mobile too -
-           Streamlit stacks st.columns vertically below ~640px by default,
-           which is what was pushing the A/B/C/D options under the question
-           number. Overriding with flex row + nowrap here keeps them side
-           by side on every screen size, matching the desktop look. */
-        .st-key-answer_bubble_grid div[data-testid="stHorizontalBlock"] {
+        /* OMR answer bubbles.
+           IMPORTANT: scope the row layout to the per-question wrapper,
+           not to the whole answer_bubble_grid. The old selector matched the
+           OUTER 2-column layout as well as every question row, so its
+           first/last-child flex rules moved the second question column and
+           made the A/B/C/D bubbles appear far to the right. */
+        [class*="st-key-answer_row_"] div[data-testid="stRadio"] { margin-bottom: -14px; }
+        [class*="st-key-answer_row_"] div[data-testid="stRadio"] > label { display: none; }
+        [class*="st-key-answer_row_"] div[role="radiogroup"] {
             display: flex !important;
             flex-direction: row !important;
             flex-wrap: nowrap !important;
             align-items: center !important;
-            gap: 4px !important;
-        }
-        .st-key-answer_bubble_grid div[data-testid="column"] {
-            width: auto !important;
+            justify-content: flex-start !important;
+            gap: 6px !important;
+            width: 100% !important;
             min-width: 0 !important;
         }
-        .st-key-answer_bubble_grid div[data-testid="column"]:first-child {
-            flex: 0 0 26px !important;
+        [class*="st-key-answer_row_"] div[role="radiogroup"] label {
+            flex: 0 0 auto !important;
+            border: 1px solid rgba(128,128,128,0.35);
+            border-radius: 999px;
+            padding: 2px 10px 2px 6px;
+            margin-right: 0 !important;
+            white-space: nowrap !important;
         }
-        .st-key-answer_bubble_grid div[data-testid="column"]:last-child {
-            flex: 1 1 auto !important;
+        [class*="st-key-answer_row_"] div[data-testid="stHorizontalBlock"] {
+            display: grid !important;
+            grid-template-columns: 30px minmax(0, 1fr) !important;
+            align-items: center !important;
+            column-gap: 4px !important;
+            width: 100% !important;
+            min-width: 0 !important;
+        }
+        [class*="st-key-answer_row_"] div[data-testid="column"] {
+            width: 100% !important;
+            min-width: 0 !important;
+            max-width: 100% !important;
+        }
+        .q-num-badge {
+            display: block; min-width: 0; font-weight: 600;
+            color: var(--mv-ink); opacity: 0.75;
+            padding-top: 2px;
+            text-align: left;
+        }
+        /* The OUTER 1-20 | 21-40 (or 1-25 | 26-50) grid is deliberately
+           left alone on desktop. On phones Streamlit may stack those two
+           blocks, but each individual question remains number + options on
+           one horizontal line. */
+        [class*="st-key-answer_row_"] div[data-testid="stRadio"] > div {
             min-width: 0 !important;
         }
         @media (max-width: 640px) {
-            .st-key-answer_bubble_grid div[role="radiogroup"] { gap: 4px !important; }
-            .st-key-answer_bubble_grid div[role="radiogroup"] label {
+            [class*="st-key-answer_row_"] div[role="radiogroup"] { gap: 4px !important; }
+            [class*="st-key-answer_row_"] div[role="radiogroup"] label {
                 padding: 2px 6px 2px 4px !important;
                 font-size: 12px !important;
             }
-            .q-num-badge { min-width: 20px; font-size: 13px; }
+            .q-num-badge { font-size: 13px; }
         }
         </style>
         """,
@@ -3328,18 +3455,23 @@ def _render_bubble_block(q_start, q_end):
     store = _answers_store()
     options = ["A", "B", "C", "D"]
     for q in range(q_start, q_end + 1):
-        num_col, radio_col = st.columns([0.55, 3], gap="small")
-        widget_key = f"ans_q_{q}"
-        with num_col:
-            st.markdown(f"<div class='q-num-badge'>{q}</div>", unsafe_allow_html=True)
-        with radio_col:
-            current = store.get(q)
-            idx = options.index(current) if current in options else None
-            st.radio(
-                f"Q{q}", options=options, index=idx, horizontal=True,
-                key=widget_key, label_visibility="collapsed",
-                on_change=_on_bubble_change, args=(q, widget_key),
-            )
+        # Give every question its own stable DOM scope. This is critical:
+        # answer_bubble_grid also contains the OUTER two-column layout, so
+        # applying row CSS directly to answer_bubble_grid accidentally styled
+        # that outer layout as if it were a question row.
+        with st.container(key=f"answer_row_{q}"):
+            num_col, radio_col = st.columns([0.55, 3], gap="small")
+            widget_key = f"ans_q_{q}"
+            with num_col:
+                st.markdown(f"<div class='q-num-badge'>{q}</div>", unsafe_allow_html=True)
+            with radio_col:
+                current = store.get(q)
+                idx = options.index(current) if current in options else None
+                st.radio(
+                    f"Q{q}", options=options, index=idx, horizontal=True,
+                    key=widget_key, label_visibility="collapsed",
+                    on_change=_on_bubble_change, args=(q, widget_key),
+                )
 
 
 def _go_answer_page(page_num):
@@ -3500,11 +3632,18 @@ def render_answer_key_tab():
     total_q = 100 if "100" in exam_style else 40
 
     if total_q == 100:
-        st.info("ℹ️ Questions 1-50 are shown first (in two columns of 25). "
-                 "Scroll down and click **Next: 51-100** to enter the second half. "
-                 "Your Q1-50 answers stay saved while you fill in 51-100.")
+        st.markdown(
+            "<div class='mv-mobile-hide-instruction'>ℹ️ Questions 1-50 are shown first "
+            "(in two columns of 25). Scroll down and click <b>Next: 51-100</b> to enter "
+            "the second half. Your Q1-50 answers stay saved while you fill in 51-100.</div>",
+            unsafe_allow_html=True,
+        )
     else:
-        st.info("ℹ️ Questions are shown in two columns: 1-20 and 21-40, on the same page.")
+        st.markdown(
+            "<div class='mv-mobile-hide-instruction'>ℹ️ Questions are shown in two "
+            "columns: 1-20 and 21-40, on the same page.</div>",
+            unsafe_allow_html=True,
+        )
 
     if st.session_state.get("mentor_answer_total_q") != total_q:
         st.session_state["mentor_answers"] = {}
@@ -3520,19 +3659,21 @@ def render_answer_key_tab():
     d = st.date_input("Exam date", value=date.today())
     start_t = _time_input_12h("Start time", "mentor_start_t", default_hour_24=9, default_minute=0)
     end_t = _time_input_12h("End time", "mentor_end_t", default_hour_24=9, default_minute=30)
-    st.caption(
-        "ℹ️ This is the window the exam stays **online / open for submission** "
-        "(e.g. 8:00 PM to 8:00 AM). If the end time is earlier than the start "
-        "time, it's automatically understood as the **next day** - you don't "
-        "need to pick a separate end date."
+    st.markdown(
+        "<div class='mv-mobile-hide-instruction'>ℹ️ This is the window the exam stays "
+        "<b>online / open for submission</b> (e.g. 8:00 PM to 8:00 AM). If the end "
+        "time is earlier than the start time, it's automatically understood as the "
+        "<b>next day</b> - you don't need to pick a separate end date.</div>",
+        unsafe_allow_html=True,
     )
 
     st.markdown("**Exam duration (how much time each student gets)**")
     duration_min = _duration_picker("mentor_duration", default_minutes=30)
-    st.caption(
-        "ℹ️ This is separate from the window above - it's shown to students as "
-        "how long the test itself is meant to take, even if the submission "
-        "window stays open longer (e.g. for late starters)."
+    st.markdown(
+        "<div class='mv-mobile-hide-instruction'>ℹ️ This is separate from the window "
+        "above - it's shown to students as how long the test itself is meant to take, "
+        "even if the submission window stays open longer (e.g. for late starters).</div>",
+        unsafe_allow_html=True,
     )
 
     # Exam WINDOW (start -> end) is entirely independent of Duration - the
@@ -3609,8 +3750,12 @@ def render_answer_key_tab():
                     # cleared) is what makes the currently-visible bubble
                     # page reflect the applied answers right away, instead
                     # of only showing up after switching pages and back.
+                    # Do NOT rerun here. The current Streamlit run continues
+                    # directly into the bubble grid below, so the newly-applied
+                    # answers are rendered in the same run. Calling st.rerun()
+                    # from inside the popover/form could leave the just-confirmed
+                    # preview visually stale until the next interaction.
                     st.success(f"✅ Applied all {total_q} answers - updated below.")
-                    st.rerun()
 
     _inject_bubble_grid_css()
 
