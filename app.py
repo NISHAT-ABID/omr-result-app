@@ -1113,6 +1113,23 @@ def inject_global_css():
         .strength-bar { height:6px; border-radius:4px; background:rgba(128,128,128,0.2); overflow:hidden; margin-top:4px; }
         .strength-fill { height:100%; border-radius:4px; }
         .time-row-label { font-weight:600; padding-top:6px; font-size:14px; }
+        .mv-window-heading {
+            display:flex; align-items:baseline; gap:10px; margin:8px 0 8px;
+            color:var(--mv-ink);
+        }
+        .mv-window-heading span { font-size:12px; color:var(--mv-muted); font-weight:400; }
+        .mv-time-card-title {
+            font-size:14px; font-weight:700; color:var(--mv-ink); margin-bottom:1px;
+        }
+        .mv-time-card-sub {
+            font-size:11px; color:var(--mv-muted); margin-bottom:6px;
+        }
+        [class*="st-key-mentor_start_t_time_card"],
+        [class*="st-key-mentor_end_t_time_card"] {
+            border:1px solid var(--mv-border); border-radius:12px;
+            background:var(--mv-surface); padding:10px 12px 6px;
+            box-sizing:border-box; min-width:0;
+        }
 
         /* ---- Phone number field: a country-code st.selectbox ("+880 ⌄"
            style, matching the requested reference design) sitting beside
@@ -1407,11 +1424,10 @@ def inject_global_css():
         .lb-row {
             min-width: 0;
             box-sizing: border-box;
+            overflow: hidden;
         }
         .lb-row > * {
             min-width: 0;
-            overflow: hidden;
-            text-overflow: ellipsis;
         }
 
         [class*="st-key-card_"] {
@@ -1423,6 +1439,9 @@ def inject_global_css():
         }
 
         @media (max-width: 767px) {
+            .mv-window-heading { flex-wrap:wrap; gap:2px 8px; }
+            .mv-time-card-title { font-size:13.5px; }
+            .mv-time-card-sub { margin-bottom:5px; }
             .mv-mobile-hide-instruction {
                 display: none !important;
             }
@@ -1464,29 +1483,49 @@ def inject_global_css():
                 text-align: center !important;
             }
 
+            /* Preserve the desktop leaderboard row as the default. Only
+               when a real phone is too narrow do we compact it into TWO
+               horizontal bands instead of turning every metric into its own
+               vertical line. */
             .lb-row {
                 display: grid !important;
-                grid-template-columns: minmax(28px, auto) minmax(0, 1fr) !important;
-                gap: 7px 9px !important;
+                grid-template-columns: auto minmax(0, 1fr) !important;
+                column-gap: 10px !important;
+                row-gap: 7px !important;
                 align-items: center !important;
-                padding: 9px 10px !important;
+                padding: 10px 12px !important;
             }
             .lb-row > span {
                 min-width: 0 !important;
-            }
-            .lb-row > span:nth-child(n+3) {
-                justify-self: start !important;
-                width: 100% !important;
-                font-size: 12px !important;
                 white-space: nowrap !important;
+            }
+            .lb-row > span:nth-child(1) {
+                grid-column: 1 !important;
+                grid-row: 1 !important;
             }
             .lb-row > span:nth-child(2) {
-                width: 100% !important;
-                min-width: 0 !important;
+                grid-column: 2 !important;
+                grid-row: 1 !important;
                 overflow: hidden !important;
                 text-overflow: ellipsis !important;
-                white-space: nowrap !important;
             }
+            .lb-row > span:nth-child(n+3) {
+                grid-row: 2 !important;
+                font-size: 12px !important;
+                overflow: visible !important;
+            }
+            /* Overall rows: Tests / Best / Avg / Acc / Trend share one
+               horizontal second band. */
+            .lb-row > span:nth-child(3) { grid-column: 1 !important; }
+            .lb-row > span:nth-child(4) { grid-column: 2 !important; }
+            .lb-row > span:nth-child(5) { grid-column: 1 !important; }
+            .lb-row > span:nth-child(6) { grid-column: 2 !important; text-align: left !important; }
+            .lb-row > span:nth-child(7) { grid-column: 2 !important; text-align: right !important; }
+
+            /* Test-wise rows only have two metrics; keep them on the same
+               second band without changing the desktop layout. */
+            .lb-row > span:nth-child(3):last-child { grid-column: 1 !important; }
+            .lb-row > span:nth-child(4):last-child { grid-column: 2 !important; }
         }
 
         /* ---- Themed spinner (recolors Streamlit's built-in spinner to
@@ -3373,7 +3412,13 @@ def _inject_bubble_grid_css():
             align-items: center !important;
             justify-content: flex-start !important;
             gap: 6px !important;
-            width: 100% !important;
+            width: max-content !important;
+            max-width: 100% !important;
+            min-width: 0 !important;
+        }
+        [class*="st-key-answer_row_"] [data-testid="stRadio"] {
+            width: max-content !important;
+            max-width: 100% !important;
             min-width: 0 !important;
         }
         [class*="st-key-answer_row_"] div[role="radiogroup"] label {
@@ -3417,6 +3462,16 @@ def _inject_bubble_grid_css():
                 font-size: 12px !important;
             }
             .q-num-badge { font-size: 13px; }
+        }
+        @media (max-width: 360px) {
+            [class*="st-key-answer_row_"] div[role="radiogroup"] {
+                width: 100% !important;
+                max-width: 100% !important;
+                justify-content: space-between !important;
+            }
+            [class*="st-key-answer_row_"] [data-testid="stRadio"] {
+                width: 100% !important;
+            }
         }
         </style>
         """,
@@ -3486,25 +3541,40 @@ def _go_answer_page(page_num):
 
 
 def _time_input_12h(label, key_prefix, default_hour_24=9, default_minute=0):
-    """Compact single-line time picker: a short label followed by
-    Hour / Minute / AM-PM selects all on the same row (no extra caption
-    row above each select, so Start + End together take just 2 lines)."""
+    """Friendly Start/End time card. Keeps the same 12-hour AM/PM logic,
+    but presents the controls as a clear three-part time selector so the
+    mentor can set the exam window quickly without guessing which field is
+    which. The caller can place Start and End side by side on desktop;
+    Streamlit can stack the two cards naturally on a narrow phone."""
     default_period = "PM" if default_hour_24 >= 12 else "AM"
     default_hour_12 = default_hour_24 % 12
     if default_hour_12 == 0:
         default_hour_12 = 12
-    lbl_col, h_col, m_col, p_col = st.columns([1.1, 1, 1, 1])
-    with lbl_col:
-        st.markdown(f"<div class='time-row-label'>{label}</div>", unsafe_allow_html=True)
-    with h_col:
-        hour = st.selectbox("Hour", list(range(1, 13)), index=default_hour_12 - 1,
-                             key=f"{key_prefix}_hour", label_visibility="collapsed")
-    with m_col:
-        minute = st.selectbox("Min", [f"{m:02d}" for m in range(60)], index=default_minute,
-                               key=f"{key_prefix}_min", label_visibility="collapsed")
-    with p_col:
-        period = st.selectbox("AM/PM", ["AM", "PM"], index=0 if default_period == "AM" else 1,
-                               key=f"{key_prefix}_period", label_visibility="collapsed")
+
+    with st.container(key=f"{key_prefix}_time_card"):
+        st.markdown(
+            f"<div class='mv-time-card-title'><span>{'🟢' if label.lower().startswith('start') else '🔴'}</span> {label}</div>"
+            "<div class='mv-time-card-sub'>Choose the exact time</div>",
+            unsafe_allow_html=True,
+        )
+        h_col, m_col, p_col = st.columns([1, 1, 1], gap="small")
+        with h_col:
+            hour = st.selectbox(
+                "Hour", list(range(1, 13)), index=default_hour_12 - 1,
+                key=f"{key_prefix}_hour", label_visibility="collapsed",
+            )
+        with m_col:
+            minute = st.selectbox(
+                "Minute", [f"{m:02d}" for m in range(60)], index=default_minute,
+                key=f"{key_prefix}_min", label_visibility="collapsed",
+            )
+        with p_col:
+            period = st.selectbox(
+                "AM/PM", ["AM", "PM"],
+                index=0 if default_period == "AM" else 1,
+                key=f"{key_prefix}_period", label_visibility="collapsed",
+            )
+
     hour_24 = hour % 12
     if period == "PM":
         hour_24 += 12
@@ -3657,8 +3727,17 @@ def render_answer_key_tab():
     st.markdown("#### ② Exam Details")
     exam_name = st.text_input("Exam name", placeholder="e.g. Physics Model Test - 3")
     d = st.date_input("Exam date", value=date.today())
-    start_t = _time_input_12h("Start time", "mentor_start_t", default_hour_24=9, default_minute=0)
-    end_t = _time_input_12h("End time", "mentor_end_t", default_hour_24=9, default_minute=30)
+
+    st.markdown(
+        "<div class='mv-window-heading'><b>🕒 Exam Access Window</b>"
+        "<span>When students can open and submit this exam</span></div>",
+        unsafe_allow_html=True,
+    )
+    start_col, end_col = st.columns(2, gap="medium")
+    with start_col:
+        start_t = _time_input_12h("Start time", "mentor_start_t", default_hour_24=9, default_minute=0)
+    with end_col:
+        end_t = _time_input_12h("End time", "mentor_end_t", default_hour_24=9, default_minute=30)
     st.markdown(
         "<div class='mv-mobile-hide-instruction'>ℹ️ This is the window the exam stays "
         "<b>online / open for submission</b> (e.g. 8:00 PM to 8:00 AM). If the end "
@@ -3741,21 +3820,17 @@ def render_answer_key_tab():
                         f"(got {len(cleaned)})."
                     )
                 else:
-                    store = _answers_store()
+                    # Keep ONE source of truth and explicitly seed each
+                    # radio widget's next-run value. Then rerun so Streamlit
+                    # rebuilds the digital OMR from those values. The earlier
+                    # same-run approach could leave already-mounted widget
+                    # state visually stale after the popover form submitted.
+                    new_answers = {i + 1: c for i, c in enumerate(cleaned)}
+                    st.session_state["mentor_answers"] = new_answers
                     for i, c in enumerate(cleaned):
-                        store[i + 1] = c
-                        st.session_state.pop(f"ans_q_{i + 1}", None)
-                    # Rerunning immediately (right after the store is
-                    # updated and every widget key for this batch is
-                    # cleared) is what makes the currently-visible bubble
-                    # page reflect the applied answers right away, instead
-                    # of only showing up after switching pages and back.
-                    # Do NOT rerun here. The current Streamlit run continues
-                    # directly into the bubble grid below, so the newly-applied
-                    # answers are rendered in the same run. Calling st.rerun()
-                    # from inside the popover/form could leave the just-confirmed
-                    # preview visually stale until the next interaction.
-                    st.success(f"✅ Applied all {total_q} answers - updated below.")
+                        st.session_state[f"ans_q_{i + 1}"] = c
+                    st.session_state["mentor_answer_page"] = 1
+                    st.rerun()
 
     _inject_bubble_grid_css()
 
