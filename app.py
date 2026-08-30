@@ -13,127 +13,19 @@ Run with: streamlit run app.py
 """
 
 import random
-from datetime import datetime, date, time as dtime, timedelta
+from datetime import datetime, date, time as dtime
 
 import cv2
 import numpy as np
 import pandas as pd
 import streamlit as st
-from PIL import Image, ImageOps
+from PIL import Image
 from streamlit_image_coordinates import streamlit_image_coordinates
 
 import omr_scanner
 import sheets_helper as sh
 
-st.set_page_config(page_title="The Med Venture — by Bushra", page_icon="🩺", layout="wide")
-
-# =========================================================================
-# Brand — The Med Venture (by Bushra)
-# A small, reusable logo mark + header block used on the entry screens.
-# Pure presentation: no session/state/logic lives here.
-# =========================================================================
-
-LOGO_SVG = """
-<svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:block;">
-  <rect x="2" y="2" width="60" height="60" rx="16" fill="#123C39"/>
-  <path d="M32 15 L32 49 M15 32 L49 32" stroke="#F1F4F0" stroke-width="7" stroke-linecap="round"/>
-  <circle cx="47" cy="47" r="6.5" fill="#C4432E"/>
-  <circle cx="47" cy="47" r="2.2" fill="#F1F4F0"/>
-</svg>
-"""
-
-
-def render_hero(eyebrow, heading_html=None, tagline=None, compact=False, pulse=True,
-                 show_badge=True, show_byline=True):
-    """Full hero-style entry header - mirrors the Med Venture web app's
-    role-selection screen: dotted background, logo, eyebrow badge, big
-    serif heading, optional tagline, and the animated pulse-line. Used on
-    every entry/gate screen (password gate, student login, mentor login)
-    so the whole app opens the same way the web app does. Presentation
-    only - no session/state/logic lives here.
-
-    show_badge / show_byline let a caller drop the small eyebrow pill and
-    the "By Bushra" line entirely (used on the Student/Mentor login
-    screens, where "Student Portal"/"Mentor Portal" doesn't apply until
-    *after* the password gate, and the byline is redundant there) without
-    touching the password-gate screen, which still shows both by default.
-    compact=True also tightens the whole block's padding/heading size a
-    step further than before, so the heading alone doesn't push the login
-    card below the fold on mobile.
-    """
-    logo_size = 34 if compact else 52
-    heading = heading_html or "The Med <span style='color:var(--mv-accent);font-style:italic;'>Venture</span>"
-    badge_html = f'<div class="mv-hero-badge">{eyebrow}</div>' if show_badge else ""
-    byline_html = (
-        '<div style="font-family:var(--sans);font-size:11px;letter-spacing:.08em;'
-        'text-transform:uppercase;color:var(--mv-muted);margin-top:2px;">By Bushra</div>'
-        if show_byline else ""
-    )
-    tag_html = (
-        f"<p style='font-family:var(--sans);color:var(--mv-muted);font-size:14px;"
-        f"max-width:420px;margin:8px auto 0;line-height:1.55;'>{tagline}</p>"
-        if tagline else ""
-    )
-    pulse_html = f"""
-        <svg viewBox="0 0 400 40" preserveAspectRatio="none"
-             style="width:100%;max-width:260px;height:24px;color:var(--mv-accent);opacity:.6;margin:16px auto 2px;display:block;">
-            <path class="mv-hero-pulse-path" d="M0,20 L110,20 L128,4 L145,36 L162,20 L400,20" fill="none"
-                  stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-        """ if pulse else ""
-    hero_class = "mv-hero mv-hero-compact" if compact else "mv-hero"
-    parts = [
-        f'<div class="{hero_class}">',
-        f'<div style="width:{logo_size}px;height:{logo_size}px;margin:0 auto 12px;">{LOGO_SVG}</div>',
-        badge_html,
-        f'<h1 style="font-family:var(--serif);font-weight:600;'
-        f'font-size:{"19px" if compact else "clamp(26px,5vw,36px)"};'
-        f'margin:0 0 2px;letter-spacing:-0.01em;color:var(--mv-ink);line-height:1.12;">{heading}</h1>',
-        byline_html,
-    ]
-    if tag_html:
-        parts.append(tag_html)
-    if pulse_html:
-        parts.append(pulse_html)
-    parts.append("</div>")
-    # Joined with no newlines between parts - a blank/whitespace-only line
-    # inside a raw HTML block makes Streamlit's markdown parser treat what
-    # follows as plain text instead of HTML (that's what was leaking a
-    # literal "</div>" onto the page whenever tag_html/pulse_html were
-    # empty), so this avoids the bug entirely rather than working around it.
-    st.markdown("".join(parts), unsafe_allow_html=True)
-
-
-def render_boot_loading_screen(message="Connecting..."):
-    """Full-screen branded loading state, shown only while the app talks to
-    Google Sheets for the first time in a session. Presentation only - the
-    actual init_sheets() call and the '_sheets_ready' flag it guards are
-    unchanged; this just replaces the plain default st.spinner() with the
-    same pulse-line hero look used on the Med Venture web app."""
-    st.markdown(
-        f"""
-        <div style="text-align:center; padding:76px 20px 30px;">
-            <div style="width:60px; height:60px; margin:0 auto 16px;">{LOGO_SVG}</div>
-            <div style="font-family:'Fraunces',Georgia,serif; font-weight:600; font-size:25px; color:#123C39; margin-bottom:2px;">
-                The Med Venture
-            </div>
-            <div style="font-family:'IBM Plex Sans',sans-serif; font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:#7C8B83; margin-bottom:26px;">
-                by Bushra
-            </div>
-            <svg class="mv-boot-pulse" viewBox="0 0 400 40" preserveAspectRatio="none"
-                 style="width:100%; max-width:260px; height:26px; color:#C4432E;">
-                <path d="M0,20 L110,20 L128,4 L145,36 L162,20 L400,20" fill="none"
-                      stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"
-                      style="stroke-dasharray:520; stroke-dashoffset:520;"/>
-            </svg>
-            <div style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#7C8B83; margin-top:16px; letter-spacing:.05em;">
-                {message}
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
+st.set_page_config(page_title="OMR Result App", page_icon="📝", layout="wide")
 
 # =========================================================================
 # Global styling - one shared stylesheet for the whole app (mobile + desktop)
@@ -143,571 +35,38 @@ def inject_global_css():
     st.markdown(
         """
         <style>
-        @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
-        /* One fixed palette, always applied - deliberately NOT gated behind
-           @media (prefers-color-scheme: dark) any more. The app must look
-           identical no matter what light/dark mode the visitor's OS or
-           browser is set to, so we hardcode this single dark, teal Med
-           Venture palette as the only palette that ever exists. */
-        :root {
-            color-scheme: dark;
-            /* Colors below were pixel-sampled directly from the reference
-               design image (not eyeballed) for an exact match:
-               --mv-bg / --mv-surface: page and card background sampled at
-               #061112 / #0E1C1C. --mv-primary: the avatar-circle fill and
-               positive metric numbers (Marks/Correct/Average) sampled at
-               #26AB8C. --mv-accent: the icon's orange flourish sampled at
-               #F94D10. --mv-nav-active-bg is a NEW token (didn't exist
-               before) specifically for the active nav pill, which the
-               reference renders as a dark, muted teal-charcoal fill
-               (#142D2A) rather than a solid bright --mv-primary block -
-               using --mv-primary directly there would have been too
-               vivid/flat compared to the reference's more subdued look. */
-            --mv-bg: #061112;
-            --mv-surface: #0E1C1C;
-            --mv-ink: #EAF2EF;
-            --mv-primary: #26AB8C;
-            --mv-primary-hover: #34C29F;
-            --mv-primary-soft: rgba(38,171,140,0.20);
-            --mv-nav-active-bg: #142D2A;
-            --mv-accent: #F94D10;
-            --mv-accent-soft: rgba(249,77,16,0.18);
-            /* Extra accent colors used for varied icon-chip backgrounds
-               (Profile Information rows, the stats strip) so each stat
-               reads as visually distinct rather than everything sharing
-               one or two tones - matches the reference design's mixed
-               teal/blue/gold/purple icon palette. */
-            --mv-blue: #3B82F6;
-            --mv-blue-soft: rgba(59,130,246,0.20);
-            --mv-purple: #8B5CF6;
-            --mv-purple-soft: rgba(139,92,246,0.20);
-            --mv-danger: #F2434A;
-            --mv-danger-soft: rgba(242,67,74,0.16);
-            --mv-muted: #9BAAA2;
-            --mv-border: rgba(230,240,235,0.14);
-            --mv-card-bg: rgba(230,240,235,0.05);
-            --mv-dot: rgba(230,240,235,0.10);
-            --mv-input-bg: #071615;
-            --surface: var(--mv-surface);
-            --serif: 'Fraunces', Georgia, serif;
-            --sans: 'IBM Plex Sans', -apple-system, sans-serif;
-            --mono: 'IBM Plex Mono', 'Courier New', monospace;
-        }
-        /* color-scheme tells the BROWSER (not just our own CSS) that this
-           page is dark, so any native chrome we can't fully restyle with
-           CSS alone - the password show/hide eye icon, date/time picker
-           popups, scrollbars - renders in dark mode too. Without this,
-           those native bits were following the visitor's OS light/dark
-           setting instead of our app's palette, which is what was
-           showing up as a stray white box with black text/icon whenever
-           someone's OS/browser was set to light mode. */
-        html, body { color-scheme: dark; }
-
-        /* ---- Native form-field theming (applies in both light and dark):
-           Streamlit's default input/select/date/time boxes render pure
-           white regardless of app theme, which clashed hard with our
-           off-white/dark surfaces. Give them our own tinted background and
-           make sure the text typed inside stays readable on it. ---- */
-        input[type="text"], input[type="password"], input[type="number"],
-        input[type="date"], input[type="time"], textarea,
-        div[data-baseweb="select"] > div, div[data-baseweb="base-input"],
-        div[data-baseweb="input"] {
-            background: var(--mv-input-bg) !important;
-            border-color: var(--mv-border) !important;
-            color: var(--mv-ink) !important;
-        }
-        input::placeholder, textarea::placeholder { color: var(--mv-muted) !important; opacity: .8 !important; }
-        div[data-baseweb="popover"] li, div[data-baseweb="menu"] li {
-            background: var(--mv-input-bg) !important;
-            color: var(--mv-ink) !important;
-        }
-        div[data-baseweb="popover"], div[data-baseweb="popover"] div[role="listbox"] {
-            background: var(--mv-input-bg) !important;
-        }
-
-        /* ---- Password show/hide eye-icon button: it lives inside the
-           text input itself rather than as a normal .stButton, so none
-           of our button-recoloring rules further down ever touched it -
-           left it rendering with the browser/BaseWeb's own default
-           button chrome (a plain white square, dark icon) that didn't
-           match the rest of the dark theme. Force it transparent with a
-           theme-colored icon instead. ---- */
-        div[data-testid="stTextInput"] button,
-        div[data-baseweb="input"] button,
-        div[data-baseweb="base-input"] button {
-            background: transparent !important;
-            border: none !important;
-            box-shadow: none !important;
-        }
-        div[data-testid="stTextInput"] button svg,
-        div[data-baseweb="input"] button svg,
-        div[data-baseweb="base-input"] button svg {
-            color: var(--mv-muted) !important;
-            fill: var(--mv-muted) !important;
-        }
-        /* Belt-and-suspenders: some browsers (Edge in particular) add
-           their OWN native reveal-password icon on top of input type=
-           password fields, separate from the button above and outside
-           the page's DOM - CSS can't recolor it, only hide it via these
-           browser-specific pseudo-elements, so we hide it rather than
-           show two overlapping eye icons. */
-        input[type="password"]::-ms-reveal,
-        input[type="password"]::-ms-clear { display: none !important; }
-
-        html, body, [class*="css"] { font-family: var(--sans); }
-        h1, h2, h3 { font-family: var(--serif) !important; letter-spacing: -0.01em; color: var(--mv-ink); }
-        h4, h5, h6 { font-family: var(--sans) !important; color: var(--mv-ink); }
-        .metric-box .value, [data-testid="stMetricValue"], .rank-badge,
-        .vitals-marks, code, .stCodeBlock, .analysis-title, table.wrong-table, .omr-qnum {
-            font-family: var(--mono) !important;
-        }
-        /* Streamlit's own metric widget renders its value in a fairly low-
-           contrast gray by default, which read as near-invisible "ghost
-           text" against our themed backgrounds - force a solid, readable
-           color instead. */
-        [data-testid="stMetricValue"] {
-            color: var(--mv-ink) !important;
-            font-weight: 700 !important;
-        }
-        [data-testid="stMetricLabel"] p {
-            color: var(--mv-muted) !important;
-            font-family: var(--sans) !important;
-        }
-        [data-testid="stCaptionContainer"], .stCaption, small {
-            color: var(--mv-muted) !important;
-        }
-
-        /* ---- App-wide background (matches the web app's body color) ---- */
-        .stApp { background: var(--mv-bg) !important; color: var(--mv-ink) !important; }
-        [data-testid="stHeader"] { background: transparent; }
-
-        /* ---- Hero entry screens (password gate / student login / mentor
-           login) - dotted radial background + centered badge + heading,
-           same look as the web app's role-selection screen. ---- */
-        .mv-hero {
-            text-align: center;
-            padding: 34px 16px 22px;
-            margin: -1rem -1rem 20px;
-            background-image: radial-gradient(var(--mv-dot) 1.3px, transparent 1.3px);
-            background-size: 18px 18px;
-            border-radius: 0 0 22px 22px;
-        }
-        /* ---- Extra-tight variant used on Student/Mentor login screens:
-           two classes beats the single ".mv-hero" rule (and the mobile
-           media-query overrides below, which also only carry one class),
-           so this wins at every breakpoint without needing its own
-           @media copies - keeps the heading from pushing the login card
-           below the fold on phones. ---- */
-        .mv-hero.mv-hero-compact {
-            padding: 14px 16px 10px;
-            margin: -1rem -1rem 12px;
-        }
-        .mv-hero-badge {
-            display: inline-flex; align-items: center; gap: 6px;
-            font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
-            color: var(--mv-primary); background: var(--mv-primary-soft);
-            padding: 5px 14px; border-radius: 999px; margin-bottom: 16px;
-        }
-
-        /* ---- Small, quiet link-styled buttons used for secondary auth
-           actions (Forgot Password?, Sign Up, Mentor Login, Back to Log
-           In) - real st.button/st.form_submit_button widgets underneath
-           (so they're properly clickable and can drive navigation), just
-           stripped of the normal button chrome and rendered as plain
-           text links instead.
-           Selectors below deliberately repeat the ".stButton"/
-           ".stFormSubmitButton" wrapper class (not just "button") so
-           their specificity clearly beats the generic
-           ".stButton > button:not([kind=\"primary\"])" pill-button rule
-           further down this stylesheet - with equal specificity the
-           generic rule (declared later) would win and put the teal
-           border box back around these links. ---- */
-        .st-key-forgot_pw_link { display: flex; justify-content: flex-end; align-items: center; }
-        .st-key-forgot_pw_link .stFormSubmitButton > button:not([kind="primary"]) {
-            background: transparent !important;
-            border: none !important;
-            box-shadow: none !important;
-            color: var(--mv-primary) !important;
-            font-size: 12.5px !important;
-            font-weight: 600 !important;
-            padding: 4px 0 !important;
-            min-height: unset !important;
-            width: auto !important;
-        }
-        .st-key-forgot_pw_link .stFormSubmitButton > button:not([kind="primary"]):hover {
-            text-decoration: underline; transform: none !important; background: transparent !important;
-        }
-
-        .st-key-auth_bottom_links { margin-top: 16px; text-align: center; }
-        .st-key-auth_bottom_links div[data-testid="stHorizontalBlock"] { gap: 6px !important; }
-        .st-key-auth_signup_link .stButton > button:not([kind="primary"]),
-        .st-key-auth_mentor_link .stButton > button:not([kind="primary"]) {
-            background: transparent !important;
-            border: none !important;
-            box-shadow: none !important;
-            color: var(--mv-muted) !important;
-            font-size: 12.5px !important;
-            font-weight: 600 !important;
-            padding: 6px 4px !important;
-            min-height: unset !important;
-        }
-        .st-key-auth_signup_link .stButton > button:not([kind="primary"]):hover,
-        .st-key-auth_mentor_link .stButton > button:not([kind="primary"]):hover {
-            color: var(--mv-primary) !important;
-            text-decoration: underline;
-            background: transparent !important;
-            transform: none !important;
-        }
-        .st-key-back_to_login_link { margin-top: 10px; text-align: center; }
-        .st-key-back_to_login_link .stButton > button:not([kind="primary"]) {
-            background: transparent !important;
-            border: none !important;
-            box-shadow: none !important;
-            color: var(--mv-primary) !important;
-            font-size: 13px !important;
-            font-weight: 600 !important;
-            padding: 4px 0 !important;
-            min-height: unset !important;
-        }
-        .st-key-back_to_login_link .stButton > button:not([kind="primary"]):hover {
-            text-decoration: underline; transform: none !important; background: transparent !important;
-        }
-
-        /* ---- Auth card (Log In / Sign Up / Forgot Password) - a two-
-           column panel: a decorative icon+welcome side and the actual
-           form side, matching the reference design.
-           Styled via "[class*=...]" wildcards matching real
-           st.container(key="auth_card_...") / st.container(key=
-           "auth_form_...") wrappers - not a raw <div> split across two
-           st.markdown() calls, which (as elsewhere in this file) would
-           leave the styled box empty and the real form fields rendering
-           unstyled beneath it. ---- */
-        .mv-auth-card, [class*="st-key-auth_card_"] {
-            border: 1px solid var(--mv-border);
-            border-radius: 18px;
-            background: var(--mv-surface);
-            padding: 6px 6px 16px;
-            margin-top: 4px;
-            margin-bottom: 12px;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.14), 0 10px 30px rgba(0,0,0,0.18);
-        }
-        .mv-auth-side {
-            height: 100%;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            text-align: center;
-            padding: 22px 18px;
-            border-right: 1px solid var(--mv-border);
-        }
-        .mv-auth-side-icon-wrap {
-            position: relative;
-            width: 110px; height: 110px;
-            display: flex; align-items: center; justify-content: center;
-            margin-bottom: 16px;
-        }
-        .mv-auth-ring {
-            position: absolute; border-radius: 50%;
-            border: 1px solid var(--mv-border);
-        }
-        .mv-auth-ring.r1 { width: 110px; height: 110px; }
-        .mv-auth-ring.r2 { width: 80px; height: 80px; }
-        /* ---- Orbiting dots: the two small accent dots around the lock
-           icon now live inside a full-size wrapper that spins slowly, so
-           the dots travel in a circle around the icon instead of sitting
-           static. Each dot also gets its own gentle pulse (offset in time
-           from the other) layered on top of the spin, so the motion reads
-           as "alive" rather than a plain mechanical rotation. ---- */
-        .mv-auth-orbit {
-            position: absolute;
-            inset: 0;
-            animation: mv-orbit-spin 9s linear infinite;
-        }
-        .mv-auth-dot {
-            position: absolute; width: 7px; height: 7px; border-radius: 50%;
-            background: var(--mv-primary); opacity: .85;
-            animation: mv-dot-pulse 2.2s ease-in-out infinite;
-        }
-        .mv-auth-dot.d1 { top: 8px; right: 14px; }
-        .mv-auth-dot.d2 { bottom: 18px; left: 4px; width: 5px; height: 5px; opacity: .5; animation-delay: .8s; }
-        @keyframes mv-orbit-spin {
-            from { transform: rotate(0deg); }
-            to   { transform: rotate(360deg); }
-        }
-        @keyframes mv-dot-pulse {
-            0%, 100% { transform: scale(1); opacity: .8; }
-            50%      { transform: scale(1.4); opacity: 1; }
-        }
-        .mv-auth-icon-box {
-            position: relative; z-index: 1;
-            width: 54px; height: 54px; border-radius: 16px;
-            background: var(--mv-primary-soft);
-            border: 1px solid var(--mv-border);
-            display: flex; align-items: center; justify-content: center;
-            font-size: 22px;
-        }
-        .mv-auth-icon-box .mv-auth-icon-dot {
-            position: absolute; bottom: -3px; right: -3px;
-            width: 16px; height: 16px; border-radius: 50%;
-            background: var(--mv-accent);
-            border: 3px solid var(--mv-surface);
-        }
-        .mv-auth-side-title {
-            font-family: var(--serif); font-weight: 600; font-size: 19px;
-            color: var(--mv-ink); margin-bottom: 6px;
-        }
-        .mv-auth-side-text {
-            font-family: var(--sans); font-size: 13px; color: var(--mv-muted);
-            max-width: 220px; line-height: 1.5;
-        }
-        .mv-auth-form-side, [class*="st-key-auth_form_"] { padding: 18px 20px 2px; }
-        @media (max-width: 900px) {
-            .mv-auth-side { border-right: none; border-bottom: 1px solid var(--mv-border); padding: 18px 16px; }
-            .mv-auth-form-side, [class*="st-key-auth_form_"] { padding: 14px 14px 2px; }
-        }
-
-        .mv-remember-row {
-            display: flex; align-items: center; justify-content: space-between;
-            margin: 2px 0 12px;
-        }
-        .mv-remember-row [data-testid="stCheckbox"] label p {
-            font-size: 13px !important; color: var(--mv-muted) !important;
-        }
-        .mv-forgot-link {
-            font-family: var(--sans); font-size: 12.5px; font-weight: 600;
-            color: var(--mv-primary); text-align: right;
-        }
-
-        /* ---- Panel-style cards: theme-adaptive surface + soft shadow +
-           hover lift, matching the web app's .panel / .exam-card look.
-           The "[class*=...]" selectors below match any st.container(key=)
-           whose key starts with "card_" / "acard_" - see the note by the
-           ".app-card" rule further down for why containers (not raw
-           markdown divs) are used for these now. ---- */
-        .app-card, [class*="st-key-card_"], div[data-testid="stExpander"], div[data-testid="stForm"] {
-            background: var(--mv-surface) !important;
-            border: 1px solid var(--mv-border) !important;
-            border-radius: 14px !important;
-            box-shadow: 0 1px 2px rgba(18,32,28,0.05), 0 6px 18px rgba(18,32,28,0.05) !important;
-            transition: box-shadow .2s ease, transform .2s ease !important;
-        }
-        div[data-testid="stForm"] { padding: 18px 18px !important; }
-        .app-card:hover, [class*="st-key-card_"]:hover {
-            box-shadow: 0 2px 4px rgba(18,32,28,0.07), 0 10px 26px rgba(18,32,28,0.09) !important;
-            transform: translateY(-1px);
-        }
-
-        /* ---- Buttons: rounded 10px like the web app's .btn. Secondary
-           styling is scoped the same way the primary-button rule below is
-           (.stButton>button / .stFormSubmitButton>button), never a bare
-           "button" selector, so it can never accidentally win over a
-           primary button. ---- */
-        .stButton > button, .stFormSubmitButton > button, .stDownloadButton > button {
-            border-radius: 10px !important;
-            font-weight: 600 !important;
-            transition: transform .12s ease, box-shadow .12s ease, background-color .15s ease !important;
-        }
-        .stButton > button:hover, .stFormSubmitButton > button:hover, .stDownloadButton > button:hover {
-            transform: translateY(-1px);
-        }
-        .stButton > button:not([kind="primary"]),
-        .stFormSubmitButton > button:not([kind="primary"]),
-        .stDownloadButton > button {
-            border: 1.4px solid var(--mv-primary) !important;
-            color: var(--mv-primary) !important;
-            background: transparent !important;
-        }
-        .stButton > button:not([kind="primary"]):hover,
-        .stFormSubmitButton > button:not([kind="primary"]):hover,
-        .stDownloadButton > button:hover {
-            background: var(--mv-primary-soft) !important;
-        }
-
-        /* ---- Tabs: pill tab-bar like the web app's .tabbar/.tabbtn ---- */
-        [data-baseweb="tab-list"] {
-            background: var(--mv-card-bg) !important;
-            border-radius: 11px !important;
-            padding: 4px !important;
-            gap: 2px !important;
-        }
-        [data-baseweb="tab-list"] button[data-baseweb="tab"] {
-            border-radius: 8px !important;
-            font-family: var(--sans) !important;
-            font-weight: 600 !important;
-            font-size: 13.5px !important;
-            color: var(--mv-muted) !important;
-        }
-        [data-baseweb="tab-list"] button[aria-selected="true"] {
-            background: var(--mv-surface) !important;
-            color: var(--mv-primary) !important;
-            box-shadow: 0 1px 3px rgba(18,32,28,.12) !important;
-        }
-        [data-baseweb="tab-list"] button[aria-selected="true"] p { color: var(--mv-primary) !important; }
-        [data-baseweb="tab-highlight"] { background-color: transparent !important; }
-        [data-baseweb="tab-border"] { display: none !important; }
-
         .block-container {
-            padding-top: 1.2rem;
+            padding-top: 2.6rem;
             padding-bottom: 3.0rem;
             max-width: 1180px;
         }
-        /* opacity intentionally left OUT of this transition: Streamlit
-           already fades stale content to low opacity while a rerun is in
-           progress (e.g. right after login, when the page swaps from the
-           login form to the logged-in Home page with its top nav).
-           Animating that opacity change too stretches out how long that
-           in-between frame stays visible, which is what made the old
-           page and the new page appear to render on top of each other
-           for a moment. Keeping color/background-color animated (for the
-           nice hover/theme feel) but leaving opacity instant fixes that
-           without losing the rest of the polish. */
-        * { transition: background-color .15s ease, color .15s ease; }
-
-        /* ---- App accent color: Med Venture deep teal (was default blue) ---- */
-        button[kind="primary"], .stButton>button[kind="primary"], .stFormSubmitButton>button[kind="primary"] {
-            background-color: var(--mv-primary) !important;
-            border-color: var(--mv-primary) !important;
-            color: #fff !important;
-        }
-        button[kind="primary"]:hover, .stButton>button[kind="primary"]:hover, .stFormSubmitButton>button[kind="primary"]:hover {
-            background-color: var(--mv-primary-hover) !important;
-            border-color: var(--mv-primary-hover) !important;
-        }
-        input[type="radio"], input[type="checkbox"] { accent-color: var(--mv-primary) !important; }
-        div[role="radiogroup"] label[data-baseweb="radio"] div:first-child,
-        [data-testid="stRadio"] label span[data-testid] {
-            border-color: var(--mv-primary) !important;
-        }
-        div[data-baseweb="radio"] div[aria-checked="true"] {
-            border-color: var(--mv-primary) !important;
-            background-color: var(--mv-primary) !important;
-        }
-        .stProgress > div > div > div > div { background-color: var(--mv-primary) !important; }
+        * { transition: background-color .15s ease, color .15s ease, opacity .15s ease; }
 
         /* ---- Desktop navigation ---- */
-        .st-key-top_nav {
-            margin-bottom: 14px;
-            border: 1px solid var(--mv-border);
-            border-radius: 20px;
-            padding: 10px 16px;
-            background: var(--mv-surface);
-        }
-        /* align-items: center is the Bug-2 fix - without it, the desktop
-           nav row's columns default to stretch, so the 34px-tall round
-           avatar button and the 44px-tall pill nav buttons ended up
-           vertically misaligned (avatar sitting higher/lower than the
-           pill row instead of sharing the same center line). Centering
-           every column's content on this shared axis fixes that for both
-           the outer (logo | nav) row and the inner (nav item | ... |
-           avatar) row, regardless of any element's own height. */
-        .st-key-top_nav div[data-testid="stHorizontalBlock"] {
-            gap: 10px;
-            align-items: center !important;
-        }
+        .st-key-top_nav { margin-bottom: 10px; }
+        .st-key-top_nav div[data-testid="stHorizontalBlock"] { gap: 8px; }
         .st-key-top_nav button {
             width: 100%;
             min-height: 40px;
-            border-radius: 6px !important;
-            border: none !important;
-            border-bottom: 2px solid transparent !important;
-            padding: 8px 10px !important;
-            font-size: 14px !important;
+            border-radius: 999px !important;
+            border: 1px solid rgba(128,128,128,0.25) !important;
+            padding: 7px 8px !important;
+            font-size: 13px !important;
             white-space: nowrap !important;
-            background: transparent !important;
         }
-        /* Active nav item: plain underline instead of a filled pill,
-           matching the reference design's flat tab-bar look - no
-           background box any more, just teal text + a teal underline. */
-        .st-key-top_nav .stButton > button[kind="primary"] {
-            border: none !important;
-            border-bottom: 2px solid var(--mv-primary) !important;
-            border-radius: 0 !important;
-            background: transparent !important;
-            color: var(--mv-primary) !important;
-        }
-        /* Inactive nav pills: white/light-gray text+icon (matching the
-           reference design), NOT the app's usual teal secondary-button
-           color - overridden here with a selector scoped to
-           ".st-key-top_nav .stButton" specifically (matching Streamlit's
-           real button-wrapper markup, ".stButton > button") so it beats
-           the app-wide ".stButton > button:not([kind=\"primary\"])" teal
-           rule by specificity alone, without touching secondary buttons
-           anywhere else in the app. Streamlit's native icon=":material/
-           ...:" rendering follows the button's own text color
-           automatically, so the icon recolors along with the label with
-           no extra rule needed. */
-        .st-key-top_nav .stButton > button:not([kind="primary"]) {
-            color: var(--mv-ink) !important;
-            background: transparent !important;
-        }
-        .st-key-top_nav .stButton > button:not([kind="primary"]):hover {
-            color: var(--mv-primary) !important;
-            background: transparent !important;
-        }
-        /* The avatar button + its wrapping container/column always
-           centered on the shared row axis too, on top of the
-           align-items:center above - belt-and-suspenders so the round
-           avatar never drifts even if its column ends up a different
-           height than its siblings for any reason. */
-        .st-key-top_nav .st-key-top_nav_avatar_btn {
+        .st-key-top_nav button[kind="primary"] { border: none !important; }
+
+        /* ---- Mobile top bar + custom expandable menu ---- */
+        .st-key-mobile_top_bar { display: none; }
+        .st-key-mobile_top_bar div[data-testid="stHorizontalBlock"] {
             display: flex !important;
-            align-items: center !important;
-            justify-content: center !important;
-            margin: 0 !important;
-        }
-
-        /* Nav icons use Streamlit's native st.button(icon=":material/...:")
-           support (see nav_icon() in app.py) - no custom CSS needed here,
-           it's rendered as real button markup. */
-
-        /* ---- Mobile top bar + custom expandable menu.
-           Rebuilt WITHOUT st.columns AND without position:absolute - the
-           absolute-positioning version put the hamburger and profile/
-           settings buttons exactly on top of each other. The next attempt
-           (targeting ".st-key-mobile_top_bar > div[data-testid=
-           'stVerticalBlock']") silently matched nothing at all - the ">"
-           direct-child combinator assumed stVerticalBlock sits one level
-           BELOW the st-key-* class, but Streamlit puts that testid on the
-           SAME element the class is on, so the rule never applied and the
-           two buttons just fell back to Streamlit's default stacked
-           layout. Fixed by targeting the class itself directly (no ">"),
-           with a plain descendant version alongside it as a fallback.
-           IMPORTANT: "display" is set in exactly two places only - hidden
-           here (!important, every screen size) and shown-as-flex inside
-           the max-width:900px media query further down. Putting
-           "display: flex !important" in an *unconditional* rule (as an
-           earlier version of this file did) beat the "display: none"
-           default at every width regardless of the media query, since
-           !important always wins over a non-!important rule no matter
-           which one is declared first - that's what made this bar show
-           up on desktop too. Every other layout property (flex-direction,
-           gap, etc.) is safe to keep unconditional since it's inert while
-           display:none is in effect.
-           ALSO IMPORTANT (Bug-1 fix): every row inside this bar (the
-           logo+toggle header, and the drawer's own nav rows) is built
-           from plain markup / plain st.button calls now - NEVER
-           st.columns(). Streamlit stacks st.columns() vertically below
-           its own ~640px responsive breakpoint by default, which is
-           exactly what was pushing the hamburger toggle below the logo
-           on real phones (which are almost always narrower than that
-           breakpoint). Using direct children of this flex container
-           instead (each one a plain element-container div) sidesteps
-           that breakpoint entirely - a flex row has no such stacking
-           behavior. ---- */
-        .st-key-mobile_top_bar,
-        .st-key-mobile_top_bar[data-testid="stVerticalBlock"] {
-            display: none !important;
-        }
-        .st-key-mobile_top_bar[data-testid="stVerticalBlock"],
-        .st-key-mobile_top_bar div[data-testid="stVerticalBlock"] {
             flex-direction: row !important;
+            flex-wrap: nowrap !important;
             justify-content: space-between !important;
             align-items: center !important;
-            gap: 8px !important;
+            gap: 8px;
         }
-        .st-key-mobile_top_bar[data-testid="stVerticalBlock"] > div,
-        .st-key-mobile_top_bar div[data-testid="stVerticalBlock"] > div {
+        .st-key-mobile_top_bar div[data-testid="column"] {
             width: auto !important;
             flex: 0 0 auto !important;
         }
@@ -721,354 +80,73 @@ def inject_global_css():
             align-items: center !important;
             justify-content: center !important;
             font-size: 17px !important;
+            margin: 0 auto !important;
             border: 1px solid rgba(128,128,128,0.25) !important;
         }
-        /* Matched via a wildcard too so a real st.container(key=
-           "mobile_menu_...") gets the same look - see the note by the
-           ".app-card" rule for why containers replaced raw split <div>s
-           throughout this file.
-           This is now a FIXED, SLIDE-OUT DRAWER from the right edge of
-           the screen (matching the reference design) instead of an
-           inline dropdown card that expanded the page content downward -
-           position:fixed + a slide-in animation, covering the full
-           viewport height, with its own shadow/border separating it from
-           the dimmed backdrop behind it (see ".mv-drawer-backdrop"
-           below, rendered right before this container in render_top_nav
-           when the menu is open). */
-        .mobile-menu-card, [class*="st-key-mobile_menu_"] {
-            position: fixed;
-            top: 0;
-            right: 0;
-            height: 100vh;
-            width: min(82vw, 320px);
-            margin: 0;
-            padding: 20px 16px;
-            border: none;
-            border-left: 1px solid var(--mv-border);
-            border-radius: 0;
-            background: var(--mv-surface);
-            box-shadow: -10px 0 32px rgba(0,0,0,0.5);
-            z-index: 9999;
-            overflow-y: auto;
-            animation: mv-drawer-slide-in 0.22s ease-out;
-        }
-        @keyframes mv-drawer-slide-in {
-            from { transform: translateX(100%); }
-            to { transform: translateX(0); }
-        }
-        .mv-drawer-backdrop {
-            position: fixed;
-            inset: 0;
-            background: rgba(0,0,0,0.55);
-            z-index: 9998;
-            animation: mv-backdrop-fade 0.22s ease-out;
-        }
-        @keyframes mv-backdrop-fade {
-            from { opacity: 0; }
-            to { opacity: 1; }
-        }
-        /* Flat, plain-link style nav items inside the drawer (no pill
-           background/border by default), matching the reference's icon+
-           text list - a soft highlight only appears on hover/tap. */
-        .mobile-menu-card button, [class*="st-key-mobile_menu_"] button {
-            border-radius: 8px !important;
-            min-height: 46px !important;
-            text-align: left !important;
-            margin-bottom: 6px !important;
-            background: transparent !important;
-            border: none !important;
-            font-size: 15px !important;
-        }
-        .mobile-menu-card button:hover, [class*="st-key-mobile_menu_"] button:hover {
-            background: var(--mv-card-bg) !important;
-            color: var(--mv-primary) !important;
-        }
-        .mobile-menu-card button:last-child, [class*="st-key-mobile_menu_"] button:last-child { margin-bottom: 0 !important; }
-
-        /* ---- Test History table: keeps its 8 columns on one row and
-           becomes horizontally swipeable on narrow screens instead of
-           Streamlit's default behaviour of stacking every column into a
-           tall vertical list (unreadable on a phone). ---- */
-        .st-key-test_history_table {
-            overflow-x: auto;
-            -webkit-overflow-scrolling: touch;
-            padding-bottom: 6px;
-        }
-        .st-key-test_history_table div[data-testid="stHorizontalBlock"] {
-            display: flex !important;
-            flex-direction: row !important;
-            flex-wrap: nowrap !important;
-            align-items: center !important;
-            gap: 6px !important;
-            min-width: 620px;
-        }
-        .st-key-test_history_table div[data-testid="column"] {
-            min-width: 0 !important;
-            width: auto !important;
-        }
-        .st-key-test_history_table div[data-testid="column"]:nth-child(1) { flex: 0 0 165px !important; }
-        .st-key-test_history_table div[data-testid="column"]:nth-child(2) { flex: 0 0 85px !important; }
-        .st-key-test_history_table div[data-testid="column"]:nth-child(3),
-        .st-key-test_history_table div[data-testid="column"]:nth-child(4),
-        .st-key-test_history_table div[data-testid="column"]:nth-child(5),
-        .st-key-test_history_table div[data-testid="column"]:nth-child(6),
-        .st-key-test_history_table div[data-testid="column"]:nth-child(7) { flex: 0 0 58px !important; }
-        .st-key-test_history_table div[data-testid="column"]:nth-child(8) { flex: 0 0 56px !important; }
-        .st-key-test_history_table p, .st-key-test_history_table div[data-testid="stMarkdownContainer"] p {
-            font-size: 13px !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-        }
-        .st-key-test_history_table .stButton > button {
-            padding: 4px 8px !important; font-size: 12px !important; min-height: 30px !important;
-        }
-        @media (max-width: 640px) {
-            .st-key-test_history_table div[data-testid="stHorizontalBlock"] { min-width: 560px; }
-            .st-key-test_history_table div[data-testid="column"]:nth-child(1) { flex-basis: 130px !important; }
-        }
-
-        /* ---- Input focus glow (nice subtle brand touch) ---- */
-        .stTextInput input:focus, .stNumberInput input:focus,
-        .stDateInput input:focus, .stTextArea textarea:focus {
-            border-color: var(--mv-primary) !important;
-            box-shadow: 0 0 0 3px var(--mv-primary-soft) !important;
-        }
-
-        /* ---- Generic cards.
-           IMPORTANT: this styling is applied via a real st.container(key=
-           "card_...") wrapper now, NOT by splitting an opening/closing
-           <div class='app-card'> across two separate st.markdown() calls
-           like earlier versions of this file did. Streamlit renders every
-           st.markdown() call as its own standalone DOM node, so widgets
-           placed "between" an opening and closing markdown call never
-           actually end up inside that div - the styled box rendered
-           empty, and the real content rendered unstyled right below it,
-           which is what was showing up as an extra plain bar above every
-           card. Wrapping the real content in st.container(key="card_x")
-           and styling that container directly (via the "[class*=...]"
-           rule above) fixes it at the root instead of patching around it.
-           Padding/margins here are intentionally tight - keeps more
-           content on screen per scroll, especially on phones. ---- */
-        .app-card, [class*="st-key-card_"] {
-            border: 1px solid var(--mv-border);
+        .mobile-menu-card {
+            margin: 6px 0 14px;
+            padding: 10px;
+            border: 1px solid rgba(128,128,128,0.22);
             border-radius: 14px;
-            padding: 12px 16px;
-            margin-bottom: 10px;
-            background: var(--mv-card-bg);
+            background: rgba(127,127,127,0.045);
         }
-        .app-card h4, [class*="st-key-card_"] h4,
-        .app-card .stMarkdown p, [class*="st-key-card_"] .stMarkdown p { margin-top: 0; }
-        [class*="st-key-card_"] div[data-testid="stVerticalBlock"] { gap: 0.4rem !important; }
-        .metric-row { display: flex; gap: 8px; flex-wrap: wrap; }
-        .metric-box {
-            flex: 1 1 140px;
-            border-radius: 12px;
-            padding: 9px 12px;
-            background: rgba(18,60,57,0.055);
-            border: 1px solid var(--mv-border);
+        .mobile-menu-card button {
+            border-radius: 10px !important;
+            min-height: 42px !important;
+            text-align: left !important;
+            margin-bottom: 5px !important;
         }
-        .metric-box .label { font-size: 11.5px; opacity: .7; margin-bottom: 1px; }
-        .metric-box .value { font-size: 19px; font-weight: 700; }
+        .mobile-menu-card button:last-child { margin-bottom: 0 !important; }
 
-        /* Same story as "card_" above, applied to the compact per-test-
-           result rows used in Test History / Analysis lists (one row per
-           test) - real st.container(key="acard_...") now instead of a
-           split raw <div>, so a long list of results doesn't render one
-           empty bar per row on top of the real (previously unstyled) row
-           beneath it. */
-        .analysis-test-card, [class*="st-key-acard_"] {
+        /* ---- Mentor entry point ---- */
+        .st-key-mentor_entry_login button {
+            background: transparent !important;
+            color: #b45309 !important;
+            border: 1px solid rgba(180,83,9,0.45) !important;
+            border-radius: 999px !important;
+            font-weight: 600 !important;
+            font-size: 11px !important;
+            padding: 4px 10px !important;
+            box-shadow: none !important;
+        }
+        .st-key-mentor_entry_login button:hover { background: rgba(180,83,9,0.08) !important; }
+        .mentor-entry-caption {
+            text-align: center;
+            opacity: .65;
+            font-size: 12px;
+            margin-top: 22px;
+            margin-bottom: 6px;
+        }
+
+        /* ---- Generic cards ---- */
+        .app-card {
+            border: 1px solid rgba(128,128,128,0.25);
+            border-radius: 14px;
+            padding: 16px 18px;
+            margin-bottom: 14px;
+            background: rgba(127,127,127,0.04);
+        }
+        .app-card h4 { margin-top: 0; }
+        .metric-row { display: flex; gap: 10px; flex-wrap: wrap; }
+        .metric-box {
+            flex: 1 1 150px;
+            border-radius: 12px;
+            padding: 12px 14px;
+            background: rgba(127,127,127,0.06);
+            border: 1px solid rgba(128,128,128,0.18);
+        }
+        .metric-box .label { font-size: 12px; opacity: .7; margin-bottom: 2px; }
+        .metric-box .value { font-size: 22px; font-weight: 700; }
+
+        .analysis-test-card {
             border: 1px solid rgba(128,128,128,0.18);
             border-radius: 12px;
-            padding: 9px 12px;
-            margin-bottom: 6px;
+            padding: 12px 14px;
+            margin-bottom: 9px;
             background: rgba(127,127,127,0.025);
         }
         .analysis-subtle { opacity: .68; font-size: 12px; }
         .analysis-title { font-weight: 700; font-size: 15px; }
-
-        /* ---- Analysis / Test History cards on mobile: keeps the same
-           "Exam name | Marks | Correct | Wrong | View" ROW layout used on
-           desktop, instead of Streamlit's default behaviour of stacking
-           st.columns() vertically below ~640px (which is what was making
-           each metric render as one huge full-width number per line -
-           a single card taking up the whole screen).
-           IMPORTANT: every rule below is scoped inside the
-           @media (max-width: 640px) block ONLY. Desktop (>640px) is left
-           completely alone, relying entirely on Streamlit's own default
-           st.columns() row layout - an earlier version of this fix
-           applied some of these rules unscoped (to all screen sizes),
-           which ended up shrinking/cramping the metric numbers on
-           desktop too, even though desktop's layout was already fine on
-           its own and never needed touching. */
-        @media (max-width: 640px) {
-            [class*="st-key-acard_"] div[data-testid="stMetric"] {
-                text-align: center !important;
-            }
-            /* CSS GRID instead of flexbox for this row on mobile - an
-               earlier flexbox version (fixed flex-basis px widths per
-               nth-child column) still broke: flex items have a default
-               min-width:auto that lets their CONTENT's natural size win
-               over a fixed flex-basis, and Streamlit's metric widgets
-               sit one DOM level deeper than the column div we can style,
-               so the override never reached them - the Correct/Wrong
-               values and the View button ended up overlapping/pushed
-               off-screen instead of staying in their slots (see the
-               screenshot this was reported from). CSS Grid with
-               `minmax(0, 1fr)` for the name column and fixed px tracks
-               for the rest doesn't have that problem: a grid track is a
-               hard-capped slot regardless of what's inside it, so every
-               column - including the View button - reliably stays where
-               it's put. */
-            [class*="st-key-acard_"] div[data-testid="stHorizontalBlock"] {
-                display: grid !important;
-                grid-template-columns: minmax(0, 1fr) 42px 42px 42px 46px !important;
-                align-items: center !important;
-                gap: 4px !important;
-            }
-            [class*="st-key-acard_"] div[data-testid="column"] {
-                width: 100% !important;
-                min-width: 0 !important;
-                max-width: 100% !important;
-                overflow: hidden !important;
-            }
-            /* Exam-name column (1st grid track, the flexible minmax(0,1fr)
-               one): shrinks and ellipses rather than pushing the metrics
-               off-screen - this is the one column with genuinely
-               variable-length content, so it's the one that should give
-               way first. */
-            [class*="st-key-acard_"] div[data-testid="column"]:nth-child(1) .analysis-title {
-                font-size: 12.5px !important;
-                white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-            }
-            [class*="st-key-acard_"] div[data-testid="column"]:nth-child(1) .analysis-subtle {
-                font-size: 10px !important;
-                white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-            }
-            /* Marks / Correct / Wrong metric columns: small label + small
-               value, centered in their fixed 42px grid track. */
-            [class*="st-key-acard_"] [data-testid="stMetricValue"] {
-                font-size: 13px !important;
-                white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-            }
-            [class*="st-key-acard_"] [data-testid="stMetricLabel"] p {
-                font-size: 9px !important;
-                white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-            }
-            /* View button column (5th, 46px grid track): compact pill
-               button instead of the full-size default. */
-            [class*="st-key-acard_"] div[data-testid="column"]:nth-child(5) .stButton > button {
-                padding: 4px 2px !important;
-                font-size: 11px !important;
-                min-height: 30px !important;
-                width: 100% !important;
-            }
-            /* The Total/Skipped/Accuracy line underneath - shrink and
-               allow it to wrap onto two lines instead of overflowing. */
-            [class*="st-key-acard_"] .analysis-subtle:last-child {
-                font-size: 10px !important;
-                margin-top: 2px;
-            }
-        }
-
-        /* ---- Every other card built from real st.metric() widgets inside
-           st.columns(): Home page's "Active Test" (Questions/Time Left)
-           and "Last Result" (Marks/Correct/Wrong), the OMR submission
-           result summary (Correct/Wrong/Skipped/Marks), and each mentor
-           per-submission review row (Correct/Wrong/Skipped). Same root
-           cause as the Analysis cards above (Streamlit stacks
-           st.columns() vertically below ~640px), but fixed with CSS
-           GRID here instead of flexbox. An earlier flexbox version of
-           this rule (flex-basis:0 + min-width:0 on each column) still
-           overflowed off the right edge of the screen on mobile - flex
-           items have a default min-width:auto that lets their CONTENT'S
-           natural size win over flex-shrink even when the flex item
-           itself is told min-width:0, and Streamlit's own inner metric
-           markup sits one level deeper than the column div we can style,
-           so the override never reached it. CSS Grid tracks don't have
-           that problem: `repeat(N, 1fr)` divides the row into exactly N
-           equal, hard-capped slots regardless of content size, and
-           `overflow: hidden` + ellipsis on the metric text is added as a
-           second safety net in case any single number is unusually wide. ---- */
-        @media (max-width: 640px) {
-            .st-key-card_home_active div[data-testid="stHorizontalBlock"] {
-                display: grid !important;
-                grid-template-columns: repeat(2, 1fr) !important;
-                gap: 6px !important;
-            }
-            .st-key-card_home_last div[data-testid="stHorizontalBlock"],
-            [class*="st-key-card_mentor_result_"] div[data-testid="stHorizontalBlock"] {
-                display: grid !important;
-                grid-template-columns: repeat(3, 1fr) !important;
-                gap: 6px !important;
-            }
-            .st-key-card_submit_result div[data-testid="stHorizontalBlock"] {
-                display: grid !important;
-                grid-template-columns: repeat(4, 1fr) !important;
-                gap: 4px !important;
-            }
-            .st-key-card_home_active div[data-testid="column"],
-            .st-key-card_home_last div[data-testid="column"],
-            .st-key-card_submit_result div[data-testid="column"],
-            [class*="st-key-card_mentor_result_"] div[data-testid="column"] {
-                width: 100% !important;
-                min-width: 0 !important;
-                max-width: 100% !important;
-            }
-            .st-key-card_home_active [data-testid="stMetricValue"],
-            .st-key-card_home_last [data-testid="stMetricValue"],
-            [class*="st-key-card_mentor_result_"] [data-testid="stMetricValue"] {
-                font-size: 15px !important;
-                white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-            }
-            .st-key-card_submit_result [data-testid="stMetricValue"] {
-                font-size: 13px !important;
-                white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-            }
-            .st-key-card_home_active [data-testid="stMetricLabel"] p,
-            .st-key-card_home_last [data-testid="stMetricLabel"] p,
-            .st-key-card_submit_result [data-testid="stMetricLabel"] p,
-            [class*="st-key-card_mentor_result_"] [data-testid="stMetricLabel"] p {
-                font-size: 9.5px !important;
-                white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-            }
-        }
-
-        /* ---- Semantic metric-number coloring, matching the reference
-           design: positive values (Marks, Correct, Average, Skipped)
-           render in the app's teal, and Wrong renders in red - instead
-           of the generic "everything is var(--mv-ink) white" rule set
-           globally on [data-testid="stMetricValue"] further up. Targeted
-           with nth-child position since each card's columns always
-           appear in the same fixed order, and applied at EVERY screen
-           size (not just mobile) since the reference shows this
-           coloring at desktop width too. */
-        .st-key-card_home_last div[data-testid="column"]:nth-child(1) [data-testid="stMetricValue"],
-        .st-key-card_home_last div[data-testid="column"]:nth-child(2) [data-testid="stMetricValue"],
-        [class*="st-key-card_mentor_result_"] div[data-testid="column"]:nth-child(1) [data-testid="stMetricValue"] {
-            color: var(--mv-primary) !important;
-        }
-        .st-key-card_home_last div[data-testid="column"]:nth-child(3) [data-testid="stMetricValue"],
-        [class*="st-key-card_mentor_result_"] div[data-testid="column"]:nth-child(2) [data-testid="stMetricValue"] {
-            color: #F2434A !important;
-        }
-        /* card_submit_result column order is Correct, Wrong, Skipped, Marks */
-        .st-key-card_submit_result div[data-testid="column"]:nth-child(1) [data-testid="stMetricValue"],
-        .st-key-card_submit_result div[data-testid="column"]:nth-child(4) [data-testid="stMetricValue"] {
-            color: var(--mv-primary) !important;
-        }
-        .st-key-card_submit_result div[data-testid="column"]:nth-child(2) [data-testid="stMetricValue"] {
-            color: #F2434A !important;
-        }
-        [class*="st-key-acard_"] div[data-testid="column"]:nth-child(2) [data-testid="stMetricValue"] {
-            color: var(--mv-primary) !important;
-        }
-        [class*="st-key-acard_"] div[data-testid="column"]:nth-child(3) [data-testid="stMetricValue"] {
-            color: #F2434A !important;
-        }
-        /* "Overall Progress" card's Average value (2nd metric-box, raw
-           HTML not st.metric) - teal like the reference, Tests stays
-           the default white. */
-        .st-key-card_home_progress .metric-box:nth-child(2) .value {
-            color: var(--mv-primary) !important;
-        }
 
         .rank-badge {
             display: inline-block; padding: 4px 12px; border-radius: 999px;
@@ -1077,14 +155,14 @@ def inject_global_css():
         .rank-gold { background:#fde68a; color:#78350f; }
         .rank-silver { background:#e5e7eb; color:#374151; }
         .rank-bronze { background:#fbcfe8; color:#831843; }
-        .rank-you { background: var(--mv-primary-soft); color: var(--mv-primary); }
+        .rank-you { background:#bfdbfe; color:#1e3a8a; }
 
         .lb-row {
             display:flex; align-items:center; gap:10px; padding:10px 12px;
-            border-radius:10px; margin-bottom:6px; border:1px solid rgba(18,60,57,0.10);
+            border-radius:10px; margin-bottom:6px; border:1px solid rgba(128,128,128,0.12);
             flex-wrap: wrap;
         }
-        .lb-row.me { background: rgba(18,60,57,0.08); border-color: rgba(18,60,57,0.35); }
+        .lb-row.me { background: rgba(59,130,246,0.12); border-color: rgba(59,130,246,0.4); }
 
         /* ---- OMR review bubbles ---- */
         .omr-row {
@@ -1102,314 +180,62 @@ def inject_global_css():
         }
         .omr-bubble.correct { background:#22c55e; border-color:#22c55e; color:#fff; opacity:1; }
         .omr-bubble.wrong { background:#ef4444; border-color:#ef4444; color:#fff; opacity:1; }
-        .dt-star { color:#ef4444; font-weight:800; margin-left:2px; }
-        .double-touch-note {
-            margin-top:10px; padding:10px 12px; border-radius:10px;
-            background: rgba(239,68,68,0.10); border:1px solid rgba(239,68,68,0.35);
-            font-size:13px;
-        }
-        .double-touch-note b { color:#ef4444; }
 
         .strength-bar { height:6px; border-radius:4px; background:rgba(128,128,128,0.2); overflow:hidden; margin-top:4px; }
         .strength-fill { height:100%; border-radius:4px; }
         .time-row-label { font-weight:600; padding-top:6px; font-size:14px; }
 
-        /* ---- Phone number field: a country-code st.selectbox ("+880 ⌄"
-           style, matching the requested reference design) sitting beside
-           a normal st.text_input, laid out with plain CSS flexbox.
-           Two earlier attempts at this failed: st.columns() (Streamlit's
-           own column-width engine breaks on real phones) and
-           position:absolute (never rendered at all). This version puts
-           the selectbox and the text_input as two plain, normal children
-           inside this container, and forces Streamlit's own wrapper div
-           around them into a flex row - using BOTH a same-element and a
-           descendant version of the selector below, because Streamlit
-           puts the "stVerticalBlock" testid directly on the same element
-           as the "st-key-*" class (not one level below it, which is what
-           made an earlier ">"-child-combinator version of this rule
-           silently match nothing). An explicit border/background/shadow
-           is added on this same wrapper so the whole code+digits row
-           reads as ONE clearly-bounded field against the page background,
-           instead of just relying on the two child pieces' own colors to
-           imply a boundary. ---- */
-        div[class*="_phone_row"][data-testid="stVerticalBlock"],
-        div[class*="_phone_row"] div[data-testid="stVerticalBlock"] {
+        .bd-phone-prefix {
+            border: 1px solid rgba(128,128,128,0.35);
+            border-radius: 8px;
+            padding: 9px 10px;
+            text-align: center;
+            font-weight: 600;
+            opacity: .85;
+            background: rgba(127,127,127,0.06);
+        }
+        div[class*="_phone_row"] div[data-testid="stHorizontalBlock"] {
             display: flex !important;
             flex-direction: row !important;
-            align-items: stretch !important;
-            gap: 0 !important;
-            border: 1px solid var(--mv-border) !important;
-            border-radius: 9px !important;
-            background: var(--mv-input-bg) !important;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.14) !important;
+            flex-wrap: nowrap !important;
+            align-items: center !important;
+            gap: 8px !important;
         }
-        div[class*="_phone_row"][data-testid="stVerticalBlock"] > div,
-        div[class*="_phone_row"] div[data-testid="stVerticalBlock"] > div {
-            margin: 0 !important;
-        }
-        div[class*="_phone_row"][data-testid="stVerticalBlock"] > div:first-child,
-        div[class*="_phone_row"] div[data-testid="stVerticalBlock"] > div:first-child {
-            flex: 0 0 168px !important;
-            min-width: 168px !important;
-        }
-        div[class*="_phone_row"][data-testid="stVerticalBlock"] > div:last-child,
-        div[class*="_phone_row"] div[data-testid="stVerticalBlock"] > div:last-child {
-            flex: 1 1 auto !important;
-            min-width: 0 !important;
-        }
-        /* Country-code side now matches the SAME dark input background as
-           the digits side (not the teal "primary-soft" tint it used to
-           have) - a thin border-right is what separates the two halves
-           visually, while the whole row's own border/shadow above is what
-           separates the entire field from the page background. */
-        div[class*="_phone_row"] div[data-baseweb="select"] > div {
-            height: 46px !important;
-            border-radius: 9px 0 0 9px !important;
-            border: none !important;
-            border-right: 1px solid var(--mv-border) !important;
-            font-weight: 600 !important;
-            color: var(--mv-primary) !important;
-            background: var(--mv-input-bg) !important;
-        }
-        div[class*="_phone_row"] input {
-            height: 46px !important;
-            width: 100% !important;
-            box-sizing: border-box !important;
-            border: none !important;
-            border-radius: 0 9px 9px 0 !important;
-            background: var(--mv-input-bg) !important;
-        }
-
-        /* ---- Profile "Edit Name" row now uses plain st.columns() in
-           Python (see page_profile) instead of a custom flex-row CSS
-           hack - the hack made the text input invisible for this
-           particular avatar+input pairing, so it was removed rather than
-           further patched blind. Nothing needed here. ---- */
-
-        /* ---- Profile page: Profile Information / Account Status / Log
-           Out cards (matches the reference dashboard-style design). Rows
-           inside the info card, and the status pill rows, are plain CSS -
-           real markup below, styled here so it's consistent with the
-           rest of the app's card look instead of a one-off. ---- */
-        .mv-profile-status-row {
-            display: flex; justify-content: space-between; align-items: center;
-            padding: 9px 0; border-bottom: 1px solid var(--mv-border);
-        }
-        .mv-profile-status-row:last-child { border-bottom: none; }
-        .mv-profile-status-label { font-size: 13.5px; color: var(--mv-muted); }
-        .mv-profile-status-pill {
-            font-size: 11px; padding: 3px 12px; border-radius: 999px; font-weight: 700;
-        }
-
-        /* ---- Profile stats strip (Tests Completed / Average Score /
-           Leaderboard Rank / Days Active on the student page, and the
-           equivalent mentor stats on the mentor page) - one bordered
-           card, 4 plain columns, no per-column border/background so it
-           reads as a single unified strip matching the reference design.
-           The "View X →" / "Keep Going!" line under each stat is a real
-           st.button styled as a plain teal link (student side) or a
-           static caption (mentor side / the 4th "Days Active" stat) -
-           scoped narrowly to this card so it never affects any other
-           button in the app. ---- */
-        .st-key-card_profile_stats { padding: 18px 20px !important; }
-        .st-key-card_profile_stats div[data-testid="column"] { text-align: center; }
-        .st-key-card_profile_stats .stButton { display: flex; justify-content: center; }
-        .st-key-card_profile_stats .stButton > button:not([kind="primary"]) {
-            background: transparent !important;
-            border: none !important;
-            box-shadow: none !important;
-            color: var(--mv-primary) !important;
-            font-size: 12.5px !important;
-            font-weight: 600 !important;
-            padding: 2px 0 !important;
-            margin-top: 2px !important;
-            min-height: unset !important;
+        div[class*="_phone_row"] div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
             width: auto !important;
         }
-        .st-key-card_profile_stats .stButton > button:not([kind="primary"]):hover {
-            text-decoration: underline; background: transparent !important; transform: none !important;
+        div[class*="_phone_row"] div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:first-child {
+            flex: 0 0 64px !important;
+            max-width: 64px !important;
+            min-width: 64px !important;
         }
-
-        /* ---- Small down-chevron next to the top-nav avatar (student and
-           mentor) - purely decorative, matching the reference design's
-           "avatar + caret" combo. The avatar button itself still does all
-           the actual navigation (click anywhere on the circle -> Profile);
-           the chevron is a plain, non-interactive span sitting in its own
-           narrow column right next to it. ---- */
-        .mv-nav-avatar-chevron {
-            display: flex; align-items: center; justify-content: center;
-            height: 34px; color: var(--mv-muted); font-size: 13px;
+        div[class*="_phone_row"] div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:last-child {
+            flex: 1 1 0% !important;
+            min-width: 0 !important;
+            max-width: none !important;
         }
-
-        /* ---- Neon-glow profile cards: every card on the Profile page
-           (Profile Information / Account Status / Log Out / stats strip /
-           "Are you a mentor?") gets a soft teal border-glow on top of the
-           app's normal card shadow, matching the reference design's
-           slightly "lit up" card edges. Scoped to "card_profile_*" keys
-           only (via the [class*=...] wildcard) so this never touches
-           unrelated cards elsewhere in the app (Home, Tests, Analysis,
-           etc. keep the plain look). Strengthens a little further on
-           hover for a subtle interactive feel. ---- */
-        [class*="st-key-card_profile_"] {
-            border-color: rgba(38,171,140,0.30) !important;
-            box-shadow: 0 0 0 1px rgba(38,171,140,0.10), 0 0 22px rgba(38,171,140,0.12),
-                        0 1px 2px rgba(18,32,28,0.05), 0 6px 18px rgba(18,32,28,0.05) !important;
-        }
-        [class*="st-key-card_profile_"]:hover {
-            border-color: rgba(38,171,140,0.45) !important;
-            box-shadow: 0 0 0 1px rgba(38,171,140,0.18), 0 0 28px rgba(38,171,140,0.18),
-                        0 2px 4px rgba(18,32,28,0.07), 0 10px 26px rgba(18,32,28,0.09) !important;
-        }
-        /* Neon ring around the big avatar on the Profile page header -
-           a soft glowing halo (teal for students, accent-orange for the
-           mentor) instead of a plain flat circle. Applied via a small
-           wrapper span (see _profile_hero_avatar_html() in app.py) so it
-           never affects the small avatars used elsewhere (leaderboard
-           rows, student-management list, top-nav). */
-        .mv-avatar-glow-ring {
-            display: inline-flex; border-radius: 50%; padding: 3px;
-        }
-
-        /* ---- "Are you a mentor?" card: icon chip + title/description on
-           the left, a compact Mentor Login button on the right - matches
-           the reference design instead of the earlier plain "text above
-           a full-width button" layout. ---- */
-        .mv-mentor-cta-icon {
-            width: 42px; height: 42px; border-radius: 11px;
-            background: var(--mv-accent-soft); color: var(--mv-accent);
-            display: flex; align-items: center; justify-content: center;
-            font-size: 19px; flex-shrink: 0;
-        }
-        .st-key-card_profile_mentor div[data-testid="stHorizontalBlock"] { align-items: center !important; }
-
-        /* ---- Account Status card: a large, very faint shield watermark
-           in the corner (matching the reference design's decorative
-           background icon), implemented as a CSS-only ::after pseudo-
-           element with a negative z-index - this paints behind the
-           card's real content automatically (no extra markup, no
-           fiddling with z-index on the actual status rows, so there's
-           no risk of accidentally covering real content). ---- */
-        .st-key-card_profile_status { position: relative; overflow: hidden; }
-        .st-key-card_profile_status::after {
-            content: "🛡️";
-            position: absolute; right: -14px; bottom: -22px;
-            font-size: 118px; line-height: 1; opacity: 0.05;
-            z-index: -1; pointer-events: none;
-        }
-
-        /* ---- Log Out card: a destructive-red icon chip and a red-
-           outlined button instead of the app's usual teal, since signing
-           out is a distinct, deliberate action - matches the reference
-           design's red accent on this one card only. Scoped tightly to
-           ".st-key-card_profile_logout" (the same container key is
-           reused by both the student and mentor Profile pages, so this
-           one rule covers both) so no other button in the app is
-           affected. ---- */
-        .mv-logout-icon {
-            width: 34px; height: 34px; border-radius: 9px;
-            background: var(--mv-danger-soft); color: var(--mv-danger);
-            display: flex; align-items: center; justify-content: center;
-            font-size: 16px; flex-shrink: 0;
-        }
-        .st-key-card_profile_logout .stButton > button:not([kind="primary"]) {
-            border-color: var(--mv-danger) !important;
-            color: var(--mv-danger) !important;
-        }
-        .st-key-card_profile_logout .stButton > button:not([kind="primary"]):hover {
-            background: var(--mv-danger-soft) !important;
-        }
-
-        /* ---- Change Password: a clickable title row (icon-less plain-
-           text button, left-aligned, bold) + a caption line underneath
-           that's always visible - replaces the old st.expander so the
-           description text ("Update your password regularly...") shows
-           even before it's opened, matching the reference design. The
-           actual toggle-open/closed behavior is a normal session_state
-           flag (same pattern as "Update Profile" elsewhere on this
-           page), not a custom overlay/hack, so it's exactly as reliable
-           as every other toggle in the app. ---- */
-        .st-key-card_profile_changepw .stButton > button:not([kind="primary"]) {
-            background: transparent !important;
-            border: none !important;
-            box-shadow: none !important;
-            color: var(--mv-ink) !important;
-            font-weight: 700 !important;
-            font-size: 15px !important;
-            text-align: left !important;
-            justify-content: flex-start !important;
-            padding: 4px 0 !important;
-            min-height: unset !important;
-        }
-        .st-key-card_profile_changepw .stButton > button:not([kind="primary"]):hover {
-            color: var(--mv-primary) !important;
-            background: transparent !important;
-            transform: none !important;
-        }
-
-        /* ---- Student per-submission calibration ---- */
-        .calib-step-badge {
-            display:inline-block; padding:4px 12px; border-radius:999px;
-            background: var(--mv-primary-soft); color: var(--mv-primary); font-weight:700; font-size:13px;
-        }
-        .calib-point-chip {
-            display:inline-block; padding:4px 10px; border-radius:999px;
-            background:rgba(34,197,94,0.15); color:#15803d; font-weight:600;
-            font-size:12px; margin:2px 4px 2px 0;
+        @media (max-width: 640px) {
+            .bd-phone-prefix { padding: 9px 2px; font-size: 13px; }
         }
 
         @media (max-width: 900px) {
             .block-container { max-width: 100%; padding-left: 1rem; padding-right: 1rem; }
             .st-key-top_nav { display: none !important; }
-            .st-key-mobile_top_bar,
-            .st-key-mobile_top_bar[data-testid="stVerticalBlock"],
-            .st-key-mobile_top_bar div[data-testid="stVerticalBlock"] {
-                display: flex !important;
-            }
-            .mv-hero { margin: -1rem -1rem 16px; padding: 26px 12px 18px; }
+            .st-key-mobile_top_bar { display: block !important; }
+        }
+        @media (max-width: 768px) {
+            .metric-row { flex-direction: column !important; }
+            .metric-box { flex: 1 1 100% !important; }
         }
         @media (max-width: 640px) {
-            .metric-box { flex: 1 1 45%; }
-            .lb-row { font-size: 13px; }
-            .analysis-test-card, [class*="st-key-acard_"] { padding: 8px 10px; }
-            .mv-hero { padding: 22px 10px 14px; border-radius: 0 0 16px 16px; }
-            .app-card, [class*="st-key-card_"], div[data-testid="stForm"] { padding: 10px 12px !important; }
-        }
-        @media (min-width: 1400px) {
-            .block-container { max-width: 1280px; }
-        }
-
-        /* ---- Themed spinner (recolors Streamlit's built-in spinner to
-           match Med Venture instead of the generic default) ---- */
-        [data-testid="stSpinner"] { color: var(--mv-primary) !important; }
-        [data-testid="stSpinner"] svg { color: var(--mv-primary) !important; fill: var(--mv-primary) !important; }
-        [data-testid="stSpinner"] p, [data-testid="stSpinner"] div {
-            font-family: var(--mono) !important; color: var(--mv-muted) !important; font-size: 13px !important;
-        }
-
-        /* ---- Boot loading screen pulse-line animation ---- */
-        @keyframes mv-pulse-draw {
-            0% { stroke-dashoffset: 520; }
-            55% { stroke-dashoffset: 0; }
-            100% { stroke-dashoffset: 0; opacity: 0; }
-        }
-        .mv-boot-pulse path { animation: mv-pulse-draw 1.8s ease-in-out infinite; }
-
-        /* ---- Entry-screen (password gate / student login / mentor login)
-           pulse-line: unlike the one-shot boot pulse above (which draws once
-           then fades out), this one keeps a short "traveling" dash segment
-           looping across the line forever - so the heartbeat line on the
-           first screen keeps animating continuously instead of freezing
-           after the first pass. ---- */
-        .mv-hero-pulse-path {
-            stroke-dasharray: 90 400;
-            animation: mv-hero-pulse-travel 3.2s ease-in-out infinite;
-        }
-        @keyframes mv-hero-pulse-travel {
-            0%   { stroke-dashoffset: 490; opacity: 0; }
-            10%  { opacity: 1; }
-            70%  { opacity: 1; }
-            92%  { stroke-dashoffset: -400; opacity: 0; }
-            100% { stroke-dashoffset: -400; opacity: 0; }
+            .metric-box { flex: 1 1 100%; }
+            .lb-row { font-size: 12px; flex-wrap: wrap !important; }
+            .lb-row span { flex: 0 1 auto !important; }
+            .analysis-test-card { padding: 11px 12px; }
+            /* Make test history table responsive */
+            div[data-testid="dataframe"] {
+                font-size: 12px !important;
+            }
         }
         </style>
         """,
@@ -1432,85 +258,6 @@ def motivation_for(student_id):
     seed = f"{student_id}-{date.today().isoformat()}"
     rnd = random.Random(seed)
     return rnd.choice(MOTIVATIONS)
-
-
-# A small fixed palette of theme-friendly colors for avatars - picked to
-# stay readable with white initials on top and to feel at home next to
-# the app's teal/coral Med Venture palette rather than clashing with it.
-AVATAR_COLORS = [
-    "#26AB8C", "#F94D10", "#7C9CE6", "#C77DE0", "#E0A23D",
-    "#5FBF6B", "#E0637D", "#4FA0E6", "#B0A23D", "#8B7DE0",
-]
-
-# Options offered on the Profile page's "Update Profile" form. Birth date
-# is intentionally NOT collected at signup (see phone_field()/signup view
-# below) - name + phone + password is all that's needed to create an
-# account - but a student can add/update it any time afterwards here.
-GENDER_OPTIONS = ["Not specified", "Male", "Female", "Other"]
-
-
-def _avatar_initials(name):
-    """Up to 2 letters: first letter of the first two words, or the first
-    2 letters of a single word - falls back to '?' for an empty name."""
-    parts = [p for p in str(name or "").strip().split() if p]
-    if not parts:
-        return "?"
-    if len(parts) == 1:
-        return parts[0][:2].upper()
-    return (parts[0][0] + parts[1][0]).upper()
-
-
-def _avatar_color(student_id, name=None):
-    """Same deterministic color-pick used by render_avatar(), pulled out
-    on its own so callers that need just the color (e.g. styling a real
-    st.button to look like an avatar, where the button's label has to be
-    plain text/emoji rather than the HTML span render_avatar() returns)
-    don't have to duplicate the seeding logic."""
-    seed = str(student_id or name or "?")
-    return random.Random(seed).choice(AVATAR_COLORS)
-
-
-def render_avatar(student_id, name, size=40, font_size=None):
-    """
-    Deterministic, no-network avatar: a solid-color circle with the
-    student's initials, colored by hashing their student_id (NOT their
-    name, so two students who happen to share a first name still get
-    visually distinct avatars) into AVATAR_COLORS. Same student_id always
-    gets the same color and initials, every time it's rendered anywhere
-    in the app - no external avatar service, image upload, or network
-    call needed, so it can never fail to load or add latency.
-
-    Returns an HTML string (a single inline <span>) meant to be embedded
-    inside a larger st.markdown(..., unsafe_allow_html=True) call, or
-    rendered on its own.
-    """
-    color = _avatar_color(student_id, name)
-    initials = _avatar_initials(name)
-    if font_size is None:
-        font_size = max(11, int(size * 0.42))
-    return (
-        f"<span style='display:inline-flex; align-items:center; justify-content:center; "
-        f"width:{size}px; height:{size}px; min-width:{size}px; border-radius:50%; "
-        f"background:{color}; color:#fff; font-family:var(--sans); "
-        f"font-weight:700; font-size:{font_size}px; letter-spacing:.02em; "
-        f"line-height:1; vertical-align:middle;'>{initials}</span>"
-    )
-
-
-def render_student_header(student_id, name, heading_level=3):
-    """Shared "[avatar] Name" header used at the top of every student-
-    analysis-style page (a student's own Analysis page, and the mentor's
-    per-student Analysis/drilldown page) so the same avatar + name +
-    Student ID block doesn't get copy-pasted three times."""
-    tag = f"h{heading_level}"
-    st.markdown(
-        f"<div style='display:flex; align-items:center; gap:10px; margin-bottom:2px;'>"
-        f"{render_avatar(student_id, name, size=40)}"
-        f"<{tag} style='margin:0;'>{name}</{tag}>"
-        f"</div>",
-        unsafe_allow_html=True,
-    )
-    st.caption(f"Student ID: **{student_id}**")
 
 
 # =========================================================================
@@ -1604,7 +351,11 @@ def check_app_password():
     if st.session_state.get("authed"):
         return True
 
-    render_hero("Medical Admission Prep", tagline="Enter your access password to continue")
+    st.markdown(
+        "<h1 style='text-align:center;'>📝 OMR Result App</h1>"
+        "<p style='text-align:center; color:gray;'>Enter the access password to continue</p>",
+        unsafe_allow_html=True,
+    )
     _, mid, _ = st.columns([1, 2, 1])
     with mid:
         with st.form(key="app_pw_form", clear_on_submit=False):
@@ -1631,87 +382,28 @@ SECURITY_QUESTIONS = [
     "What is your favorite color?",
 ]
 
-# Full worldwide country list for the phone field's country-code dropdown,
-# shown as "Country (+code)" labels so a user can click the dropdown and
-# type a country name (e.g. "Bangla") to filter down to it - st.selectbox
-# has built-in typeahead search, so no extra search widget is needed.
-#
-# IMPORTANT: the actual login/signup/reset backend (sh.validate_bd_phone_digits
-# and everything downstream of it in sheets_helper.py) only understands
-# Bangladeshi 10-digit numbers - it has no concept of other countries'
-# number formats. Rather than silently pretending other codes work (which
-# would just fail validation in a confusing way, or worse, store a
-# malformed number), phone_field() below still returns the selected dial
-# code alongside the digits so each caller can gate on `code == "+880"`
-# before calling into that BD-specific validation, and show a plain "only
-# +880 is supported right now" message otherwise. Extending real validation
-# to other countries would need changes in sheets_helper.py, which is out
-# of scope here - this list only widens what's *shown*, not what's *accepted*.
-COUNTRY_CODES = [
-    ("Afghanistan", "+93"), ("Albania", "+355"), ("Algeria", "+213"),
-    ("Argentina", "+54"), ("Australia", "+61"), ("Austria", "+43"),
-    ("Bahrain", "+973"), ("Bangladesh", "+880"), ("Belgium", "+32"),
-    ("Bhutan", "+975"), ("Brazil", "+55"), ("Brunei", "+673"),
-    ("Cambodia", "+855"), ("Canada", "+1"), ("China", "+86"),
-    ("Denmark", "+45"), ("Egypt", "+20"), ("Finland", "+358"),
-    ("France", "+33"), ("Germany", "+49"), ("Greece", "+30"),
-    ("Hong Kong", "+852"), ("India", "+91"), ("Indonesia", "+62"),
-    ("Iran", "+98"), ("Iraq", "+964"), ("Ireland", "+353"),
-    ("Italy", "+39"), ("Japan", "+81"), ("Jordan", "+962"),
-    ("Kuwait", "+965"), ("Malaysia", "+60"), ("Maldives", "+960"),
-    ("Mexico", "+52"), ("Myanmar", "+95"), ("Nepal", "+977"),
-    ("Netherlands", "+31"), ("New Zealand", "+64"), ("Norway", "+47"),
-    ("Oman", "+968"), ("Pakistan", "+92"), ("Philippines", "+63"),
-    ("Poland", "+48"), ("Portugal", "+351"), ("Qatar", "+974"),
-    ("Russia", "+7"), ("Saudi Arabia", "+966"), ("Singapore", "+65"),
-    ("South Africa", "+27"), ("South Korea", "+82"), ("Spain", "+34"),
-    ("Sri Lanka", "+94"), ("Sweden", "+46"), ("Switzerland", "+41"),
-    ("Thailand", "+66"), ("Turkey", "+90"), ("UAE", "+971"),
-    ("UK", "+44"), ("USA", "+1"), ("Vietnam", "+84"),
-]
-COUNTRY_LABELS = [f"{name} ({code})" for name, code in COUNTRY_CODES]
-COUNTRY_LABEL_TO_CODE = {f"{name} ({code})": code for name, code in COUNTRY_CODES}
-# Bangladesh is the default selection every time this field is rendered,
-# since the vast majority of users are Bangladeshi students/mentors - this
-# just saves them a search on the common case, not a functional restriction.
-DEFAULT_COUNTRY_LABEL = "Bangladesh (+880)"
-
 
 def phone_field(key_prefix, placeholder="1712345678"):
-    """A phone number field with a searchable worldwide country selector
-    (type a country name to filter, e.g. "Bangla" -> "Bangladesh (+880)")
-    next to a plain digits input. Defaults to Bangladesh on first render.
-
-    See the COUNTRY_CODES comment above for why only +880 actually
-    validates right now - other countries are selectable (so the UI looks
-    and behaves like a real international phone field) but will show a
-    "not supported yet" caption instead of silently failing.
-
-    Deliberately NOT built with st.columns(): Streamlit resizes columns
-    using its own internal responsive rules on narrow screens, which was
-    fighting our CSS overrides on phones. This instead puts the selectbox
-    and the real st.text_input as two plain, normal children in this
-    container, and the "_phone_row" CSS in inject_global_css forces
-    Streamlit's own wrapper div around them into a simple CSS flex row -
-    no column-width engine involved, just two boxes side by side like
-    ordinary HTML.
-    Returns (selected_code, digits) - validate digits with
-    sh.validate_bd_phone_digits only when selected_code == "+880"."""
+    """A phone number field with a fixed, non-editable '+880' prefix - the
+    student only ever types the 10 digits that follow. This removes the
+    'leading 0 disappears' class of bug entirely (there's no 0 for the
+    user to type or for anything to drop), and keeps every number stored
+    in one consistent format. The '+880' box and the digit input are kept
+    on ONE row (see the '_phone_row' CSS rule in inject_global_css) even
+    on mobile, where Streamlit's columns would otherwise stack vertically.
+    Returns whatever raw digits the user has typed so far (validate with
+    sh.validate_bd_phone_digits before use)."""
     st.markdown("**Phone number**")
     with st.container(key=f"{key_prefix}_phone_row"):
-        default_idx = COUNTRY_LABELS.index(DEFAULT_COUNTRY_LABEL)
-        label = st.selectbox(
-            "Country", COUNTRY_LABELS, index=default_idx,
-            key=f"{key_prefix}_code", label_visibility="collapsed",
-        )
-        code = COUNTRY_LABEL_TO_CODE[label]
-        digits = st.text_input(
-            "Phone number", key=f"{key_prefix}_digits", label_visibility="collapsed",
-            placeholder=placeholder, max_chars=10,
-        )
-    if code != "+880":
-        st.caption("⚠️ Only Bangladeshi (+880) numbers can be used to log in right now.")
-    return code, digits
+        c1, c2 = st.columns([0.9, 3.1], gap="small")
+        with c1:
+            st.markdown("<div class='bd-phone-prefix'>+880</div>", unsafe_allow_html=True)
+        with c2:
+            digits = st.text_input(
+                "Phone number", key=f"{key_prefix}_digits", label_visibility="collapsed",
+                placeholder=placeholder, max_chars=10,
+            )
+    return digits
 
 
 def student_session_is_valid():
@@ -1727,65 +419,22 @@ def student_session_is_valid():
     return live_version == st.session_state.get("session_version")
 
 
-def _render_login_view():
-    render_hero("Student Portal", heading_html="Student Login", compact=True, pulse=False,
-                show_badge=False, show_byline=False)
+def page_student_auth():
+    st.markdown("<h2 style='text-align:center;'>🎓 Student Login</h2>", unsafe_allow_html=True)
+    tab_login, tab_signup, tab_forgot = st.tabs(["Log In", "Sign Up", "Forgot Password"])
 
-    with st.container(key="auth_card_login"):
-        side_col, form_col = st.columns([1, 1.35], gap="small")
-        with side_col:
-            st.markdown(
-                """
-                <div class='mv-auth-side'>
-                    <div class='mv-auth-side-icon-wrap'>
-                        <div class='mv-auth-ring r1'></div>
-                        <div class='mv-auth-ring r2'></div>
-                        <div class='mv-auth-orbit'>
-                            <span class='mv-auth-dot d1'></span>
-                            <span class='mv-auth-dot d2'></span>
-                        </div>
-                        <div class='mv-auth-icon-box'>🔒<span class='mv-auth-icon-dot'></span></div>
-                    </div>
-                    <div class='mv-auth-side-title'>Welcome back!</div>
-                    <div class='mv-auth-side-text'>Login to access your student dashboard</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-        with form_col:
-            with st.container(key="auth_form_login"):
-                # Wrapped in a real st.form: this both (a) lets the browser detect
-                # it as a login form for autofill / "remember password", and
-                # (b) makes pressing Enter inside any field submit the form - no
-                # extra click needed after autofill/paste. No live password-
-                # strength feedback is needed here, so a form (which only reruns
-                # on submit) doesn't cost us anything.
-                #
-                # "Forgot Password?" is a SECOND st.form_submit_button inside this
-                # same form (Streamlit allows more than one per form) styled as a
-                # plain text link via the ".st-key-forgot_pw_link" CSS - clicking
-                # it submits the form too, but we check *which* button fired below
-                # and route to the forgot-password view without touching the
-                # phone/password validation meant for the actual Log In button.
-                with st.form(key="login_form", clear_on_submit=False):
-                    login_code, login_digits = phone_field("login")
-                    pw = st.text_input("Password", type="password", key="login_pw")
-                    rc1, rc2 = st.columns([1, 1])
-                    with rc1:
-                        st.checkbox("Remember me", key="login_remember_me_ui")
-                    with rc2:
-                        with st.container(key="forgot_pw_link"):
-                            forgot_clicked = st.form_submit_button("Forgot Password?")
-                    submitted = st.form_submit_button("Log In", type="primary", use_container_width=True)
-
-    if forgot_clicked:
-        st.session_state["student_auth_view"] = "forgot"
-        st.rerun()
-
-    if submitted:
-        if login_code != "+880":
-            st.error("Only Bangladeshi (+880) numbers can be used to log in right now.")
-        else:
+    with tab_login:
+        # Wrapped in a real st.form: this both (a) lets the browser detect
+        # it as a login form for autofill / "remember password", and
+        # (b) makes pressing Enter inside any field submit the form - no
+        # extra click needed after autofill/paste. No live password-
+        # strength feedback is needed on this tab, so a form (which only
+        # reruns on submit) doesn't cost us anything here.
+        with st.form(key="login_form", clear_on_submit=False):
+            login_digits = phone_field("login")
+            pw = st.text_input("Password", type="password", key="login_pw")
+            submitted = st.form_submit_button("Log In", type="primary", use_container_width=True)
+        if submitted:
             ok, err, canonical_phone = sh.validate_bd_phone_digits(login_digits)
             if not ok:
                 st.error(err)
@@ -1805,46 +454,63 @@ def _render_login_view():
                         st.success("Logged in!")
                         go_to("home")
 
-    # ---- Small, quiet secondary links: Sign Up (for new students) and
-    # Mentor Login - both real st.button widgets styled as plain text
-    # links (see ".st-key-auth_signup_link" / ".st-key-auth_mentor_link"
-    # in inject_global_css) instead of the earlier full-width pill button,
-    # so they read as secondary actions rather than competing with Log In.
-    with st.container(key="auth_bottom_links"):
-        l1, l2 = st.columns(2)
-        with l1:
-            with st.container(key="auth_signup_link"):
-                if st.button("New here? Sign Up", key="goto_signup_btn", use_container_width=True):
-                    st.session_state["student_auth_view"] = "signup"
-                    st.rerun()
-        with l2:
-            with st.container(key="auth_mentor_link"):
-                if st.button("Are you a mentor? Mentor Login", key="goto_mentor_btn", use_container_width=True):
-                    go_to("mentor")
+    with tab_signup:
+        # NOT wrapped in st.form on purpose: a form only reruns the script
+        # when its submit button is clicked, so a password-strength meter
+        # inside a form only ever updates AFTER you hit submit - which is
+        # exactly the confusing behaviour we're fixing here. Plain widgets
+        # rerun on every keystroke, so the strength bar updates live while
+        # typing, before the button is ever pressed.
+        name = st.text_input("Full name", key="su_name")
+        phone_digits = phone_field("su")
+        pw1 = st.text_input("Password", type="password", key="su_pw1")
+        if pw1:
+            score, label, _tips = sh.password_strength(pw1)
+            colors = ["#ef4444", "#ef4444", "#f59e0b", "#10b981", "#059669"]
+            st.markdown(
+                f"<div class='strength-bar'><div class='strength-fill' "
+                f"style='width:{(score+1)*20}%; background:{colors[score]};'></div></div>"
+                f"<small>Password strength: <b>{label}</b></small>",
+                unsafe_allow_html=True,
+            )
+        pw2 = st.text_input("Confirm password", type="password", key="su_pw2")
+        sec_q = st.selectbox("Security question (used for password recovery)", SECURITY_QUESTIONS, key="su_secq")
+        sec_a = st.text_input("Your answer", key="su_seca")
 
+        if st.button("Create Account", type="primary", use_container_width=True, key="signup_btn"):
+            ok, phone_err, canonical_phone = sh.validate_bd_phone_digits(phone_digits)
+            _, _, tips = sh.password_strength(pw1)
+            if not name.strip():
+                st.error("Please enter your name.")
+            elif not ok:
+                st.error(phone_err)
+            elif tips:
+                st.error("Password is too weak: " + ", ".join(tips))
+            elif pw1 != pw2:
+                st.error("Passwords do not match.")
+            elif not sec_a.strip():
+                st.error("Please answer the security question.")
+            else:
+                with st.spinner("Creating your account..."):
+                    try:
+                        sh.create_student(name, canonical_phone, pw1, sec_q, sec_a)
+                        clear_all_caches()
+                    except ValueError as e:
+                        st.error(str(e))
+                    else:
+                        st.success("Account created! Please log in from the 'Log In' tab.")
 
-def _render_signup_view():
-    render_hero("Student Portal", heading_html="Create Account", compact=True, pulse=False,
-                show_badge=False, show_byline=False)
-
-    with st.container(key="auth_card_signup"):
-        with st.container(key="auth_form_signup"):
-            # NOT wrapped in st.form on purpose: a form only reruns the script
-            # when its submit button is clicked, so a password-strength meter
-            # inside a form only ever updates AFTER you hit submit - which is
-            # exactly the confusing behaviour we're fixing here. Plain widgets
-            # rerun on every keystroke, so the strength bar updates live while
-            # typing, before the button is ever pressed.
-            #
-            # Deliberately only name + phone + password + security question
-            # are asked here - no birth date / gender at signup. Those are
-            # optional and can be filled in any time afterwards from the
-            # Profile page (see page_profile()).
-            name = st.text_input("Full name", key="su_name")
-            su_code, phone_digits = phone_field("su")
-            pw1 = st.text_input("Password", type="password", key="su_pw1")
-            if pw1:
-                score, label, _tips = sh.password_strength(pw1)
+    with tab_forgot:
+        st.caption("Reset your password using the security question you set at sign up.")
+        f_phone_digits = phone_field("fp")
+        ok_preview, err_preview, canonical_preview = sh.validate_bd_phone_digits(f_phone_digits)
+        student_preview = sh.get_student_by_phone(canonical_preview) if ok_preview else None
+        if student_preview:
+            st.info(f"Security question: **{student_preview.get('security_question')}**")
+            f_answer = st.text_input("Your answer", key="fp_answer")
+            f_new1 = st.text_input("New password", type="password", key="fp_new1")
+            if f_new1:
+                score, label, _tips = sh.password_strength(f_new1)
                 colors = ["#ef4444", "#ef4444", "#f59e0b", "#10b981", "#059669"]
                 st.markdown(
                     f"<div class='strength-bar'><div class='strength-fill' "
@@ -1852,109 +518,35 @@ def _render_signup_view():
                     f"<small>Password strength: <b>{label}</b></small>",
                     unsafe_allow_html=True,
                 )
-            pw2 = st.text_input("Confirm password", type="password", key="su_pw2")
-            sec_q = st.selectbox("Security question (used for password recovery)", SECURITY_QUESTIONS, key="su_secq")
-            sec_a = st.text_input("Your answer", key="su_seca")
-
-            if st.button("Create Account", type="primary", use_container_width=True, key="signup_btn"):
-                ok, phone_err, canonical_phone = sh.validate_bd_phone_digits(phone_digits)
-                _, _, tips = sh.password_strength(pw1)
-                if not name.strip():
-                    st.error("Please enter your name.")
-                elif su_code != "+880":
-                    st.error("Only Bangladeshi (+880) numbers can be used to sign up right now.")
-                elif not ok:
-                    st.error(phone_err)
-                elif tips:
+            f_new2 = st.text_input("Confirm new password", type="password", key="fp_new2")
+            if st.button("Reset Password", type="primary", use_container_width=True, key="fp_btn"):
+                _, _, tips = sh.password_strength(f_new1)
+                if tips:
                     st.error("Password is too weak: " + ", ".join(tips))
-                elif pw1 != pw2:
+                elif f_new1 != f_new2:
                     st.error("Passwords do not match.")
-                elif not sec_a.strip():
-                    st.error("Please answer the security question.")
                 else:
-                    with st.spinner("Creating your account..."):
+                    with st.spinner("Resetting..."):
                         try:
-                            sh.create_student(name, canonical_phone, pw1, sec_q, sec_a)
+                            sh.reset_password_via_security(canonical_preview, f_answer, f_new1)
                             clear_all_caches()
                         except ValueError as e:
                             st.error(str(e))
                         else:
-                            st.success("Account created! Please log in below.")
-                            st.session_state["student_auth_view"] = "login"
+                            st.success("Password reset! Please log in with your new password.")
+        elif f_phone_digits.strip():
+            if not ok_preview:
+                st.caption(err_preview)
+            else:
+                st.warning("No account found with this phone number.")
 
-    with st.container(key="back_to_login_link"):
-        if st.button("← Back to Log In", key="signup_back_to_login"):
-            st.session_state["student_auth_view"] = "login"
-            st.rerun()
-
-
-def _render_forgot_view():
-    render_hero("Student Portal", heading_html="Reset Password", compact=True, pulse=False,
-                show_badge=False, show_byline=False)
-
-    with st.container(key="auth_card_forgot"):
-        with st.container(key="auth_form_forgot"):
-            st.caption("Reset your password using the security question you set at sign up.")
-            fp_code, f_phone_digits = phone_field("fp")
-            ok_preview, err_preview, canonical_preview = (
-                sh.validate_bd_phone_digits(f_phone_digits) if fp_code == "+880"
-                else (False, "Only Bangladeshi (+880) numbers are supported right now.", None)
-            )
-            student_preview = sh.get_student_by_phone(canonical_preview) if ok_preview else None
-            if student_preview:
-                st.info(f"Security question: **{student_preview.get('security_question')}**")
-                f_answer = st.text_input("Your answer", key="fp_answer")
-                f_new1 = st.text_input("New password", type="password", key="fp_new1")
-                if f_new1:
-                    score, label, _tips = sh.password_strength(f_new1)
-                    colors = ["#ef4444", "#ef4444", "#f59e0b", "#10b981", "#059669"]
-                    st.markdown(
-                        f"<div class='strength-bar'><div class='strength-fill' "
-                        f"style='width:{(score+1)*20}%; background:{colors[score]};'></div></div>"
-                        f"<small>Password strength: <b>{label}</b></small>",
-                        unsafe_allow_html=True,
-                    )
-                f_new2 = st.text_input("Confirm new password", type="password", key="fp_new2")
-                if st.button("Reset Password", type="primary", use_container_width=True, key="fp_btn"):
-                    _, _, tips = sh.password_strength(f_new1)
-                    if tips:
-                        st.error("Password is too weak: " + ", ".join(tips))
-                    elif f_new1 != f_new2:
-                        st.error("Passwords do not match.")
-                    else:
-                        with st.spinner("Resetting..."):
-                            try:
-                                sh.reset_password_via_security(canonical_preview, f_answer, f_new1)
-                                clear_all_caches()
-                            except ValueError as e:
-                                st.error(str(e))
-                            else:
-                                st.success("Password reset! Please log in with your new password.")
-                                st.session_state["student_auth_view"] = "login"
-            elif f_phone_digits.strip():
-                if not ok_preview:
-                    st.caption(err_preview)
-                else:
-                    st.warning("No account found with this phone number.")
-
-    with st.container(key="back_to_login_link"):
-        if st.button("← Back to Log In", key="forgot_back_to_login"):
-            st.session_state["student_auth_view"] = "login"
-            st.rerun()
-
-
-def page_student_auth():
-    # A small session_state-driven "sub-page" inside the student auth
-    # screen (login / signup / forgot) instead of st.tabs - st.tabs has no
-    # way to be switched programmatically, which is exactly what the
-    # "Forgot Password?" link and the "Sign Up" link below need to do.
-    view = st.session_state.get("student_auth_view", "login")
-    if view == "signup":
-        _render_signup_view()
-    elif view == "forgot":
-        _render_forgot_view()
-    else:
-        _render_login_view()
+    # ---- Small, quiet mentor entry point right below the login card ----
+    st.markdown("<p class='mentor-entry-caption'>Are you a mentor?</p>", unsafe_allow_html=True)
+    _, mid, _ = st.columns([1, 1.3, 1])
+    with mid:
+        with st.container(key="mentor_entry_login"):
+            if st.button("Mentor Login", use_container_width=True, key="mentor_entry_login_btn"):
+                go_to("mentor")
 
 
 # =========================================================================
@@ -1962,143 +554,51 @@ def page_student_auth():
 # =========================================================================
 
 STUDENT_NAV = [
-    ("home", "Home"),
-    ("tests", "Tests & Results"),
-    ("analysis", "Analysis"),
-    ("leaderboard", "Leaderboard"),
-    ("profile", "Profile"),
+    ("home", "🏠 Home"),
+    ("tests", "📝 Tests & Results"),
+    ("analysis", "📊 Analysis"),
+    ("leaderboard", "🏆 Leaderboard"),
+    ("profile", "👤 Profile"),
 ]
-
-# Nav icons via Streamlit's own native st.button(icon=...) support -
-# real, first-party rendering (not a CSS overlay or ::before hack) so it
-# can never fail to show up or misalign, unlike two earlier attempts at
-# drawing fully custom SVGs ourselves (an absolute-positioned overlay
-# that ended up floating above the pill, then a ::before pseudo-element
-# that Streamlit/BaseWeb's internal button markup didn't reliably treat
-# as a flex sibling of the label). Material Symbols still gives clean,
-# minimal, no-emoji line icons matching the reference design's look -
-# just from Streamlit's built-in icon set rather than hand-drawn paths.
-NAV_MATERIAL_ICONS = {
-    "home": "home",
-    "tests": "assignment",
-    "analysis": "bar_chart",
-    "leaderboard": "emoji_events",
-    "profile": "person",
-}
-
-
-def nav_icon(page_key):
-    """Returns the ':material/xxx:' icon string for st.button(icon=...)."""
-    name = NAV_MATERIAL_ICONS.get(page_key)
-    return f":material/{name}:" if name else None
-
 
 
 def render_top_nav(current_page):
-    # Desktop: logo on the far left, plain (no pill background/border)
-    # nav items, and the avatar circle on the far right - matching the
-    # reference design's flat, link-style nav bar instead of the earlier
-    # rounded-pill-button look. Active page is shown via bold teal text
-    # rather than a filled pill. The whole row (including the avatar) is
-    # vertically centered via the ".st-key-top_nav div[data-testid=
-    # 'stHorizontalBlock']" align-items:center rule in inject_global_css -
-    # that's the Bug-2 fix (avatar not lining up with the pill buttons).
-    desktop_nav_items = [item for item in STUDENT_NAV if item[0] != "profile"]
+    # Desktop: all navigation options stay visible on laptop/desktop.
     with st.container(key="top_nav"):
-        logo_col, nav_col = st.columns([1.6, 6.4])
-        with logo_col:
-            st.markdown(
-                f"<div style='display:flex; align-items:center; gap:8px; height:100%; padding-top:2px;'>"
-                f"<div style='width:26px; height:26px; flex-shrink:0;'>{LOGO_SVG}</div>"
-                f"<span style='font-family:var(--serif); font-weight:600; font-size:16px; "
-                f"color:var(--mv-ink); white-space:nowrap;'>Med Venture</span></div>",
-                unsafe_allow_html=True,
-            )
-        with nav_col:
-            cols = st.columns([1] * len(desktop_nav_items) + [0.85])
-            for col, (page_key, label) in zip(cols[:-1], desktop_nav_items):
-                with col:
-                    is_active = current_page == page_key or (page_key == "tests" and current_page == "test_detail")
-                    if st.button(
-                        label, key=f"nav_{page_key}", use_container_width=True,
-                        type="primary" if is_active else "secondary",
-                        icon=nav_icon(page_key),
-                    ):
-                        go_to(page_key)
-            with cols[-1]:
-                name = st.session_state.get("student_name", "")
-                sid = st.session_state.get("student_id", "")
-                initials = _avatar_initials(name)
-                color = _avatar_color(sid, name)
-                # A real st.button here (not just an HTML span) so the
-                # avatar is clickable. Scoped with a compound class
-                # selector so it reliably beats the generic plain-link nav
-                # button rule and renders as a small solid circle instead.
-                st.markdown(
-                    f"<style>.st-key-top_nav .st-key-top_nav_avatar_btn button {{ "
-                    f"background:{color} !important; border-color:{color} !important; color:#fff !important; "
-                    f"border-radius:50% !important; width:34px !important; height:34px !important; "
-                    f"min-height:34px !important; padding:0 !important; font-size:13px !important; "
-                    f"font-weight:700 !important; }}</style>",
-                    unsafe_allow_html=True,
-                )
-                # Avatar + a small decorative chevron beside it, matching
-                # the reference design - the chevron itself is inert
-                # markup (not a separate button); clicking the avatar
-                # circle is what navigates to Profile, same as before.
-                avatar_sub, chevron_sub = st.columns([2, 1])
-                with avatar_sub:
-                    with st.container(key="top_nav_avatar_btn"):
-                        if st.button(initials, key="top_nav_avatar_click", help="Profile"):
-                            go_to("profile")
-                with chevron_sub:
-                    st.markdown("<div class='mv-nav-avatar-chevron'>⌄</div>", unsafe_allow_html=True)
+        cols = st.columns(len(STUDENT_NAV))
+        for col, (page_key, label) in zip(cols, STUDENT_NAV):
+            with col:
+                is_active = current_page == page_key or (page_key == "tests" and current_page == "test_detail")
+                if st.button(
+                    label, key=f"nav_{page_key}", use_container_width=True,
+                    type="primary" if is_active else "secondary",
+                ):
+                    go_to(page_key)
 
-    # Mobile: a simplified header showing ONLY the logo (left) and the
-    # hamburger/close toggle (right) - no inline avatar button any more,
-    # matching the reference's collapsed mobile header exactly.
-    #
-    # Bug-1 fix: this used to be built with st.columns([1, 1]) for the
-    # logo/toggle pair, which Streamlit stacks vertically below its own
-    # ~640px responsive breakpoint (true for virtually every phone) - that
-    # was exactly what pushed the hamburger button below the logo instead
-    # of sitting beside it. Rebuilt below with NO st.columns: the logo
-    # markdown and the toggle button (wrapped in its own small container)
-    # are both plain, direct children of "mobile_top_bar", which the
-    # ".st-key-mobile_top_bar" CSS in inject_global_css already forces
-    # into a single flex row with the logo on the left and the toggle on
-    # the right (justify-content: space-between) - the same pattern
-    # already used successfully for the mentor top bar below.
+    # Mobile: a real toggle so the closed state is ☰ and the open state is ✕.
+    # st.popover was removed because its trigger cannot reliably change to a
+    # cross after opening.
     with st.container(key="mobile_top_bar"):
-        is_open = st.session_state.get("student_mobile_menu_open", False)
-        st.markdown(
-            f"<div style='display:flex; align-items:center; gap:6px; height:40px;'>"
-            f"<div style='width:24px; height:24px; flex-shrink:0;'>{LOGO_SVG}</div>"
-            f"<span style='font-family:var(--serif); font-weight:600; font-size:15px; "
-            f"color:var(--mv-ink); white-space:nowrap;'>Med Venture</span></div>",
-            unsafe_allow_html=True,
-        )
-        with st.container(key="mobile_top_bar_right"):
+        c1, c2 = st.columns([1, 1])
+        with c1:
+            is_open = st.session_state.get("student_mobile_menu_open", False)
             if st.button("✕" if is_open else "☰", key="student_mobile_menu_toggle", help="Open menu" if not is_open else "Close menu"):
                 st.session_state["student_mobile_menu_open"] = not is_open
                 st.rerun()
+        with c2:
+            # Only show the profile shortcut when the menu is CLOSED - once
+            # open, the menu list below already has "Profile" in it, so
+            # keeping this icon too was a redundant, confusing duplicate.
+            if not is_open:
+                if st.button("👤", key="mobile_profile_btn", help="Profile"):
+                    go_to("profile")
 
     if st.session_state.get("student_mobile_menu_open", False):
-        # Dim backdrop behind the slide-out drawer - purely visual (no JS,
-        # so tapping it doesn't close the menu; the ☰/✕ toggle above is
-        # the actual close control), matching the reference's dimmed
-        # background around the open drawer.
-        st.markdown("<div class='mv-drawer-backdrop'></div>", unsafe_allow_html=True)
-        with st.container(key="mobile_menu_student"):
-            st.markdown(
-                f"<div style='display:flex; align-items:center; gap:8px; margin-bottom:18px;'>"
-                f"<div style='width:24px; height:24px;'>{LOGO_SVG}</div>"
-                f"<span style='font-family:var(--serif); font-weight:600; font-size:15px; color:var(--mv-ink);'>Med Venture</span></div>",
-                unsafe_allow_html=True,
-            )
-            for page_key, label in STUDENT_NAV:
-                if st.button(label, key=f"mnav_{page_key}", use_container_width=True, icon=nav_icon(page_key)):
-                    go_to(page_key)
+        st.markdown("<div class='mobile-menu-card'>", unsafe_allow_html=True)
+        for page_key, label in STUDENT_NAV:
+            if st.button(label, key=f"mnav_{page_key}", use_container_width=True):
+                go_to(page_key)
+        st.markdown("</div>", unsafe_allow_html=True)
 
     st.write("")
 
@@ -2113,22 +613,13 @@ def page_home():
     st.markdown(f"### 👋 Welcome, {name}")
 
     active = cached_active_answer_key()
-    # Real st.container(key=...) instead of a raw <div class='app-card'>
-    # split across two st.markdown() calls - see the note above the
-    # ".app-card" CSS rule for why the split version rendered an empty
-    # styled bar on top of unstyled real content. Same fix applies to
-    # every "card_..." container in this function.
-    with st.container(key="card_home_active"):
+    with st.container():
+        st.markdown("<div class='app-card'>", unsafe_allow_html=True)
         if active:
             already = sh.has_submitted(sid, active["key_id"])
             remaining = active["end_dt"] - sh.now_bd()
             mins_left = max(0, int(remaining.total_seconds() // 60))
             st.markdown(f"#### 🟢 Active Test: {active['exam_name'] or active['key_id']}")
-            start_label, end_label = _format_exam_window(active["start_dt"], active["end_dt"])
-            duration_display_min = active.get("duration_minutes") or int(
-                (active["end_dt"] - active["start_dt"]).total_seconds() // 60
-            )
-            st.caption(f"🗓️ {start_label}  →  {end_label}   ·   ⏱️ Duration: {_format_duration(duration_display_min)}")
             c1, c2 = st.columns(2)
             c1.metric("Questions", active["total_questions"])
             c2.metric("Time Left", f"{mins_left} min")
@@ -2144,69 +635,64 @@ def page_home():
                         f"at **{upcoming['start_dt'].strftime('%Y-%m-%d %H:%M')}**.")
             else:
                 st.info("No test is active or upcoming right now.")
+        st.markdown("</div>", unsafe_allow_html=True)
 
     results = cached_results()
     my_results = results[results["student_id"] == sid] if not results.empty else results
 
-    # Last Result + Overall Progress side by side - makes better use of
-    # wide desktop screens, and costs nothing extra on mobile since
-    # Streamlit already stacks columns vertically there (same scroll
-    # length as two separate full-width cards would have been).
-    col_last, col_progress = st.columns(2, gap="small")
+    st.markdown("<div class='app-card'>", unsafe_allow_html=True)
+    st.markdown("#### 📊 Last Result")
+    if my_results.empty:
+        st.caption("You haven't submitted any test yet.")
+    else:
+        last = my_results.sort_values("timestamp", ascending=False).iloc[0]
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Marks", last["marks"])
+        c2.metric("Correct", int(last["correct"]))
+        c3.metric("Wrong", int(last["wrong_count"]))
+    st.markdown("</div>", unsafe_allow_html=True)
 
-    with col_last:
-        with st.container(key="card_home_last"):
-            st.markdown("#### 📊 Last Result")
-            if my_results.empty:
-                st.caption("You haven't submitted any test yet.")
-            else:
-                last = my_results.sort_values("timestamp", ascending=False).iloc[0]
-                c1, c2, c3 = st.columns(3)
-                c1.metric("Marks", last["marks"])
-                c2.metric("Correct", int(last["correct"]))
-                c3.metric("Wrong", int(last["wrong_count"]))
+    st.markdown("<div class='app-card'>", unsafe_allow_html=True)
+    st.markdown("#### 📈 Overall Progress")
+    if my_results.empty:
+        st.caption("Your progress will show up here after your first test.")
+    else:
+        tests_completed = len(my_results)
+        avg_pct = round((my_results["marks"] / my_results["total"]).mean() * 100, 1)
+        rank, out_of = cached_rank(sid)
 
-    with col_progress:
-        with st.container(key="card_home_progress"):
-            st.markdown("#### 📈 Overall Progress")
-            if my_results.empty:
-                st.caption("Your progress will show up here after your first test.")
-            else:
-                tests_completed = len(my_results)
-                avg_pct = round((my_results["marks"] / my_results["total"]).mean() * 100, 1)
-                rank, out_of = cached_rank(sid)
+        my_results_sorted = my_results.copy()
+        my_results_sorted["ts"] = pd.to_datetime(my_results_sorted["timestamp"], errors="coerce")
+        this_month = my_results_sorted[my_results_sorted["ts"].dt.month == date.today().month]
+        last_month_num = date.today().month - 1 or 12
+        last_month = my_results_sorted[my_results_sorted["ts"].dt.month == last_month_num]
+        trend_html = ""
+        if not this_month.empty and not last_month.empty:
+            this_avg = (this_month["marks"] / this_month["total"]).mean() * 100
+            last_avg = (last_month["marks"] / last_month["total"]).mean() * 100
+            diff = round(this_avg - last_avg, 1)
+            arrow = "↑" if diff >= 0 else "↓"
+            trend_html = f"<p>{arrow} {abs(diff)}% {'better' if diff >= 0 else 'lower'} than last month</p>"
 
-                my_results_sorted = my_results.copy()
-                my_results_sorted["ts"] = pd.to_datetime(my_results_sorted["timestamp"], errors="coerce")
-                this_month = my_results_sorted[my_results_sorted["ts"].dt.month == date.today().month]
-                last_month_num = date.today().month - 1 or 12
-                last_month = my_results_sorted[my_results_sorted["ts"].dt.month == last_month_num]
-                trend_html = ""
-                if not this_month.empty and not last_month.empty:
-                    this_avg = (this_month["marks"] / this_month["total"]).mean() * 100
-                    last_avg = (last_month["marks"] / last_month["total"]).mean() * 100
-                    diff = round(this_avg - last_avg, 1)
-                    arrow = "↑" if diff >= 0 else "↓"
-                    trend_html = f"<p style='margin:4px 0 0;'>{arrow} {abs(diff)}% {'better' if diff >= 0 else 'lower'} than last month</p>"
+        rank_html = f"<span class='rank-badge rank-you'>🏆 Current Rank: {rank} / {out_of}</span>" if rank else ""
 
-                rank_html = f"<span class='rank-badge rank-you'>🏆 Rank: {rank} / {out_of}</span>" if rank else ""
-
-                st.markdown(
-                    f"""
-                    <div class='metric-row'>
-                        <div class='metric-box'><div class='label'>Tests</div><div class='value'>{tests_completed}</div></div>
-                        <div class='metric-box'><div class='label'>Average</div><div class='value'>{avg_pct}%</div></div>
-                    </div>
-                    <p style='margin-top:8px;'>{rank_html}</p>
-                    {trend_html}
-                    """,
-                    unsafe_allow_html=True,
-                )
-                if st.button("📊 Full Analysis", use_container_width=True, key="home_open_analysis"):
-                    go_to("analysis")
+        st.markdown(
+            f"""
+            <div class='metric-row'>
+                <div class='metric-box'><div class='label'>Tests Completed</div><div class='value'>{tests_completed}</div></div>
+                <div class='metric-box'><div class='label'>Average Score</div><div class='value'>{avg_pct}%</div></div>
+            </div>
+            <p style='margin-top:10px;'>{rank_html}</p>
+            {trend_html}
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.button("📊 Open My Full Analysis", use_container_width=True, key="home_open_analysis"):
+            go_to("analysis")
+    st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown(
-        f"<div class='app-card' style='margin-top:2px;'>💡 <i>{motivation_for(sid)}</i></div>",
+        f"<div class='app-card'>💡 <i>{motivation_for(sid)}</i></div>",
         unsafe_allow_html=True,
     )
 
@@ -2217,48 +703,27 @@ def page_home():
 
 def render_omr_review(rows):
     """rows = omr_scanner.build_review_rows() output, already filtered to
-    wrong + skipped only. A row with given == "MULTI" means the student
-    touched 2+ bubbles on that question (double-touch) - it's always
-    scored as wrong (marks deducted under negative marking) even if the
-    correct answer happened to be one of the touched bubbles.
-    """
+    wrong + skipped only."""
     if not rows:
         st.success("🎉 No wrong or skipped answers!")
         return
-
-    double_touch_qs = []
     html = ["<div>"]
     for row in rows:
         q, given, correct_ans, status = row["q"], row["given"], row["correct"], row["status"]
-        is_double = (given == "MULTI")
-        if is_double:
-            double_touch_qs.append(q)
-
         tag = "<span class='omr-tag wrong-tag'>Wrong</span>" if status == "wrong" else "<span class='omr-tag skip-tag'>Skipped</span>"
         bubbles = ""
         for opt in ["A", "B", "C", "D"]:
             cls = "omr-bubble"
             if opt == correct_ans:
                 cls += " correct"
-            elif status == "wrong" and not is_double and opt == given:
+            elif status == "wrong" and opt == given:
                 cls += " wrong"
             bubbles += f"<span class='{cls}'>{opt}</span>"
-
-        q_label = f"Q{q}<span class='dt-star'>*</span>" if is_double else f"Q{q}"
         html.append(
-            f"<div class='omr-row'><span class='omr-qnum'>{q_label}</span>{tag}<span>{bubbles}</span></div>"
+            f"<div class='omr-row'><span class='omr-qnum'>Q{q}</span>{tag}<span>{bubbles}</span></div>"
         )
     html.append("</div>")
     st.markdown("".join(html), unsafe_allow_html=True)
-
-    if double_touch_qs:
-        qs_text = ", ".join(f"{q}*" for q in double_touch_qs)
-        word = "question" if len(double_touch_qs) == 1 else "questions"
-        st.markdown(
-            f"<div class='double-touch-note'>⚠️ <b>{qs_text}</b> - double touch on this {word}, "
-            "marks deducted.</div>",
-            unsafe_allow_html=True,
-        )
 
 
 def render_result_detail(result_row, key_row):
@@ -2298,15 +763,6 @@ def render_result_detail(result_row, key_row):
     render_omr_review(rows)
 
 
-def _reset_submission_state():
-    """Clears every piece of session_state used by the per-submission photo
-    calibration flow below - called once a submission is saved (or when a
-    new photo is uploaded) so leftover state from a previous photo never
-    leaks into the next one."""
-    for k in ("submit_file_sig", "submit_prepared_image", "submit_validation", "submit_calib_points"):
-        st.session_state.pop(k, None)
-
-
 def page_tests_results():
     sid = st.session_state["student_id"]
 
@@ -2328,205 +784,75 @@ def page_tests_results():
     st.markdown("### 📝 Submit OMR / Test History")
 
     active = cached_active_answer_key()
+    calibration = cached_calibration()
 
-    with st.container(key="card_submit_omr"):
+    with st.container():
+        st.markdown("<div class='app-card'>", unsafe_allow_html=True)
         st.markdown("#### 📤 Submit Your OMR Sheet")
-        if not active:
+        if not calibration:
+            st.error("The mentor hasn't calibrated the OMR sheet yet. Please check back later.")
+        elif not active:
             st.info("No test is active right now.")
         elif sh.has_submitted(sid, active["key_id"]):
             st.success("✅ You've already submitted this test. Duplicate submissions aren't allowed.")
         else:
-            total_q = active["total_questions"]
             st.caption(f"Active test: **{active['exam_name'] or active['key_id']}** · "
-                       f"{total_q} questions")
+                       f"{active['total_questions']} questions")
             uploaded = st.file_uploader(
-                "Upload a clear, straight photo of your FULL filled OMR sheet (camera or gallery). "
-                "Make sure all 4 corners of the sheet are visible in the frame.",
+                "Upload a photo of your filled OMR sheet (camera or gallery)",
                 type=["png", "jpg", "jpeg"], key="omr_upload",
             )
+            if uploaded:
+                image = Image.open(uploaded).convert("RGB")
+                st.image(image, caption="Uploaded photo", use_container_width=True)
 
-            if uploaded is None:
-                _reset_submission_state()
-            else:
-                # A stable signature for "is this the same photo as last rerun?" -
-                # if the student swaps the photo, every bit of calibration/
-                # validation state for the OLD photo must be thrown away.
-                file_sig = f"{uploaded.name}_{uploaded.size}"
-                if st.session_state.get("submit_file_sig") != file_sig:
-                    _reset_submission_state()
-                    st.session_state["submit_file_sig"] = file_sig
+                if st.button("📤 Submit & See Score", type="primary", use_container_width=True):
+                    with st.spinner("Validating image..."):
+                        img_bgr = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+                        ok, errors, warnings_ = omr_scanner.validate_omr_image(img_bgr)
 
-                # ---- Step 0: prepare the photo once per upload (orient + validate) ----
-                if "submit_prepared_image" not in st.session_state:
-                    pil_img = Image.open(uploaded).convert("RGB")
-                    # Fixes photos that come out sideways/upside-down because of
-                    # phone camera EXIF orientation - keeps the sheet upright and
-                    # fully visible, which the calibration clicks below depend on.
-                    pil_img = ImageOps.exif_transpose(pil_img)
-                    orig_bgr = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
-
-                    # Quality checks ALWAYS run on the original, full-resolution
-                    # photo - resizing happens only after, for display/calibration.
-                    ok, errors, warnings_ = omr_scanner.validate_omr_image(orig_bgr)
-                    proc_bgr = omr_scanner.resize_max_dim(orig_bgr) if ok else orig_bgr
-
-                    st.session_state["submit_prepared_image"] = proc_bgr
-                    st.session_state["submit_validation"] = (ok, errors, warnings_)
-
-                img_bgr = st.session_state["submit_prepared_image"]
-                ok, errors, warnings_ = st.session_state["submit_validation"]
-
-                display_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-                display_pil = Image.fromarray(display_rgb)
-                st.image(display_rgb, caption="Your uploaded sheet - full photo", use_container_width=True)
-
-                if not ok:
-                    for e in errors:
-                        st.error(e)
-                else:
-                    for w in warnings_:
-                        st.warning(w)
-
-                    points_info = omr_scanner.calibration_points_info(total_q)
-                    calib_points = st.session_state.get("submit_calib_points", [])
-                    total_points = len(points_info)
-
-                    st.markdown("#### 🎯 Calibrate Your Sheet")
-                    st.caption(
-                        f"Tap the exact CENTER of these {total_points} bubbles on YOUR photo above, "
-                        "in order (a top AND bottom point for every question block, so the reading "
-                        "stays accurate even if the sheet is a little curved, folded, or tilted in "
-                        "the photo)."
-                    )
-
-                    if len(calib_points) < total_points:
-                        step = points_info[len(calib_points)]
-                        st.markdown(
-                            f"<span class='calib-step-badge'>Step {len(calib_points) + 1} of {total_points}</span> "
-                            f"&nbsp; Now tap: **{step['full']}**",
-                            unsafe_allow_html=True,
-                        )
-                        coords = streamlit_image_coordinates(display_pil, key=f"submit_calib_img_{file_sig}")
-                        if coords is not None:
-                            pt = (coords["x"], coords["y"])
-                            if not calib_points or calib_points[-1] != pt:
-                                calib_points.append(pt)
-                                st.session_state["submit_calib_points"] = calib_points
-                                st.rerun()
+                    if not ok:
+                        for e in errors:
+                            st.error(e)
                     else:
-                        st.success(f"✅ All {total_points} points marked!")
-                        chip_html = "".join(
-                            f"<span class='calib-point-chip'>{info['short']}: {pt}</span>"
-                            for info, pt in zip(points_info, calib_points)
-                        )
-                        st.markdown(chip_html, unsafe_allow_html=True)
+                        for w in warnings_:
+                            st.warning(w)
+                        with st.spinner("Reading your answers..."):
+                            active_now = sh.get_active_answer_key()
+                            if not active_now:
+                                st.error("The test window has just closed. Your result can't be recorded.")
+                            elif sh.has_submitted(sid, active_now["key_id"]):
+                                st.warning("You've already submitted this test.")
+                            else:
+                                warped, warp_ok = omr_scanner.detect_and_warp(img_bgr)
+                                if not warp_ok:
+                                    st.warning("Couldn't clearly detect the sheet's corners - "
+                                               "still scoring, but retake a straighter photo if the result looks wrong.")
+                                grid = omr_scanner.build_grid(calibration)
+                                student_answers = omr_scanner.read_answers(warped, grid)
+                                key_string = active_now["answer_string"]
+                                key_id = active_now["key_id"]
 
-                        # Guards against duplicate submissions caused by a
-                        # user double-clicking Submit or having two tabs
-                        # open: while a submission for THIS photo is being
-                        # processed, the button below is disabled so a
-                        # second click can't even fire a second request.
-                        # This is on top of (not instead of) the atomic
-                        # server-side check in
-                        # sh.append_result_if_not_submitted() below - the
-                        # button-disable stops the common case (an
-                        # impatient extra click) instantly with no network
-                        # round trip, while the server-side check is what
-                        # actually protects against two different tabs/
-                        # devices racing each other.
-                        submitting_key = f"submitting_{file_sig}"
-                        is_submitting = st.session_state.get(submitting_key, False)
-
-                        cb1, cb2 = st.columns(2)
-                        with cb1:
-                            if st.button("🔄 Redo Calibration Points", use_container_width=True,
-                                         disabled=is_submitting):
-                                st.session_state["submit_calib_points"] = []
-                                st.rerun()
-                        with cb2:
-                            submit_clicked = st.button(
-                                "📤 Submit & See Score", type="primary", use_container_width=True,
-                                disabled=is_submitting,
-                            )
-
-                        if submit_clicked and not is_submitting:
-                            st.session_state[submitting_key] = True
-                            try:
-                                with st.spinner("Reading your answers..."):
-                                    active_now = sh.get_active_answer_key()
-                                    if not active_now:
-                                        st.error("The test window has just closed. Your result can't be recorded.")
-                                    elif sh.has_submitted(sid, active_now["key_id"]):
-                                        st.warning("You've already submitted this test.")
-                                    else:
-                                        calibration = {
-                                            info["key"]: pt
-                                            for info, pt in zip(points_info, calib_points)
-                                        }
-                                        grid = omr_scanner.build_grid(calibration, total_questions=active_now["total_questions"])
-                                        radius = omr_scanner.compute_bubble_radius(img_bgr)
-                                        student_answers = omr_scanner.read_answers(img_bgr, grid, radius=radius)
-                                        key_string = active_now["answer_string"]
-                                        key_id = active_now["key_id"]
-
-                                        result = omr_scanner.score_answers(
-                                            student_answers, key_string,
-                                            negative_marking=active_now.get("negative_marking", False),
-                                            negative_value=active_now.get("negative_marks_value", 0.0),
-                                        )
-                                        # Atomic check-and-write: re-verifies against a FRESH
-                                        # (uncached) read of the Results sheet right before
-                                        # writing, so a near-simultaneous duplicate request
-                                        # (double-click that slipped past the disabled button,
-                                        # a second open tab, or another device) is caught here
-                                        # even if the has_submitted() check above was stale.
-                                        saved = sh.append_result_if_not_submitted(
-                                            sid, st.session_state["student_name"], key_id, result
-                                        )
-                                        clear_all_caches()
-
-                                        if not saved:
-                                            st.warning("You've already submitted this test (from another tab or device).")
-                                        else:
-                                            _reset_submission_state()
-                                            st.success("✅ Result saved!")
-
-                                            with st.container(key="card_submit_result"):
-                                                r1, r2, r3, r4 = st.columns(4)
-                                                r1.metric("Correct ✅", result["correct"])
-                                                r2.metric("Wrong ❌", result["wrong_count"])
-                                                r3.metric("Skipped ⚪", result["skipped"])
-                                                r4.metric("🏆 Marks", result["marks"])
-
-                                            rows = omr_scanner.build_review_rows(student_answers, key_string)
-                                            review_rows = [r for r in rows if r["status"] in ("wrong", "skipped")]
-                                            st.markdown("#### Review")
-                                            render_omr_review(review_rows)
-                            except Exception as e:
-                                # Anything unexpected (network hiccup, Sheets API error,
-                                # a bug in the scoring/reading code, etc.) lands here.
-                                # Without this except+finally, an exception thrown
-                                # anywhere above would skip straight past every
-                                # "st.session_state[submitting_key] = False" line that
-                                # used to be sprinkled through the branches, leaving the
-                                # Submit button disabled FOREVER for this photo - the
-                                # student would be stuck with no way to retry short of
-                                # re-uploading a new photo. Catching here guarantees the
-                                # button always becomes clickable again, and tells the
-                                # student plainly that nothing was saved so they know a
-                                # retry is safe (not a silent double-submit risk).
-                                st.error(
-                                    "Something went wrong while saving your result and it was "
-                                    "NOT recorded. Please try submitting again."
+                                result = omr_scanner.score_answers(
+                                    student_answers, key_string,
+                                    negative_marking=active_now.get("negative_marking", False),
+                                    negative_value=active_now.get("negative_marks_value", 0.0),
                                 )
-                                st.caption(f"Technical detail: {e}")
-                            finally:
-                                # Runs no matter what happened above (success, a
-                                # handled error/warning, or the exception path) - this
-                                # is the single place that re-enables the Submit
-                                # button, so there's exactly one thing to check when
-                                # confirming the button can never get stuck.
-                                st.session_state[submitting_key] = False
+                                sh.append_result(sid, st.session_state["student_name"], key_id, result)
+                                clear_all_caches()
+                                st.success("✅ Result saved!")
+
+                                r1, r2, r3 = st.columns(3)
+                                r1.metric("Correct ✅", result["correct"])
+                                r2.metric("Wrong ❌", result["wrong_count"])
+                                r3.metric("Skipped ⚪", result["skipped"])
+                                st.metric("🏆 Marks", result["marks"])
+
+                                rows = omr_scanner.build_review_rows(student_answers, key_string)
+                                review_rows = [r for r in rows if r["status"] in ("wrong", "skipped")]
+                                st.markdown("#### Review")
+                                render_omr_review(review_rows)
+        st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("#### 📋 Test History")
     results = cached_results()
@@ -2538,25 +864,24 @@ def page_tests_results():
         return
 
     my_results = my_results.sort_values("timestamp", ascending=False)
-    with st.container(key="test_history_table"):
-        header_cols = st.columns([2.4, 1.3, 0.9, 0.9, 0.9, 0.9, 0.9, 0.8])
-        for c, label in zip(header_cols, ["Exam", "Date", "Total", "Correct", "Wrong", "Skipped", "Marks", ""]):
-            c.markdown(f"**{label}**")
+    header_cols = st.columns([2.4, 1.3, 0.9, 0.9, 0.9, 0.9, 0.9, 0.8])
+    for c, label in zip(header_cols, ["Exam", "Date", "Total", "Correct", "Wrong", "Skipped", "Marks", ""]):
+        c.markdown(f"**{label}**")
 
-        for _, row in my_results.iterrows():
-            key_match = keys_df[keys_df["key_id"] == row["key_id"]]
-            exam_name = key_match.iloc[0]["exam_name"] if not key_match.empty and key_match.iloc[0]["exam_name"] else row["key_id"]
-            cols = st.columns([2.4, 1.3, 0.9, 0.9, 0.9, 0.9, 0.9, 0.8])
-            cols[0].write(exam_name)
-            cols[1].write(str(row["timestamp"]).split(" ")[0])
-            cols[2].write(int(row["total"]))
-            cols[3].write(int(row["correct"]))
-            cols[4].write(int(row["wrong_count"]))
-            cols[5].write(int(row["skipped"]))
-            cols[6].write(row["marks"])
-            if cols[7].button("View", key=f"view_{row['key_id']}"):
-                st.session_state["view_key_id"] = row["key_id"]
-                st.rerun()
+    for _, row in my_results.iterrows():
+        key_match = keys_df[keys_df["key_id"] == row["key_id"]]
+        exam_name = key_match.iloc[0]["exam_name"] if not key_match.empty and key_match.iloc[0]["exam_name"] else row["key_id"]
+        cols = st.columns([2.4, 1.3, 0.9, 0.9, 0.9, 0.9, 0.9, 0.8])
+        cols[0].write(exam_name)
+        cols[1].write(str(row["timestamp"]).split(" ")[0])
+        cols[2].write(int(row["total"]))
+        cols[3].write(int(row["correct"]))
+        cols[4].write(int(row["wrong_count"]))
+        cols[5].write(int(row["skipped"]))
+        cols[6].write(row["marks"])
+        if cols[7].button("View", key=f"view_{row['key_id']}"):
+            st.session_state["view_key_id"] = row["key_id"]
+            st.rerun()
 
 
 def _exam_name_from_keys(keys_df, key_id):
@@ -2594,7 +919,8 @@ def render_student_analysis(sid, name, *, mentor_mode=False):
     else:
         student_results = results[results["student_id"].astype(str) == str(sid)].copy()
 
-    render_student_header(sid, name, heading_level=3)
+    st.markdown(f"### 👤 {name}")
+    st.caption(f"Student ID: **{sid}**")
 
     if mentor_mode:
         if st.button("← Back to Students", use_container_width=False, key="back_to_students_analysis"):
@@ -2673,21 +999,22 @@ def render_student_analysis(sid, name, *, mentor_mode=False):
         pct = _safe_pct(row["_marks_num"], total)
         date_text = str(row["timestamp"]).split(" ")[0]
 
-        with st.container(key=f"acard_{'m' if mentor_mode else 's'}_{sid}_{key_id}_{idx}"):
-            c1, c2, c3, c4, c5 = st.columns([2.8, 1.0, 1.0, 1.0, 0.9])
-            with c1:
-                st.markdown(f"<div class='analysis-title'>{exam_name}</div><div class='analysis-subtle'>{date_text} · {pct}%</div>", unsafe_allow_html=True)
-            c2.metric("Marks", marks)
-            c3.metric("Correct", correct)
-            c4.metric("Wrong", wrong)
-            with c5:
-                if st.button("View", key=f"analysis_view_{'m' if mentor_mode else 's'}_{sid}_{key_id}_{idx}", use_container_width=True):
-                    if mentor_mode:
-                        st.session_state["mentor_analysis_view_key_id"] = key_id
-                    else:
-                        st.session_state["analysis_view_key_id"] = key_id
-                    st.rerun()
-            st.markdown(f"<div class='analysis-subtle'>Total: {total} · Skipped: {skipped} · Accuracy: {_safe_pct(correct, total)}%</div>", unsafe_allow_html=True)
+        st.markdown("<div class='analysis-test-card'>", unsafe_allow_html=True)
+        c1, c2, c3, c4, c5 = st.columns([2.8, 1.0, 1.0, 1.0, 0.9])
+        with c1:
+            st.markdown(f"<div class='analysis-title'>{exam_name}</div><div class='analysis-subtle'>{date_text} · {pct}%</div>", unsafe_allow_html=True)
+        c2.metric("Marks", marks)
+        c3.metric("Correct", correct)
+        c4.metric("Wrong", wrong)
+        with c5:
+            if st.button("View", key=f"analysis_view_{'m' if mentor_mode else 's'}_{sid}_{key_id}_{idx}", use_container_width=True):
+                if mentor_mode:
+                    st.session_state["mentor_analysis_view_key_id"] = key_id
+                else:
+                    st.session_state["analysis_view_key_id"] = key_id
+                st.rerun()
+        st.markdown(f"<div class='analysis-subtle'>Total: {total} · Skipped: {skipped} · Accuracy: {_safe_pct(correct, total)}%</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
 
 def page_student_analysis():
@@ -2706,7 +1033,8 @@ def page_student_analysis():
         if match.empty or key_match.empty:
             st.warning("Result not found.")
         else:
-            render_student_header(sid, name, heading_level=3)
+            st.markdown(f"### 👤 {name}")
+            st.caption(f"Student ID: **{sid}**")
             render_result_detail(match.iloc[0], key_match.iloc[0])
         return
 
@@ -2735,7 +1063,8 @@ def page_mentor_student_analysis():
         if match.empty or key_match.empty:
             st.warning("Result not found.")
         else:
-            render_student_header(sid, name, heading_level=3)
+            st.markdown(f"### 👤 {name}")
+            st.caption(f"Student ID: **{sid}**")
             render_result_detail(match.iloc[0], key_match.iloc[0])
         return
 
@@ -2782,11 +1111,7 @@ def render_leaderboard_rows(df, mode, sid=None):
         css_class = "lb-row me" if is_me else "lb-row"
         icon = _rank_icon(rank) if rank <= 3 else f"#{rank}"
         badge_class = _rank_class(rank)
-        avatar_html = render_avatar(row["student_id"], row["student"], size=26, font_size=11)
-        name_html = (
-            f"<span style='display:inline-flex; align-items:center; gap:7px;'>"
-            f"{avatar_html}<span>{row['student']}{' (You)' if is_me else ''}</span></span>"
-        )
+        name_html = f"{row['student']}{' (You)' if is_me else ''}"
 
         if mode == "Overall":
             trend = row.get("trend")
@@ -2892,351 +1217,64 @@ def page_leaderboard():
 # Student: Profile
 # =========================================================================
 
-def _profile_info_row(icon, label, value, icon_bg="var(--mv-primary-soft)"):
-    """One row inside the Profile Information card - small icon chip +
-    label + value, matching the reference dashboard design. icon_bg lets
-    each row use a distinct chip color (phone/gender/birth date/role all
-    read differently at a glance) instead of every row sharing one tone."""
-    return (
-        f"<div style='display:flex; align-items:center; gap:12px; padding:9px 0;'>"
-        f"<div style='width:34px; height:34px; border-radius:9px; background:{icon_bg}; "
-        f"display:flex; align-items:center; justify-content:center; font-size:15px; flex-shrink:0;'>{icon}</div>"
-        f"<div style='min-width:0;'>"
-        f"<div style='font-size:11px; color:var(--mv-muted);'>{label}</div>"
-        f"<div style='font-size:14.5px; font-weight:600; color:var(--mv-ink); margin-top:1px; "
-        f"overflow:hidden; text-overflow:ellipsis; white-space:nowrap;'>{value}</div>"
-        f"</div></div>"
-    )
-
-
-def _profile_status_pill_html(label, active_label, active, active_color="#26AB8C", bad_color="#F2434A"):
-    color = bad_color if not active else active_color
-    return (
-        f"<div class='mv-profile-status-row'>"
-        f"<span class='mv-profile-status-label'>{label}</span>"
-        f"<span class='mv-profile-status-pill' style='background:{color}22; color:{color};'>{active_label}</span>"
-        f"</div>"
-    )
-
-
-def _profile_stat_card_html(icon, icon_bg, number, label):
-    """One stat's icon + big number + small label, centered - used inside
-    the profile stats strip (see render_profile_stats_strip below). Pure
-    markup only; the clickable "View X →" link (or static caption)
-    underneath is rendered separately as a real st.button/st.markdown
-    right after this, since a link has to be an actual Streamlit widget
-    to navigate anywhere."""
-    return (
-        f"<div>"
-        f"<div style='width:48px; height:48px; border-radius:50%; background:{icon_bg}; "
-        f"display:flex; align-items:center; justify-content:center; margin:0 auto 10px; font-size:20px;'>{icon}</div>"
-        f"<div style='font-family:var(--mono); font-size:25px; font-weight:700; color:var(--mv-ink); line-height:1.1;'>{number}</div>"
-        f"<div style='font-size:12px; color:var(--mv-muted); margin-top:3px;'>{label}</div>"
-        f"</div>"
-    )
-
-
-def _profile_hero_avatar_html(inner_avatar_html, glow_color):
-    """Wraps a render_avatar()/manual-avatar HTML snippet in a soft glowing
-    ring - used ONLY for the big avatar on the Profile page headers (both
-    student and mentor), never for the small avatars used elsewhere in the
-    app (leaderboard rows, student-management list, top-nav), so this
-    stays a Profile-page-specific visual flourish rather than changing the
-    look of avatars everywhere."""
-    return (
-        f"<span class='mv-avatar-glow-ring' style='box-shadow: "
-        f"0 0 0 2px {glow_color}, 0 0 16px 2px {glow_color}99, 0 0 34px 6px {glow_color}40;'>"
-        f"{inner_avatar_html}</span>"
-    )
-
-
-def render_profile_stats_strip(stats):
-    """Renders the 4-stat strip card at the top of a Profile page (student
-    or mentor) - one bordered card, 4 equal columns, each with an icon,
-    a big number, a label, and either a clickable "View X →" link (real
-    st.button, styled as plain text via the ".st-key-card_profile_stats"
-    CSS) or a static caption underneath.
-
-    `stats` is a list of exactly 4 dicts, each either:
-      {"icon", "icon_bg", "number", "label", "link_text", "go_to_page": "..."}
-      {"icon", "icon_bg", "number", "label", "caption": "..."}  (no link)
-
-    go_to_page is normally a top-level app page name (passed straight to
-    go_to()) - but for the mentor Profile page, where links need to land
-    on a specific tab *inside* the mentor panel rather than a top-level
-    page, prefix it "mentor:<mentor_page_key>" (e.g. "mentor:m_students")
-    and this sets st.session_state["mentor_page"] accordingly before
-    calling go_to("mentor"), same as every other mentor nav button in
-    the app does.
-
-    Kept as one small shared function (rather than copy-pasted per page)
-    so the student and mentor Profile pages can never visually drift
-    apart from each other.
-    """
-    with st.container(key="card_profile_stats"):
-        cols = st.columns(4)
-        for idx, (col, stat) in enumerate(zip(cols, stats)):
-            with col:
-                st.markdown(
-                    _profile_stat_card_html(stat["icon"], stat["icon_bg"], stat["number"], stat["label"]),
-                    unsafe_allow_html=True,
-                )
-                target_page = stat.get("go_to_page")
-                if target_page:
-                    # Keyed by position (idx) as well as target_page - two
-                    # stats can legitimately point at the same page (e.g.
-                    # "Tests Completed" and "Total Exams" both link to
-                    # "tests"), and Streamlit requires every widget key on
-                    # a page to be unique, so target_page alone isn't
-                    # enough to guarantee that.
-                    if st.button(stat["link_text"], key=f"profile_stat_{idx}_{target_page}", use_container_width=True):
-                        if target_page.startswith("mentor:"):
-                            st.session_state["mentor_page"] = target_page.split("mentor:", 1)[1]
-                            st.session_state.pop("mentor_analysis_sid", None)
-                            st.session_state.pop("mentor_analysis_view_key_id", None)
-                            go_to("mentor")
-                        else:
-                            go_to(target_page)
-                else:
-                    st.markdown(
-                        f"<div style='font-size:12.5px; color:var(--mv-primary); font-weight:600; "
-                        f"margin-top:4px;'>{stat.get('caption', '')}</div>",
-                        unsafe_allow_html=True,
-                    )
-
-
 def page_profile():
     sid = st.session_state["student_id"]
     student = sh.get_student_by_id(sid)
-    name = student["name"]
-    disabled = sh._to_bool(student.get("disabled", False))
-    birth_date_val = (student.get("birth_date") or "").strip()
-    gender_val = (student.get("gender") or "").strip()
+    st.markdown("### 👤 Profile")
+    st.markdown("<div class='app-card'>", unsafe_allow_html=True)
+    st.write(f"**Name:** {student['name']}")
+    st.write(f"**Phone:** {sh.format_bd_phone(student['phone'])}")
+    st.markdown("</div>", unsafe_allow_html=True)
 
-    # ---- Stats used in the strip beside the header: tests completed,
-    # average score, overall leaderboard rank - all derived from data
-    # already being cached elsewhere in the app, so this adds no extra
-    # Google Sheets calls. ----
-    results = cached_results()
-    my_results = results[results["student_id"] == sid] if not results.empty else results
-    tests_completed = len(my_results)
-    if not my_results.empty:
-        avg_pct = round((my_results["marks"] / my_results["total"]).mean() * 100, 1)
-    else:
-        avg_pct = 0.0
-    rank, _out_of = cached_rank(sid)
+    with st.expander("🔑 Change Password"):
+        # Plain widgets (no st.form) so the strength bar updates live while
+        # typing, instead of only appearing after the button is clicked.
+        cur_pw = st.text_input("Current password", type="password", key="prof_cur_pw")
+        new_pw1 = st.text_input("New password", type="password", key="prof_new_pw1")
+        if new_pw1:
+            score, label, _tips = sh.password_strength(new_pw1)
+            colors = ["#ef4444", "#ef4444", "#f59e0b", "#10b981", "#059669"]
+            st.markdown(
+                f"<div class='strength-bar'><div class='strength-fill' "
+                f"style='width:{(score+1)*20}%; background:{colors[score]};'></div></div>"
+                f"<small>Password strength: <b>{label}</b></small>",
+                unsafe_allow_html=True,
+            )
+        new_pw2 = st.text_input("Confirm new password", type="password", key="prof_new_pw2")
+        change_submitted = st.button("Update Password", type="primary")
 
-    header_col, stats_col = st.columns([1.3, 2.4], gap="medium")
-
-    # ---- Header: avatar + name + role/verified badges ----
-    with header_col:
-        st.markdown(
-            f"""
-            <div style='display:flex; align-items:center; gap:16px; margin-bottom:14px; flex-wrap:wrap;'>
-                {_profile_hero_avatar_html(render_avatar(sid, name, size=64, font_size=24), "#26AB8C")}
-                <div>
-                    <div style='font-family:var(--serif); font-weight:600; font-size:23px; color:var(--mv-ink); line-height:1.2;'>{name}</div>
-                    <div style='display:flex; align-items:center; gap:8px; margin-top:4px;'>
-                        <span style='font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--mv-muted); font-weight:700;'>Student</span>
-                        <span style='font-size:11px; padding:2px 10px; border-radius:999px; background:var(--mv-primary-soft); color:var(--mv-primary); font-weight:700;'>✓ Verified</span>
-                    </div>
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    # ---- Stats strip: Tests Completed / Average Score / Leaderboard
-    # Rank / Total Exams, each with a "View X →" shortcut into the page
-    # that actually shows that data. ----
-    with stats_col:
-        render_profile_stats_strip([
-            {"icon": "📋", "icon_bg": "var(--mv-primary-soft)", "number": tests_completed,
-             "label": "Tests Completed", "link_text": "View Results →", "go_to_page": "tests"},
-            {"icon": "📈", "icon_bg": "var(--mv-blue-soft)", "number": f"{avg_pct}%",
-             "label": "Average Score", "link_text": "View Analysis →", "go_to_page": "analysis"},
-            {"icon": "🏆", "icon_bg": "var(--mv-accent-soft)", "number": (f"#{rank}" if rank else "—"),
-             "label": "Leaderboard Rank", "link_text": "View Leaderboard →", "go_to_page": "leaderboard"},
-            {"icon": "📚", "icon_bg": "var(--mv-purple-soft)", "number": tests_completed,
-             "label": "Total Exams", "link_text": "View Results →", "go_to_page": "tests"},
-        ])
-
-    left_col, right_col = st.columns([1.7, 1], gap="medium")
-
-    # ---- Left: Profile Information (view mode / edit mode) ----
-    with left_col:
-        with st.container(key="card_profile_info"):
-            hcol1, hcol2 = st.columns([2.4, 1.3])
-            with hcol1:
-                st.markdown("##### 👤 Profile Information")
-            with hcol2:
-                edit_open = st.session_state.get("profile_edit_open", False)
-                if st.button("✖ Cancel" if edit_open else "✏️ Update Profile",
-                             key="profile_toggle_edit_btn", use_container_width=True):
-                    st.session_state["profile_edit_open"] = not edit_open
+        if change_submitted:
+            try:
+                sh.authenticate_student(student["phone"], cur_pw)
+            except ValueError:
+                st.error("Current password is incorrect.")
+            else:
+                _, _, tips = sh.password_strength(new_pw1)
+                if tips:
+                    st.error("New password is too weak: " + ", ".join(tips))
+                elif new_pw1 != new_pw2:
+                    st.error("New passwords don't match.")
+                else:
+                    with st.spinner("Updating..."):
+                        sh.change_student_password(sid, new_pw1)
+                        clear_all_caches()
+                    st.success("Password updated. Please log in again.")
+                    for k in ("student_id", "student_name", "session_version", "role"):
+                        st.session_state.pop(k, None)
                     st.rerun()
 
-            if not st.session_state.get("profile_edit_open"):
-                fcol1, fcol2 = st.columns(2)
-                with fcol1:
-                    st.markdown(_profile_info_row("📞", "Phone", sh.format_bd_phone(student["phone"]), "var(--mv-primary-soft)"), unsafe_allow_html=True)
-                    st.markdown(_profile_info_row("🚻", "Gender", gender_val or "N/A", "var(--mv-blue-soft)"), unsafe_allow_html=True)
-                with fcol2:
-                    st.markdown(_profile_info_row("🎂", "Birth Date", birth_date_val or "N/A", "var(--mv-accent-soft)"), unsafe_allow_html=True)
-                    st.markdown(_profile_info_row("🎓", "Role", "STUDENT", "var(--mv-purple-soft)"), unsafe_allow_html=True)
-            else:
-                # ---- Edit mode: Name / Birth Date / Gender only. Phone is
-                # intentionally NOT offered here at all - it's the
-                # student's login identity, so there's simply no field for
-                # it in this form (nothing to explain to the student,
-                # nothing for them to accidentally try to change). ----
-                new_name = st.text_input("Full name", value=name, key="profile_edit_name_input")
+    # ---- Mentor Login now lives here instead of a separate top-of-page
+    # button/bar, per request: keeps the student nav to 4 items everywhere. ----
+    st.markdown("<div class='app-card'>", unsafe_allow_html=True)
+    st.markdown("Are you a mentor?")
+    if st.button("👨‍🏫 Mentor Login", use_container_width=True, key="profile_mentor_login_btn"):
+        go_to("mentor")
+    st.markdown("</div>", unsafe_allow_html=True)
 
-                bcol1, bcol2 = st.columns(2)
-                with bcol1:
-                    want_birth_date = st.checkbox(
-                        "Add / update birth date", value=bool(birth_date_val),
-                        key="profile_edit_bd_toggle",
-                    )
-                    new_birth_date = None
-                    if want_birth_date:
-                        try:
-                            default_bd_val = (
-                                datetime.strptime(birth_date_val, "%Y-%m-%d").date()
-                                if birth_date_val else date(2005, 1, 1)
-                            )
-                        except Exception:
-                            default_bd_val = date(2005, 1, 1)
-                        new_birth_date = st.date_input(
-                            "Birth date", value=default_bd_val, key="profile_edit_bd_input",
-                            min_value=date(1950, 1, 1), max_value=date.today(),
-                        )
-                with bcol2:
-                    gender_idx = GENDER_OPTIONS.index(gender_val) if gender_val in GENDER_OPTIONS else 0
-                    new_gender = st.selectbox(
-                        "Gender", GENDER_OPTIONS, index=gender_idx, key="profile_edit_gender_input",
-                    )
-
-                st.caption("📞 Your phone number is your login ID, so it can't be changed here.")
-
-                if st.button("💾 Save Changes", type="primary", use_container_width=True, key="profile_save_btn"):
-                    cleaned_name = new_name.strip()
-                    if not cleaned_name:
-                        st.error("Name cannot be empty.")
-                    else:
-                        with st.spinner("Updating your profile..."):
-                            try:
-                                if cleaned_name != name:
-                                    sh.update_student_name(sid, cleaned_name)
-                                    st.session_state["student_name"] = cleaned_name
-                                sh.update_student_extra_profile(
-                                    sid,
-                                    birth_date=(new_birth_date.strftime("%Y-%m-%d") if want_birth_date and new_birth_date else ""),
-                                    gender=(new_gender if new_gender != "Not specified" else ""),
-                                )
-                                clear_all_caches()
-                            except ValueError as e:
-                                st.error(str(e))
-                            else:
-                                st.session_state["profile_edit_open"] = False
-                                st.success("Profile updated!")
-                                st.rerun()
-
-        # ---- Change Password lives right under Profile Information (in
-        # the same left column) instead of as its own full-width section
-        # below both columns - that used to leave a large empty gap here
-        # whenever the right column (Account Status + Log Out) ended up
-        # taller than this one, since the two columns aren't forced to
-        # match height. Putting it here fills that gap naturally. ----
-        with st.container(key="card_profile_changepw"):
-            pw_open = st.session_state.get("profile_changepw_open", False)
-            if st.button(f"🔑  Change Password {'▾' if pw_open else '▸'}",
-                         key="profile_changepw_toggle_btn", use_container_width=True):
-                st.session_state["profile_changepw_open"] = not pw_open
-                st.rerun()
-            st.caption("Update your password regularly to keep your account secure.")
-
-            if pw_open:
-                # Plain widgets (no st.form) so the strength bar updates live while
-                # typing, instead of only appearing after the button is clicked.
-                cur_pw = st.text_input("Current password", type="password", key="prof_cur_pw")
-                new_pw1 = st.text_input("New password", type="password", key="prof_new_pw1")
-                if new_pw1:
-                    score, label, _tips = sh.password_strength(new_pw1)
-                    colors = ["#ef4444", "#ef4444", "#f59e0b", "#10b981", "#059669"]
-                    st.markdown(
-                        f"<div class='strength-bar'><div class='strength-fill' "
-                        f"style='width:{(score+1)*20}%; background:{colors[score]};'></div></div>"
-                        f"<small>Password strength: <b>{label}</b></small>",
-                        unsafe_allow_html=True,
-                    )
-                new_pw2 = st.text_input("Confirm new password", type="password", key="prof_new_pw2")
-                change_submitted = st.button("Update Password", type="primary")
-
-                if change_submitted:
-                    try:
-                        sh.authenticate_student(student["phone"], cur_pw)
-                    except ValueError:
-                        st.error("Current password is incorrect.")
-                    else:
-                        _, _, tips = sh.password_strength(new_pw1)
-                        if tips:
-                            st.error("New password is too weak: " + ", ".join(tips))
-                        elif new_pw1 != new_pw2:
-                            st.error("New passwords don't match.")
-                        else:
-                            with st.spinner("Updating..."):
-                                sh.change_student_password(sid, new_pw1)
-                                clear_all_caches()
-                            st.success("Password updated. Please log in again.")
-                            for k in ("student_id", "student_name", "session_version", "role"):
-                                st.session_state.pop(k, None)
-                            st.rerun()
-
-    # ---- Right: Account Status + Log Out ----
-    with right_col:
-        with st.container(key="card_profile_status"):
-            st.markdown("##### 🛡️ Account Status")
-            st.markdown(
-                _profile_status_pill_html("Account Status", "Disabled" if disabled else "Active", not disabled)
-                + _profile_status_pill_html("Block Status", "Blocked" if disabled else "Not Blocked", not disabled),
-                unsafe_allow_html=True,
-            )
-
-        with st.container(key="card_profile_logout"):
-            st.markdown(
-                "<div style='display:flex; align-items:center; gap:10px;'>"
-                "<div class='mv-logout-icon'>🚪</div>"
-                "<span style='font-weight:700; font-size:15px; color:var(--mv-ink);'>Log Out</span>"
-                "</div>",
-                unsafe_allow_html=True,
-            )
-            st.caption("Sign out from your account securely.")
-            if st.button("Log Out", use_container_width=True, key="profile_logout_btn_new"):
-                for k in ("student_id", "student_name", "session_version", "role"):
-                    st.session_state.pop(k, None)
-                go_to("home")
-
-    # ---- Mentor Login lives here so the student nav stays a clean,
-    # consistent set of items everywhere. Icon chip + title/description
-    # on the left, a compact button on the right - matches the reference
-    # design instead of the earlier plain text-above-full-width-button. ----
-    with st.container(key="card_profile_mentor"):
-        text_col, btn_col = st.columns([3.2, 1.3])
-        with text_col:
-            st.markdown(
-                "<div style='display:flex; align-items:center; gap:14px;'>"
-                "<div class='mv-mentor-cta-icon'>🎓</div>"
-                "<div>"
-                "<div style='font-weight:700; font-size:15px; color:var(--mv-ink);'>Are you a mentor?</div>"
-                "<div style='font-size:12.5px; color:var(--mv-muted); margin-top:2px;'>"
-                "Join our mentor community and help others achieve their goals.</div>"
-                "</div></div>",
-                unsafe_allow_html=True,
-            )
-        with btn_col:
-            if st.button("👨‍🏫 Mentor Login", use_container_width=True, key="profile_mentor_login_btn"):
-                go_to("mentor")
+    if st.button("🚪 Log Out", use_container_width=True):
+        for k in ("student_id", "student_name", "session_version", "role"):
+            st.session_state.pop(k, None)
+        go_to("home")
 
 
 # =========================================================================
@@ -3258,38 +1296,62 @@ def _inject_bubble_grid_css():
         }
         .q-num-badge {
             display: inline-block; min-width: 28px; font-weight: 600;
-            color: var(--mv-ink); opacity: 0.75; padding-top: 6px;
+            color: var(--text-color, inherit); opacity: 0.75; padding-top: 6px;
         }
-        /* Force number + options to stay on the SAME row on mobile too -
-           Streamlit stacks st.columns vertically below ~640px by default,
-           which is what was pushing the A/B/C/D options under the question
-           number. Overriding with flex row + nowrap here keeps them side
-           by side on every screen size, matching the desktop look. */
-        .st-key-answer_bubble_grid div[data-testid="stHorizontalBlock"] {
+        /* Keep "Q number | A B C D options" on the SAME row on every
+           screen size. Each question row is wrapped in its own
+           st.container(key=f"qrow_{q}") - Streamlit's default mobile
+           behaviour is to stack st.columns vertically below ~640px,
+           which is what was putting the options on their own line
+           under the question number on phones. This overrides just
+           that per-question row (not the outer 25/25 block split,
+           which is fine to stack). */
+        div[class*="st-key-qrow_"] div[data-testid="stHorizontalBlock"] {
             display: flex !important;
             flex-direction: row !important;
             flex-wrap: nowrap !important;
             align-items: center !important;
             gap: 4px !important;
         }
-        .st-key-answer_bubble_grid div[data-testid="column"] {
+        div[class*="st-key-qrow_"] div[data-testid="column"] {
             width: auto !important;
-            min-width: 0 !important;
         }
-        .st-key-answer_bubble_grid div[data-testid="column"]:first-child {
+        div[class*="st-key-qrow_"] div[data-testid="column"]:first-child {
             flex: 0 0 26px !important;
+            min-width: 26px !important;
         }
-        .st-key-answer_bubble_grid div[data-testid="column"]:last-child {
-            flex: 1 1 auto !important;
+        div[class*="st-key-qrow_"] div[data-testid="column"]:last-child {
+            flex: 1 1 0% !important;
             min-width: 0 !important;
         }
-        @media (max-width: 640px) {
-            .st-key-answer_bubble_grid div[role="radiogroup"] { gap: 4px !important; }
-            .st-key-answer_bubble_grid div[role="radiogroup"] label {
-                padding: 2px 6px 2px 4px !important;
-                font-size: 12px !important;
+        /* Make the two-column layout responsive */
+        .st-key-answer_bubble_grid div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+            flex: 1 1 48% !important;
+        }
+        @media (max-width: 768px) {
+            /* On tablet and mobile, stack columns vertically */
+            .st-key-answer_bubble_grid div[data-testid="stHorizontalBlock"] {
+                flex-direction: column !important;
             }
-            .q-num-badge { min-width: 20px; font-size: 13px; }
+            .st-key-answer_bubble_grid div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+                flex: 1 1 100% !important;
+                width: 100% !important;
+            }
+            div[class*="st-key-qrow_"] { margin-bottom: 6px; }
+        }
+        @media (max-width: 480px) {
+            .st-key-answer_bubble_grid div[role="radiogroup"] label {
+                padding: 1px 4px 1px 3px !important;
+                font-size: 11px !important;
+                min-width: 32px !important;
+                text-align: center !important;
+            }
+            .st-key-answer_bubble_grid div[role="radiogroup"] { gap: 2px !important; }
+            div[class*="st-key-qrow_"] div[data-testid="stHorizontalBlock"] {
+                gap: 2px !important;
+            }
+            div[class*="st-key-qrow_"] { margin-bottom: 4px; }
+            .q-num-badge { min-width: 22px; font-size: 13px; padding: 0; }
         }
         </style>
         """,
@@ -3311,6 +1373,7 @@ def _answers_store():
 
 
 def _on_bubble_change(q, widget_key):
+    """Callback when user clicks a bubble - store the answer immediately."""
     _answers_store()[q] = st.session_state.get(widget_key)
 
 
@@ -3328,18 +1391,19 @@ def _render_bubble_block(q_start, q_end):
     store = _answers_store()
     options = ["A", "B", "C", "D"]
     for q in range(q_start, q_end + 1):
-        num_col, radio_col = st.columns([0.55, 3], gap="small")
-        widget_key = f"ans_q_{q}"
-        with num_col:
-            st.markdown(f"<div class='q-num-badge'>{q}</div>", unsafe_allow_html=True)
-        with radio_col:
-            current = store.get(q)
-            idx = options.index(current) if current in options else None
-            st.radio(
-                f"Q{q}", options=options, index=idx, horizontal=True,
-                key=widget_key, label_visibility="collapsed",
-                on_change=_on_bubble_change, args=(q, widget_key),
-            )
+        with st.container(key=f"qrow_{q}"):
+            num_col, radio_col = st.columns([0.55, 3], gap="small")
+            widget_key = f"ans_q_{q}"
+            with num_col:
+                st.markdown(f"<div class='q-num-badge'>{q}</div>", unsafe_allow_html=True)
+            with radio_col:
+                current = store.get(q)
+                idx = options.index(current) if current in options else None
+                st.radio(
+                    f"Q{q}", options=options, index=idx, horizontal=True,
+                    key=widget_key, label_visibility="collapsed",
+                    on_change=_on_bubble_change, args=(q, widget_key),
+                )
 
 
 def _go_answer_page(page_num):
@@ -3379,116 +1443,6 @@ def _time_input_12h(label, key_prefix, default_hour_24=9, default_minute=0):
     return dtime(hour_24, int(minute))
 
 
-# Preset exam-duration options (minutes) shown as quick-pick pills, plus a
-# "Custom" option that reveals a free-entry minutes field - covers the
-# common cases (30/60/90/120 min) with one tap, while still allowing any
-# other length.
-DURATION_PRESETS = [15, 30, 45, 60, 90, 120, 180]
-
-
-def _duration_picker(key_prefix, default_minutes=60):
-    """Renders a duration picker (preset pills + custom minutes field) and
-    returns the chosen duration as an int number of minutes."""
-    preset_labels = [f"{m} min" for m in DURATION_PRESETS] + ["Custom"]
-    default_label = f"{default_minutes} min" if default_minutes in DURATION_PRESETS else "Custom"
-    default_idx = preset_labels.index(default_label)
-    choice = st.radio(
-        "Duration", preset_labels, horizontal=True, index=default_idx,
-        label_visibility="collapsed", key=f"{key_prefix}_choice",
-    )
-    if choice == "Custom":
-        return int(st.number_input(
-            "Custom duration (minutes)", min_value=1, max_value=1440,
-            value=default_minutes, step=5, key=f"{key_prefix}_custom",
-        ))
-    return DURATION_PRESETS[preset_labels.index(choice)]
-
-
-def _compute_exam_end_datetime(exam_date, start_t, end_t):
-    """Combines the exam date with the mentor-picked END time, then rolls
-    that date forward by one day if the result would land at or before the
-    start time - e.g. a 22nd 8 PM start with an 8 AM end time is
-    understood as ending on the 23rd, automatically, without the mentor
-    ever having to pick a separate end date by hand. Returns (start_dt,
-    end_dt)."""
-    start_dt = datetime.combine(exam_date, start_t)
-    end_dt = datetime.combine(exam_date, end_t)
-    if end_dt <= start_dt:
-        end_dt += timedelta(days=1)
-    return start_dt, end_dt
-
-
-def _format_exam_window(start_dt, end_dt):
-    """Human-friendly 'Aug 22, 2026 · 8:00 PM  →  Aug 23, 2026 · 8:00 AM'
-    style labels for a start/end datetime pair. Always shows the full date
-    on both sides (not just when they differ) so an overnight exam window
-    is never ambiguous at a glance."""
-    fmt = "%b %d, %Y · %I:%M %p"
-
-    def _clean(dt):
-        # strip a leading zero from the 12-hour hour only (keep the date's
-        # own leading zeros, e.g. "Aug 05" should stay "Aug 05")
-        s = dt.strftime(fmt)
-        hour_part, _, rest = s.partition(":")
-        date_part, _, hour_only = hour_part.rpartition(" ")
-        return f"{date_part} {hour_only.lstrip('0') or '0'}:{rest}"
-
-    return _clean(start_dt), _clean(end_dt)
-
-
-def _format_duration(total_minutes):
-    total_minutes = int(total_minutes)
-    hours, minutes = divmod(total_minutes, 60)
-    parts = []
-    if hours:
-        parts.append(f"{hours}h")
-    if minutes or not parts:
-        parts.append(f"{minutes}m")
-    return " ".join(parts)
-
-
-def _render_exam_window_summary(start_dt, end_dt, duration_min):
-    """Small card shown on the exam-creation form (and reused on the
-    student Home page's Active Test card) summarizing exactly when the
-    exam opens, when it closes (the "exam window" - independently set by
-    the mentor's Start/End time, NOT derived from Duration), and how long
-    each student is meant to spend on it (Duration - a separate,
-    informational field; a mentor can, for example, keep an exam window
-    open all night for late submissions while still telling students it's
-    a 60-minute test). Includes a clear flag when the window rolls over
-    into the next calendar day.
-
-    IMPORTANT: the HTML below is built as ONE joined string with no blank
-    or indented "just whitespace" lines inside it (see the identical note
-    on render_hero() near the top of this file) - a blank line inside a
-    raw HTML block passed to st.markdown(unsafe_allow_html=True) makes
-    Streamlit's own markdown parser treat everything after that line as
-    literal text instead of HTML, which is exactly what was leaking raw
-    "<div>...</div>" tags onto the page here before this fix.
-    """
-    start_label, end_label = _format_exam_window(start_dt, end_dt)
-    crosses_midnight = start_dt.date() != end_dt.date()
-    overnight_note = (
-        "<div style='font-size:12px;color:var(--mv-accent);margin-top:3px;'>"
-        "⚠️ Ends the next day - the date is auto-adjusted for you.</div>"
-        if crosses_midnight else ""
-    )
-    parts = [
-        "<div class='app-card' style='display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-top:6px;'>",
-        "<div style='flex:1;min-width:240px;'>",
-        "<div style='font-size:11px;color:var(--mv-muted);text-transform:uppercase;letter-spacing:.06em;'>Exam Window (online from &rarr; to)</div>",
-        f"<div style='font-size:15px;font-weight:700;margin-top:2px;'>🟢 {start_label} &nbsp;→&nbsp; 🔴 {end_label}</div>",
-        overnight_note,
-        "</div>",
-        "<div>",
-        "<div style='font-size:11px;color:var(--mv-muted);text-transform:uppercase;letter-spacing:.06em;'>Duration Given to Students</div>",
-        f"<div style='font-size:15px;font-weight:700;margin-top:2px;'>⏱️ {_format_duration(duration_min)}</div>",
-        "</div>",
-        "</div>",
-    ]
-    st.markdown("".join(parts), unsafe_allow_html=True)
-
-
 def render_answer_key_tab():
     st.subheader("🗓️ Create Exam & Set Answer Key")
 
@@ -3520,29 +1474,6 @@ def render_answer_key_tab():
     d = st.date_input("Exam date", value=date.today())
     start_t = _time_input_12h("Start time", "mentor_start_t", default_hour_24=9, default_minute=0)
     end_t = _time_input_12h("End time", "mentor_end_t", default_hour_24=9, default_minute=30)
-    st.caption(
-        "ℹ️ This is the window the exam stays **online / open for submission** "
-        "(e.g. 8:00 PM to 8:00 AM). If the end time is earlier than the start "
-        "time, it's automatically understood as the **next day** - you don't "
-        "need to pick a separate end date."
-    )
-
-    st.markdown("**Exam duration (how much time each student gets)**")
-    duration_min = _duration_picker("mentor_duration", default_minutes=30)
-    st.caption(
-        "ℹ️ This is separate from the window above - it's shown to students as "
-        "how long the test itself is meant to take, even if the submission "
-        "window stays open longer (e.g. for late starters)."
-    )
-
-    # Exam WINDOW (start -> end) is entirely independent of Duration - the
-    # end date is auto-computed from the mentor's own End Time pick (with
-    # next-day rollover when needed), never derived from Duration. This is
-    # what lets a mentor keep submissions open overnight (or for days) while
-    # still telling students the test itself is only e.g. 30 minutes long.
-    start_dt_preview, end_dt_preview = _compute_exam_end_datetime(d, start_t, end_t)
-
-    _render_exam_window_summary(start_dt_preview, end_dt_preview, duration_min)
 
     st.divider()
 
@@ -3575,42 +1506,30 @@ def render_answer_key_tab():
             st.rerun()
     with tool_col2:
         with st.popover("⌨️ Fill Quickly with Text", use_container_width=True):
-            # Wrapped in a real st.form: without this, clicking "Apply Text"
-            # right after typing - without first pressing Enter or clicking
-            # somewhere else to blur the field - could submit the OLD,
-            # not-yet-committed value of the text_input (a plain text_input
-            # only guarantees its value is saved to session_state on blur/
-            # Enter, and a bare button click can race that, especially
-            # inside a popover). That's what was causing "You must enter
-            # exactly 100 characters" even right after typing 100 of them.
-            # A form batches every widget's live on-screen value together
-            # at the exact moment its own submit button is clicked, which
-            # removes that race entirely - Apply Text now always reads
-            # exactly what's typed, every time.
-            with st.form(key="quick_fill_form", clear_on_submit=True):
-                text_val = st.text_input(
-                    f"{total_q} characters (A/B/C/D), no spaces", key="quick_text_ans"
-                )
-                apply_clicked = st.form_submit_button("Apply Text", use_container_width=True)
-            if apply_clicked:
-                cleaned = text_val.strip().upper().replace(" ", "")
-                if len(cleaned) != total_q or any(c not in "ABCD" for c in cleaned):
-                    st.error(
-                        f"You must enter exactly {total_q} A/B/C/D characters "
-                        f"(got {len(cleaned)})."
-                    )
-                else:
-                    store = _answers_store()
-                    for i, c in enumerate(cleaned):
-                        store[i + 1] = c
-                        st.session_state.pop(f"ans_q_{i + 1}", None)
-                    # Rerunning immediately (right after the store is
-                    # updated and every widget key for this batch is
-                    # cleared) is what makes the currently-visible bubble
-                    # page reflect the applied answers right away, instead
-                    # of only showing up after switching pages and back.
-                    st.success(f"✅ Applied all {total_q} answers - updated below.")
+            st.caption(f"Paste {total_q} characters (A/B/C/D only)")
+            text_val = st.text_input(f"Paste here", key="quick_text_ans", placeholder="Example: ABCDABCD...")
+            col_a, col_b = st.columns(2)
+            with col_a:
+                if st.button("Clear", use_container_width=True):
+                    st.session_state["quick_text_ans"] = ""
                     st.rerun()
+            with col_b:
+                if st.button("Apply ✓", type="primary", use_container_width=True):
+                    cleaned = text_val.strip().upper().replace(" ", "")
+                    if not cleaned:
+                        st.error("Please paste the answers first.")
+                    elif len(cleaned) != total_q:
+                        st.error(f"Need exactly {total_q} characters, got {len(cleaned)}.")
+                    elif any(c not in "ABCD" for c in cleaned):
+                        st.error("Only A/B/C/D characters allowed.")
+                    else:
+                        store = _answers_store()
+                        for i, c in enumerate(cleaned):
+                            store[i + 1] = c
+                            st.session_state.pop(f"ans_q_{i + 1}", None)
+                        st.session_state["quick_text_ans"] = ""
+                        st.success(f"✅ Filled all {total_q} answers!")
+                        st.rerun()
 
     _inject_bubble_grid_css()
 
@@ -3619,7 +1538,7 @@ def render_answer_key_tab():
         if page == 1:
             st.caption("Showing questions **1-50**")
             with st.container(key="answer_bubble_grid"):
-                col1, col2 = st.columns(2)
+                col1, col2 = st.columns([1, 1], gap="small")
                 with col1:
                     _render_bubble_block(1, 25)
                 with col2:
@@ -3629,7 +1548,7 @@ def render_answer_key_tab():
         else:
             st.caption("Showing questions **51-100**")
             with st.container(key="answer_bubble_grid"):
-                col1, col2 = st.columns(2)
+                col1, col2 = st.columns([1, 1], gap="small")
                 with col1:
                     _render_bubble_block(51, 75)
                 with col2:
@@ -3639,7 +1558,7 @@ def render_answer_key_tab():
     else:
         st.caption("Showing questions **1-40** (two columns of 20)")
         with st.container(key="answer_bubble_grid"):
-            col1, col2 = st.columns(2)
+            col1, col2 = st.columns([1, 1], gap="small")
             with col1:
                 _render_bubble_block(1, 20)
             with col2:
@@ -3655,18 +1574,13 @@ def render_answer_key_tab():
             st.error(f"You must answer all {total_q} questions (currently {answered} answered).")
         else:
             answer_string = _build_answer_string(total_q)
-            # Recomputed here (not just reused from the live preview above)
-            # so the saved value always matches exactly what's currently
-            # selected in the form at the moment Save is clicked.
-            start_dt_final, end_dt_final = _compute_exam_end_datetime(d, start_t, end_t)
-            start_str = start_dt_final.strftime("%Y-%m-%d %H:%M")
-            end_str = end_dt_final.strftime("%Y-%m-%d %H:%M")
+            start_str = f"{d.strftime('%Y-%m-%d')} {start_t.strftime('%H:%M')}"
+            end_str = f"{d.strftime('%Y-%m-%d')} {end_t.strftime('%H:%M')}"
             with st.spinner("Saving..."):
                 key_id = sh.add_answer_key(
                     exam_name.strip(), d.strftime("%Y-%m-%d"), start_str, end_str,
                     total_q, answer_string,
                     negative_marking=negative_marking, negative_marks_value=negative_value,
-                    duration_minutes=duration_min,
                 )
                 st.session_state["mentor_answers"] = {}
                 for q in range(1, total_q + 1):
@@ -3680,27 +1594,25 @@ def render_answer_key_tab():
 # =========================================================================
 
 def page_mentor_dashboard():
-    st.markdown(f"### 👋 Welcome, {sh.get_mentor_name()}")
-    st.markdown("#### 📊 Dashboard")
+    st.subheader("📊 Mentor Dashboard")
     with st.spinner("Loading analytics..."):
         stats = sh.get_mentor_analytics()
-    with st.container(key="card_mentor_dashboard_stats"):
-        st.markdown(
-            f"""
-            <div class='metric-row'>
-                <div class='metric-box'><div class='label'>Total Students</div><div class='value'>{stats['total_students']}</div></div>
-                <div class='metric-box'><div class='label'>Active Students</div><div class='value'>{stats['active_students']}</div></div>
-                <div class='metric-box'><div class='label'>Total Submissions</div><div class='value'>{stats['total_submissions']}</div></div>
-                <div class='metric-box'><div class='label'>Submissions Today</div><div class='value'>{stats['submissions_today']}</div></div>
-                <div class='metric-box'><div class='label'>Average Score</div><div class='value'>{stats['average_score_pct']}%</div></div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        if stats["active_exam"]:
-            st.success(f"🟢 Active exam right now: **{stats['active_exam']}**")
-        else:
-            st.info("No exam is active right now.")
+    st.markdown(
+        f"""
+        <div class='metric-row'>
+            <div class='metric-box'><div class='label'>Total Students</div><div class='value'>{stats['total_students']}</div></div>
+            <div class='metric-box'><div class='label'>Active Students</div><div class='value'>{stats['active_students']}</div></div>
+            <div class='metric-box'><div class='label'>Total Submissions</div><div class='value'>{stats['total_submissions']}</div></div>
+            <div class='metric-box'><div class='label'>Submissions Today</div><div class='value'>{stats['submissions_today']}</div></div>
+            <div class='metric-box'><div class='label'>Average Score</div><div class='value'>{stats['average_score_pct']}%</div></div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    if stats["active_exam"]:
+        st.success(f"🟢 Active exam right now: **{stats['active_exam']}**")
+    else:
+        st.info("No exam is active right now.")
 
 
 # =========================================================================
@@ -3752,32 +1664,28 @@ def page_mentor_students():
         else:
             avg_score = "-"
 
-        with st.container(key=f"card_student_{sid}"):
-            c1, c2, c3 = st.columns([3.2, 1.4, 1.3])
-            with c1:
-                status = "🔴 Disabled" if disabled else "🟢 Active"
-                avatar_html = render_avatar(sid, row["name"], size=30, font_size=12)
-                st.markdown(
-                    f"<div style='display:flex; align-items:center; gap:8px;'>"
-                    f"{avatar_html}<span><b>{row['name']}</b> &nbsp; {status}</span></div>",
-                    unsafe_allow_html=True,
-                )
-                st.caption(f"ID: {sid} · 📱 {sh.format_bd_phone(row['phone'])} · Tests: {tests_taken} · Avg: {avg_score}%")
-            with c2:
-                if st.button("📊 View Analysis", key=f"analysis_{sid}", use_container_width=True):
-                    st.session_state["mentor_analysis_sid"] = sid
-                    st.session_state["mentor_analysis_name"] = row["name"]
-                    st.session_state["mentor_analysis_page"] = 1
-                    st.session_state.pop("mentor_analysis_view_key_id", None)
-                    st.session_state["mentor_page"] = "m_students"
-                    go_to("mentor_student_analysis")
-            with c3:
-                toggle_label = "Enable" if disabled else "Disable"
-                if st.button(toggle_label, key=f"toggle_{sid}", use_container_width=True):
-                    with st.spinner("Updating..."):
-                        sh.set_student_disabled(sid, not disabled)
-                        clear_all_caches()
-                    st.rerun()
+        st.markdown("<div class='app-card'>", unsafe_allow_html=True)
+        c1, c2, c3 = st.columns([3.2, 1.4, 1.3])
+        with c1:
+            status = "🔴 Disabled" if disabled else "🟢 Active"
+            st.markdown(f"**{row['name']}** &nbsp; {status}")
+            st.caption(f"ID: {sid} · 📱 {sh.format_bd_phone(row['phone'])} · Tests: {tests_taken} · Avg: {avg_score}%")
+        with c2:
+            if st.button("📊 View Analysis", key=f"analysis_{sid}", use_container_width=True):
+                st.session_state["mentor_analysis_sid"] = sid
+                st.session_state["mentor_analysis_name"] = row["name"]
+                st.session_state["mentor_analysis_page"] = 1
+                st.session_state.pop("mentor_analysis_view_key_id", None)
+                st.session_state["mentor_page"] = "m_students"
+                go_to("mentor_student_analysis")
+        with c3:
+            toggle_label = "Enable" if disabled else "Disable"
+            if st.button(toggle_label, key=f"toggle_{sid}", use_container_width=True):
+                with st.spinner("Updating..."):
+                    sh.set_student_disabled(sid, not disabled)
+                    clear_all_caches()
+                st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
 
     st.caption("ℹ️ Student analysis is opened on a separate page, so even students with 100+ tests won't make this list unnecessarily long.")
 
@@ -3825,11 +1733,10 @@ def page_mentor_results():
     for _, row in exam_results.iterrows():
         with st.expander(f"{row['student']} — Marks: {row['marks']}"
                           f"{' (edited)' if bool(row.get('edited_by_mentor')) else ''}"):
-            with st.container(key=f"card_mentor_result_{row['student_id']}_{key_id}"):
-                c1, c2, c3 = st.columns(3)
-                c1.metric("Correct", int(row["correct"]))
-                c2.metric("Wrong", int(row["wrong_count"]))
-                c3.metric("Skipped", int(row["skipped"]))
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Correct", int(row["correct"]))
+            c2.metric("Wrong", int(row["wrong_count"]))
+            c3.metric("Skipped", int(row["skipped"]))
 
             with st.form(key=f"edit_form_{row['student_id']}"):
                 new_correct = st.number_input("Correct", min_value=0, max_value=int(row["total"]),
@@ -3850,475 +1757,232 @@ def page_mentor_results():
 
 
 # =========================================================================
-# Mentor: OMR Sheet Setup (calibration) - now supports both the 100Q and
-# 40Q layouts, saved independently under the same "calibration" config
-# entry (a dict keyed by "100" / "40"). This is now mainly a REFERENCE
-# setup step; the grid actually used to read each student's photo is
-# always built from that student's own click-calibration (see
-# page_tests_results), which is far more tolerant of camera angle/skew.
+# Mentor: OMR Sheet Setup (calibration)
 # =========================================================================
 
-CALIB_LAYOUT_OPTIONS = [
-    (100, "📄 100 Questions"),
-    (40, "📄 40 Questions"),
-]
-
-
-def _calibration_status_summary(all_calibration):
-    all_calibration = all_calibration or {}
-    parts = []
-    for total_q, label in CALIB_LAYOUT_OPTIONS:
-        done = str(total_q) in all_calibration
-        icon = "✅" if done else "⚪"
-        parts.append(f"{icon} {label}: {'Set up' if done else 'Not set up yet'}")
-    return parts
-
-
 def page_mentor_calibration():
-    st.subheader("🎯 OMR Sheet Setup (only needed once per layout)")
-    st.caption("This records where each answer bubble sits on your blank OMR sheet, for each "
-               "exam layout. Students will still calibrate their own photo before every "
-               "submission (that's what's actually used to read their answers) - this page "
-               "is mainly a reference/setup checklist for you.")
+    st.subheader("🎯 OMR Sheet Setup (only needed once)")
+    st.caption("This tells the app exactly where each answer bubble sits on your OMR sheet, "
+               "so it can automatically read every student's scanned sheet correctly.")
 
-    all_calibration = sh.load_calibration() or {}
-    for line in _calibration_status_summary(all_calibration):
-        st.write(line)
-    st.divider()
-
-    layout_labels = [label for _, label in CALIB_LAYOUT_OPTIONS]
-    layout_choice = st.radio(
-        "Which layout are you setting up?", layout_labels,
-        horizontal=True, key="calib_layout_choice",
-    )
-    total_q = next(tq for tq, label in CALIB_LAYOUT_OPTIONS if label == layout_choice)
-    layout_key = str(total_q)
-
-    if st.session_state.get("calib_active_layout") != total_q:
-        st.session_state["calib_active_layout"] = total_q
-        st.session_state["calib_points"] = []
-
-    existing_layout_calibration = all_calibration.get(layout_key)
-    force_key = f"force_recalibrate_{total_q}"
-
-    if existing_layout_calibration and not st.session_state.get(force_key):
-        st.success(f"✅ {layout_choice} sheet setup is already saved - no need to redo it.")
-        with st.expander("View the currently saved setup"):
-            st.json(existing_layout_calibration)
-        st.caption("You don't need to visit this page again for this layout unless the sheet design changes.")
-        if st.button("🔄 Redo This Layout's Setup", key=f"redo_{total_q}"):
-            st.session_state[force_key] = True
+    existing_calibration = sh.load_calibration()
+    if existing_calibration and not st.session_state.get("force_recalibrate"):
+        st.success("✅ Sheet setup is already saved - no need to redo it.")
+        with st.expander("View the currently active setup"):
+            st.json(existing_calibration)
+        st.caption("Students can submit OMR sheets normally. You don't need to visit this page again unless the sheet design changes.")
+        if st.button("🔄 Redo Sheet Setup"):
+            st.session_state["force_recalibrate"] = True
             st.session_state["calib_points"] = []
             st.rerun()
         return
 
-    if existing_layout_calibration:
-        st.info("You're redoing this layout's setup - the old one will be replaced when you save.")
-        if st.button("❌ Go Back to the Previous Setup", key=f"cancel_redo_{total_q}"):
-            st.session_state[force_key] = False
+    if existing_calibration:
+        st.info("You're redoing the sheet setup - the old one will be replaced when you save.")
+        if st.button("❌ Go Back to the Previous Setup"):
+            st.session_state["force_recalibrate"] = False
             st.rerun()
 
-    points_info = omr_scanner.calibration_points_info(total_q)
-
     st.markdown(
-        f"Upload a **straight, clear photo of a blank {layout_choice.split(' ', 1)[1]} OMR sheet**, "
-        f"then click these {len(points_info)} points on the image below in this order "
-        "(a top and bottom point for every question block keeps the reading accurate even "
-        "if the sheet isn't perfectly flat in the photo):"
+        """
+        Upload a **straight, clear photo of a blank OMR sheet**, then click 4 points
+        on the image below in this order:
+        1. Question **1** - center of bubble **A**
+        2. Question **1** - center of bubble **D**
+        3. Question **25** - center of bubble **A**
+        4. Question **26** - center of bubble **A**
+        """
     )
-    for i, info in enumerate(points_info, start=1):
-        st.markdown(f"{i}. **{info['full']}**")
-
-    uploaded = st.file_uploader(
-        "Upload blank OMR sheet", type=["png", "jpg", "jpeg"], key=f"calib_upload_{total_q}"
-    )
+    uploaded = st.file_uploader("Upload blank OMR sheet", type=["png", "jpg", "jpeg"], key="calib_upload")
     if not uploaded:
         return
 
     image = Image.open(uploaded).convert("RGB")
-    image = ImageOps.exif_transpose(image)
     img_bgr = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+    with st.spinner("Analyzing sheet..."):
+        warped, ok = omr_scanner.detect_and_warp(img_bgr)
+    if not ok:
+        st.warning("Couldn't automatically detect the sheet's 4 corners. You can still click below to set it up, but retaking the photo straighter/flatter will help.")
 
-    # detect_and_warp() is intentionally NOT used here anymore - it sometimes
-    # locked onto the wrong rectangle (e.g. just one printed block) and
-    # cropped the image down to a tiny section. The student flow never used
-    # it either and works reliably, so we just resize the original photo
-    # for display instead. This calibration is reference-only.
-    warped_display_bgr = omr_scanner.resize_max_dim(
-        img_bgr, max_dim=omr_scanner.STUDENT_DISPLAY_MAX_DIM
-    )
-    warped_rgb = cv2.cvtColor(warped_display_bgr, cv2.COLOR_BGR2RGB)
+    warped_rgb = cv2.cvtColor(warped, cv2.COLOR_BGR2RGB)
     warped_pil = Image.fromarray(warped_rgb)
 
     if "calib_points" not in st.session_state:
         st.session_state["calib_points"] = []
 
+    labels = ["Q1-A", "Q1-D", "Q25-A", "Q26-A"]
     current_step = len(st.session_state["calib_points"])
 
-    if current_step < len(points_info):
-        st.info(f"Now click: **{points_info[current_step]['full']}**")
-        coords = streamlit_image_coordinates(warped_pil, key=f"calib_img_{total_q}")
+    if current_step < 4:
+        st.info(f"Now click: **{labels[current_step]}**")
+        coords = streamlit_image_coordinates(warped_pil, key="calib_img")
         if coords is not None:
             pt = (coords["x"], coords["y"])
             if not st.session_state["calib_points"] or st.session_state["calib_points"][-1] != pt:
                 st.session_state["calib_points"].append(pt)
                 st.rerun()
     else:
-        st.success(f"All {len(points_info)} points have been clicked!")
+        st.success("All 4 points have been clicked!")
         pts = st.session_state["calib_points"]
-        for info, pt in zip(points_info, pts):
-            st.write(f"- {info['short']}: {pt}")
+        for lbl, pt in zip(labels, pts):
+            st.write(f"- {lbl}: {pt}")
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("🔄 Start Over", key=f"calib_restart_{total_q}"):
+            if st.button("🔄 Start Over"):
                 st.session_state["calib_points"] = []
                 st.rerun()
         with col2:
-            if st.button("💾 Save Setup", type="primary", key=f"calib_save_{total_q}"):
-                layout_calibration = {
-                    info["key"]: pt for info, pt in zip(points_info, pts)
-                }
-                layout_calibration["total_questions"] = total_q
-                updated_calibration = dict(all_calibration)
-                updated_calibration[layout_key] = layout_calibration
+            if st.button("💾 Save Setup", type="primary"):
+                calibration = {"q1_a": pts[0], "q1_d": pts[1], "q25_a": pts[2], "q26_a": pts[3]}
                 with st.spinner("Saving..."):
-                    sh.save_calibration(updated_calibration)
-                    clear_all_caches()
-                st.success(f"{layout_choice} sheet setup saved!")
+                    sh.save_calibration(calibration)
+                st.success("Sheet setup saved! Students can now upload OMR sheets.")
                 st.session_state["calib_points"] = []
-                st.session_state[force_key] = False
+                st.session_state["force_recalibrate"] = False
 
 
 # =========================================================================
-# Mentor: Profile (same card layout/system as the student Profile page -
-# header with avatar + role badges, a "Profile Information" card with an
-# Update Profile toggle, an Account Status card, a Log Out card, and
-# Change Password tucked in an expander underneath. A mentor only really
-# has a display name + password (no phone/birth date/gender - those are
-# student-only concepts), so the editable surface here is intentionally
-# smaller, but the visual system is identical.
+# Mentor: Settings (mentor password)
 # =========================================================================
 
-def page_mentor_profile():
-    name = sh.get_mentor_name()
-
-    # ---- Stats used in the strip beside the header - the mentor-side
-    # equivalent of the student's Tests Completed / Average Score /
-    # Leaderboard Rank / Days Active strip. Reuses the same cached
-    # analytics + answer-key list already used elsewhere, so this adds
-    # no extra Google Sheets calls. ----
-    stats = sh.get_mentor_analytics()
-    keys_df = cached_answer_keys()
-    exams_created = 0 if keys_df.empty else len(keys_df)
-
-    header_col, stats_col = st.columns([1.3, 2.4], gap="medium")
-
-    # ---- Header: avatar + name + role/verified badges (same structure
-    # as the student profile header). Mentor's avatar deliberately uses
-    # the app's accent color (not the random per-student palette) so it
-    # reads as a distinct "admin" identity at a glance. ----
-    with header_col:
-        mentor_avatar_html = (
-            f"<span style='display:inline-flex; align-items:center; justify-content:center; width:64px; height:64px;"
-            f"min-width:64px; border-radius:50%; background:var(--mv-accent); color:#fff; font-family:var(--sans);"
-            f"font-weight:700; font-size:24px; letter-spacing:.02em;'>{_avatar_initials(name)}</span>"
-        )
+def page_mentor_settings():
+    st.subheader("🔑 Change Mentor Password")
+    st.caption("This password is for you (the mentor) only.")
+    # Plain widgets (no st.form) so the strength bar updates live while typing.
+    current_pw = st.text_input("Current password", type="password", key="cur_pw")
+    new_pw1 = st.text_input("New password", type="password", key="new_pw1")
+    if new_pw1:
+        score, label, _tips = sh.password_strength(new_pw1)
+        colors = ["#ef4444", "#ef4444", "#f59e0b", "#10b981", "#059669"]
         st.markdown(
-            f"""
-            <div style='display:flex; align-items:center; gap:16px; margin-bottom:14px; flex-wrap:wrap;'>
-                {_profile_hero_avatar_html(mentor_avatar_html, "#F94D10")}
-                <div>
-                    <div style='font-family:var(--serif); font-weight:600; font-size:23px; color:var(--mv-ink); line-height:1.2;'>{name}</div>
-                    <div style='display:flex; align-items:center; gap:8px; margin-top:4px;'>
-                        <span style='font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--mv-muted); font-weight:700;'>Mentor</span>
-                        <span style='font-size:11px; padding:2px 10px; border-radius:999px; background:var(--mv-accent-soft); color:var(--mv-accent); font-weight:700;'>✓ Verified</span>
-                    </div>
-                </div>
-            </div>
-            """,
+            f"<div class='strength-bar'><div class='strength-fill' "
+            f"style='width:{(score+1)*20}%; background:{colors[score]};'></div></div>"
+            f"<small>Password strength: <b>{label}</b></small>",
             unsafe_allow_html=True,
         )
+    new_pw2 = st.text_input("Re-enter new password", type="password", key="new_pw2")
+    submitted = st.button("✅ Update Password", type="primary")
 
-    # ---- Stats strip: Total Students / Average Score / Total
-    # Submissions / Exams Created, each with a "View X →" shortcut into
-    # the page that actually shows that data - same shared renderer and
-    # visual system as the student Profile page. Each link uses the
-    # "mentor:<mentor_page_key>" convention (see render_profile_stats_strip)
-    # so it lands on the right tab inside the mentor panel. ----
-    with stats_col:
-        render_profile_stats_strip([
-            {"icon": "👥", "icon_bg": "var(--mv-primary-soft)", "number": stats["total_students"],
-             "label": "Total Students", "link_text": "View Students →", "go_to_page": "mentor:m_students"},
-            {"icon": "📈", "icon_bg": "var(--mv-blue-soft)", "number": f"{stats['average_score_pct']}%",
-             "label": "Average Score", "link_text": "View Results →", "go_to_page": "mentor:m_results"},
-            {"icon": "🏆", "icon_bg": "var(--mv-accent-soft)", "number": stats["total_submissions"],
-             "label": "Total Submissions", "link_text": "View Leaderboard →", "go_to_page": "mentor:m_leaderboard"},
-            {"icon": "📝", "icon_bg": "var(--mv-purple-soft)", "number": exams_created,
-             "label": "Exams Created", "caption": "Keep creating! 🚀" if exams_created else "Create your first! 🚀"},
-        ])
-
-    left_col, right_col = st.columns([1.7, 1], gap="medium")
-
-    # ---- Left: Profile Information (view mode / edit mode), same toggle
-    # pattern as the student page - just Display Name is editable here. ----
-    with left_col:
-        with st.container(key="card_profile_info"):
-            hcol1, hcol2 = st.columns([2.4, 1.3])
-            with hcol1:
-                st.markdown("##### 👤 Profile Information")
-            with hcol2:
-                edit_open = st.session_state.get("mentor_profile_edit_open", False)
-                if st.button("✖ Cancel" if edit_open else "✏️ Update Profile",
-                             key="mentor_profile_toggle_edit_btn", use_container_width=True):
-                    st.session_state["mentor_profile_edit_open"] = not edit_open
-                    st.rerun()
-
-            if not st.session_state.get("mentor_profile_edit_open"):
-                fcol1, fcol2 = st.columns(2)
-                with fcol1:
-                    st.markdown(_profile_info_row("🧑‍🏫", "Display Name", name, "var(--mv-accent-soft)"), unsafe_allow_html=True)
-                with fcol2:
-                    st.markdown(_profile_info_row("🎓", "Role", "MENTOR", "var(--mv-purple-soft)"), unsafe_allow_html=True)
+    if submitted:
+        if current_pw != sh.get_mentor_password():
+            st.error("Current password is incorrect.")
+        elif not new_pw1:
+            st.error("New password cannot be empty.")
+        elif new_pw1 != new_pw2:
+            st.error("The two new password entries don't match.")
+        else:
+            _, _, tips = sh.password_strength(new_pw1)
+            if tips:
+                st.error("New password is too weak: " + ", ".join(tips))
             else:
-                new_name = st.text_input("Display name", value=name, key="mentor_profile_name_input")
-                if st.button("💾 Save Changes", type="primary", use_container_width=True, key="mentor_profile_save_btn"):
-                    cleaned = new_name.strip()
-                    if not cleaned:
-                        st.error("Name cannot be empty.")
-                    else:
-                        with st.spinner("Updating your profile..."):
-                            sh.set_mentor_name(cleaned)
-                        st.session_state["mentor_profile_edit_open"] = False
-                        st.success("Profile updated!")
-                        st.rerun()
-
-        # ---- Change Password lives right under Profile Information (in
-        # the same left column), same as the student page - fills the
-        # gap left by the shorter left column instead of sitting below
-        # both columns as its own full-width section. ----
-        with st.container(key="card_profile_changepw"):
-            pw_open = st.session_state.get("mentor_profile_changepw_open", False)
-            if st.button(f"🔑  Change Password {'▾' if pw_open else '▸'}",
-                         key="mentor_profile_changepw_toggle_btn", use_container_width=True):
-                st.session_state["mentor_profile_changepw_open"] = not pw_open
-                st.rerun()
-            st.caption("Update your password regularly to keep your account secure.")
-
-            if pw_open:
-                # Plain widgets (no st.form) so the strength bar updates live while typing.
-                current_pw = st.text_input("Current password", type="password", key="mentor_prof_cur_pw")
-                new_pw1 = st.text_input("New password", type="password", key="mentor_prof_new_pw1")
-                if new_pw1:
-                    score, label, _tips = sh.password_strength(new_pw1)
-                    colors = ["#ef4444", "#ef4444", "#f59e0b", "#10b981", "#059669"]
-                    st.markdown(
-                        f"<div class='strength-bar'><div class='strength-fill' "
-                        f"style='width:{(score+1)*20}%; background:{colors[score]};'></div></div>"
-                        f"<small>Password strength: <b>{label}</b></small>",
-                        unsafe_allow_html=True,
-                    )
-                new_pw2 = st.text_input("Confirm new password", type="password", key="mentor_prof_new_pw2")
-                change_submitted = st.button("Update Password", type="primary", key="mentor_prof_pw_update_btn")
-
-                if change_submitted:
-                    if current_pw != sh.get_mentor_password():
-                        st.error("Current password is incorrect.")
-                    elif not new_pw1:
-                        st.error("New password cannot be empty.")
-                    elif new_pw1 != new_pw2:
-                        st.error("New passwords don't match.")
-                    else:
-                        _, _, tips = sh.password_strength(new_pw1)
-                        if tips:
-                            st.error("New password is too weak: " + ", ".join(tips))
-                        else:
-                            with st.spinner("Updating..."):
-                                sh.set_mentor_password(new_pw1)
-                            st.session_state["mentor_authed"] = False
-                            st.success("Password changed! Please log in again with the new password.")
-                            st.rerun()
-
-    # ---- Right: Account Status + Log Out, same cards as the student page ----
-    with right_col:
-        with st.container(key="card_profile_status"):
-            st.markdown("##### 🛡️ Account Status")
-            st.markdown(
-                _profile_status_pill_html("Account Status", "Active", True),
-                unsafe_allow_html=True,
-            )
-
-        with st.container(key="card_profile_logout"):
-            st.markdown(
-                "<div style='display:flex; align-items:center; gap:10px;'>"
-                "<div class='mv-logout-icon'>🚪</div>"
-                "<span style='font-weight:700; font-size:15px; color:var(--mv-ink);'>Log Out</span>"
-                "</div>",
-                unsafe_allow_html=True,
-            )
-            st.caption("Sign out from the mentor panel securely.")
-            if st.button("Log Out", use_container_width=True, key="mentor_profile_logout_btn"):
+                with st.spinner("Updating..."):
+                    sh.set_mentor_password(new_pw1)
                 st.session_state["mentor_authed"] = False
-                go_to("home")
+                st.success("Password changed! Please log in again with the new password.")
+                st.rerun()
 
 
 # =========================================================================
 # Mentor Panel
 # =========================================================================
 
-def is_mentor():
-    if st.session_state.get("mentor_authed"):
-        return True
-    render_hero("Mentor Portal", heading_html="Mentor Login", compact=True, pulse=False,
-                show_badge=False, show_byline=False)
-    with st.form(key="mentor_login_form", clear_on_submit=False):
-        pw = st.text_input("Mentor password", type="password", key="mentor_pw")
-        submitted = st.form_submit_button("Log In", type="primary", use_container_width=True)
-    if submitted:
-        if pw == sh.get_mentor_password():
-            st.session_state["mentor_authed"] = True
-            st.rerun()
-        else:
-            st.error("Incorrect mentor password.")
+def render_mentor_login_gate():
+    """Shown only BEFORE the mentor is authenticated - i.e. the mentor
+    hasn't actually entered the Mentor Panel yet, it's just the login
+    step. Kept to a single heading (no repeated 'Mentor Panel' emoji/
+    title here as well as on the panel itself), and includes a way back
+    to the Student Login screen, since the only way in here is the
+    'Mentor Login' link on/under the Student Login & Sign Up page."""
+    st.markdown("<h2 style='text-align:center;'>🔑 Mentor Login</h2>", unsafe_allow_html=True)
+    _, mid, _ = st.columns([1, 2, 1])
+    with mid:
+        with st.form(key="mentor_login_form", clear_on_submit=False):
+            pw = st.text_input("Mentor password", type="password", key="mentor_pw")
+            submitted = st.form_submit_button("Log In", type="primary", use_container_width=True)
+        if submitted:
+            if pw == sh.get_mentor_password():
+                st.session_state["mentor_authed"] = True
+                st.rerun()
+            else:
+                st.error("Incorrect mentor password.")
 
-    st.write("")
-    if st.button("← Back to Student Login", use_container_width=True, key="mentor_back_to_student"):
-        go_to("home")
-    return False
+        st.markdown("<p class='mentor-entry-caption'>Not a mentor?</p>", unsafe_allow_html=True)
+        if st.button("← Back to Student Login", use_container_width=True, key="mentor_back_to_student_btn"):
+            go_to("home")
+
+
+def is_mentor():
+    return bool(st.session_state.get("mentor_authed"))
 
 
 MENTOR_NAV = [
-    ("m_dashboard", "Dashboard"),
-    ("m_answerkey", "Create Exam"),
-    ("m_calibration", "OMR Sheet Setup"),
-    ("m_students", "Students"),
-    ("m_results", "Results"),
-    ("m_leaderboard", "Leaderboard"),
-    ("m_profile", "Profile"),
+    ("m_dashboard", "📊 Dashboard"),
+    ("m_answerkey", "📝 Create Exam"),
+    ("m_calibration", "🎯 OMR Sheet Setup"),
+    ("m_students", "👥 Students"),
+    ("m_results", "🧾 Results"),
+    ("m_leaderboard", "🏆 Leaderboard"),
+    ("m_settings", "⚙️ Settings"),
 ]
-
-# Same native st.button(icon=":material/...:") approach as the student
-# nav's nav_icon() - see that function's comment for why (real, first-
-# party icon rendering instead of a fragile custom-SVG overlay).
-MENTOR_NAV_MATERIAL_ICONS = {
-    "m_dashboard": "dashboard",
-    "m_answerkey": "edit_document",
-    "m_calibration": "tune",
-    "m_students": "group",
-    "m_results": "fact_check",
-    "m_leaderboard": "emoji_events",
-    "m_profile": "person",
-}
-
-
-def mentor_nav_icon(page_key):
-    name = MENTOR_NAV_MATERIAL_ICONS.get(page_key)
-    return f":material/{name}:" if name else None
-
-
-def render_mentor_top_nav(current_page):
-    """Mentor equivalent of render_top_nav() - same logo-left / flat-nav /
-    avatar-right desktop layout and same logo+hamburger mobile bar as the
-    student panel, so the whole app shares one consistent navigation
-    system instead of the mentor side looking like a different app.
-    Profile is reached via the avatar (desktop) / drawer (mobile), same
-    as the student side, and is excluded from the desktop pill row."""
-    desktop_nav_items = [item for item in MENTOR_NAV if item[0] != "m_profile"]
-    with st.container(key="top_nav"):
-        logo_col, nav_col = st.columns([1.6, 8.4])
-        with logo_col:
-            st.markdown(
-                f"<div style='display:flex; align-items:center; gap:8px; height:100%; padding-top:2px;'>"
-                f"<div style='width:26px; height:26px; flex-shrink:0;'>{LOGO_SVG}</div>"
-                f"<span style='font-family:var(--serif); font-weight:600; font-size:16px; "
-                f"color:var(--mv-ink); white-space:nowrap;'>Med Venture</span></div>",
-                unsafe_allow_html=True,
-            )
-        with nav_col:
-            cols = st.columns([1] * len(desktop_nav_items) + [0.85])
-            for col, (page_key, label) in zip(cols[:-1], desktop_nav_items):
-                with col:
-                    is_active = current_page == page_key
-                    if st.button(
-                        label, key=f"mnav_{page_key}", use_container_width=True,
-                        type="primary" if is_active else "secondary",
-                        icon=mentor_nav_icon(page_key),
-                    ):
-                        st.session_state["mentor_page"] = page_key
-                        st.session_state.pop("mentor_analysis_sid", None)
-                        st.session_state.pop("mentor_analysis_view_key_id", None)
-                        go_to("mentor")
-            with cols[-1]:
-                mentor_name = sh.get_mentor_name()
-                initials = _avatar_initials(mentor_name)
-                # Mentor avatar uses the app's fixed accent color (not the
-                # random per-student palette) so it visibly reads as the
-                # admin/mentor identity rather than "just another student".
-                st.markdown(
-                    f"<style>.st-key-top_nav .st-key-top_nav_avatar_btn button {{ "
-                    f"background:var(--mv-accent) !important; border-color:var(--mv-accent) !important; color:#fff !important; "
-                    f"border-radius:50% !important; width:34px !important; height:34px !important; "
-                    f"min-height:34px !important; padding:0 !important; font-size:13px !important; "
-                    f"font-weight:700 !important; }}</style>",
-                    unsafe_allow_html=True,
-                )
-                # Avatar + a small decorative chevron beside it, same
-                # visual pattern as the student nav's avatar.
-                avatar_sub, chevron_sub = st.columns([2, 1])
-                with avatar_sub:
-                    with st.container(key="top_nav_avatar_btn"):
-                        if st.button(initials, key="top_nav_mentor_avatar_click", help="Profile"):
-                            st.session_state["mentor_page"] = "m_profile"
-                            st.session_state.pop("mentor_analysis_sid", None)
-                            st.session_state.pop("mentor_analysis_view_key_id", None)
-                            go_to("mentor")
-                with chevron_sub:
-                    st.markdown("<div class='mv-nav-avatar-chevron'>⌄</div>", unsafe_allow_html=True)
-
-    # Mobile: same simplified logo + hamburger/close toggle bar as the
-    # student panel - no separate quick-access icon button, since Profile
-    # is just one tap away in the drawer below like every other nav item.
-    with st.container(key="mobile_top_bar"):
-        is_open = st.session_state.get("mentor_mobile_menu_open", False)
-        st.markdown(
-            f"<div style='display:flex; align-items:center; gap:6px; height:40px;'>"
-            f"<div style='width:24px; height:24px; flex-shrink:0;'>{LOGO_SVG}</div>"
-            f"<span style='font-family:var(--serif); font-weight:600; font-size:15px; "
-            f"color:var(--mv-ink); white-space:nowrap;'>Med Venture</span></div>",
-            unsafe_allow_html=True,
-        )
-        with st.container(key="mobile_top_bar_right"):
-            if st.button("✕" if is_open else "☰", key="mentor_mobile_menu_toggle", help="Open menu" if not is_open else "Close menu"):
-                st.session_state["mentor_mobile_menu_open"] = not is_open
-                st.rerun()
-
-    if st.session_state.get("mentor_mobile_menu_open", False):
-        st.markdown("<div class='mv-drawer-backdrop'></div>", unsafe_allow_html=True)
-        with st.container(key="mobile_menu_mentor"):
-            st.markdown(
-                f"<div style='display:flex; align-items:center; gap:8px; margin-bottom:18px;'>"
-                f"<div style='width:24px; height:24px;'>{LOGO_SVG}</div>"
-                f"<span style='font-family:var(--serif); font-weight:600; font-size:15px; color:var(--mv-ink);'>Med Venture</span></div>",
-                unsafe_allow_html=True,
-            )
-            for page_key, label in MENTOR_NAV:
-                if st.button(label, key=f"mmnav_{page_key}", use_container_width=True, icon=mentor_nav_icon(page_key)):
-                    st.session_state["mentor_page"] = page_key
-                    st.session_state.pop("mentor_analysis_sid", None)
-                    st.session_state.pop("mentor_analysis_view_key_id", None)
-                    go_to("mentor")
-
-    st.write("")
 
 
 def page_mentor():
     if not is_mentor():
+        render_mentor_login_gate()
         return
+
+    st.header("👨‍🏫 Mentor Panel")
 
     current = st.session_state.get("mentor_page", "m_dashboard")
     is_student_analysis = st.session_state.get("page") == "mentor_student_analysis"
     active_nav = "m_students" if is_student_analysis else current
 
-    render_mentor_top_nav(active_nav)
+    # Desktop: all mentor options remain visible on laptop/desktop.
+    with st.container(key="top_nav"):
+        cols = st.columns(len(MENTOR_NAV))
+        for col, (page_key, label) in zip(cols, MENTOR_NAV):
+            with col:
+                if st.button(
+                    label, key=f"mnav_{page_key}", use_container_width=True,
+                    type="primary" if active_nav == page_key else "secondary",
+                ):
+                    st.session_state["mentor_page"] = page_key
+                    st.session_state.pop("mentor_analysis_sid", None)
+                    st.session_state.pop("mentor_analysis_view_key_id", None)
+                    go_to("mentor")
+
+    # Mobile: ☰ when closed, ✕ when open.
+    with st.container(key="mobile_top_bar"):
+        c1, c2 = st.columns([1, 1])
+        with c1:
+            is_open = st.session_state.get("mentor_mobile_menu_open", False)
+            if st.button("✕" if is_open else "☰", key="mentor_mobile_menu_toggle", help="Open menu" if not is_open else "Close menu"):
+                st.session_state["mentor_mobile_menu_open"] = not is_open
+                st.rerun()
+        with c2:
+            # Only show the Settings shortcut when the menu is CLOSED - once
+            # open, "⚙️ Settings" is already in the list below, so keeping
+            # both was a redundant, confusing duplicate. Settings itself has
+            # both the password-change form and Log Out, matching the PC
+            # experience (a Settings nav item, not a bare logout icon).
+            if not is_open:
+                if st.button("⚙️", key="mobile_mentor_settings_btn", help="Settings"):
+                    st.session_state["mentor_page"] = "m_settings"
+                    st.session_state.pop("mentor_analysis_sid", None)
+                    st.session_state.pop("mentor_analysis_view_key_id", None)
+                    go_to("mentor")
+
+    if st.session_state.get("mentor_mobile_menu_open", False):
+        st.markdown("<div class='mobile-menu-card'>", unsafe_allow_html=True)
+        for page_key, label in MENTOR_NAV:
+            if st.button(label, key=f"mmnav_{page_key}", use_container_width=True):
+                st.session_state["mentor_page"] = page_key
+                st.session_state.pop("mentor_analysis_sid", None)
+                st.session_state.pop("mentor_analysis_view_key_id", None)
+                go_to("mentor")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    st.write("")
 
     if is_student_analysis:
         page_mentor_student_analysis()
@@ -4334,18 +1998,13 @@ def page_mentor():
         page_mentor_results()
     elif current == "m_leaderboard":
         page_mentor_leaderboard()
-    elif current == "m_profile":
-        page_mentor_profile()
+    elif current == "m_settings":
+        page_mentor_settings()
 
-    # The Profile page already has its own "Log Out" card, so we don't
-    # repeat a second logout control down here when Profile is the page
-    # being viewed - only show this convenience logout on the other
-    # mentor pages, same pattern as the student side.
-    if current != "m_profile" or is_student_analysis:
-        st.divider()
-        if st.button("🚪 Log Out of Mentor Panel", key="mentor_bottom_logout"):
-            st.session_state["mentor_authed"] = False
-            go_to("home")
+    st.divider()
+    if st.button("🚪 Log Out of Mentor Panel", key="mentor_bottom_logout"):
+        st.session_state["mentor_authed"] = False
+        go_to("home")
 
 
 # =========================================================================
@@ -4355,84 +2014,59 @@ def page_mentor():
 def main():
     inject_global_css()
 
-    # The ENTIRE visible app body - the app-password gate, the Google
-    # Sheets "Connecting..." boot sequence, the mentor panel, the login/
-    # signup screens, and every logged-in student page - is rendered
-    # inside ONE placeholder that gets explicitly, synchronously reset
-    # via .container() on every single run.
-    #
-    # WHY: an earlier version of this fix only wrapped the POST-LOGIN
-    # page section, leaving the app-password gate and the boot/
-    # "Connecting..." screen as separate, unwrapped top-level calls. That
-    # gap is exactly what let a stale boot-loading screen from a previous
-    # run stay visible, overlapping with the password form on the very
-    # next run - most visibly right after the app woke up from Streamlit
-    # Community Cloud's sleep-after-inactivity mode, since waking it
-    # resets session_state and re-runs both the password gate and the
-    # boot sequence in quick succession (see the "Connecting..." +
-    # password form overlap screenshot this fixes). Wrapping everything,
-    # including these two earlier screens, closes that gap the same way
-    # it was already closed for page-to-page navigation.
-    main_area = st.empty()
-    with main_area.container():
-        if not check_app_password():
-            return
+    if not check_app_password():
+        return
 
-        # Only run the sheet-initialization/spinner once per browser
-        # session - not on every single click/rerun. Re-running
-        # init_sheets() on every interaction was one of the causes of the
-        # extra delay/flicker on mobile (a "Connecting..." spinner
-        # flashing on every tap).
-        if not st.session_state.get("_sheets_ready"):
-            render_boot_loading_screen("Connecting...")
+    # Only run the sheet-initialization/spinner once per browser session -
+    # not on every single click/rerun. Re-running init_sheets() on every
+    # interaction was one of the causes of the extra delay/flicker on
+    # mobile (a "Connecting..." spinner flashing on every tap).
+    if not st.session_state.get("_sheets_ready"):
+        with st.spinner("Connecting..."):
             sh.init_sheets()
-            st.session_state["_sheets_ready"] = True
-            # A full rerun (rather than manually clearing a nested
-            # placeholder) is what guarantees the boot screen is
-            # completely gone before the real page renders - main_area is
-            # a brand-new st.empty() each run, so the next run's content
-            # fully replaces this one with no lingering overlap window.
-            st.rerun()
+        st.session_state["_sheets_ready"] = True
 
-        restore_page_from_url()
+    restore_page_from_url()
 
-        role = st.session_state.get("role")
-        is_student_logged_in = role == "student" and student_session_is_valid()
+    role = st.session_state.get("role")
+    is_student_logged_in = role == "student" and student_session_is_valid()
 
-        if not is_student_logged_in and st.session_state.get("role") == "student":
-            # session was invalidated (password changed / account disabled elsewhere)
-            for k in ("student_id", "student_name", "session_version", "role"):
-                st.session_state.pop(k, None)
-            st.warning("Your session has expired (password may have changed elsewhere). Please log in again.")
+    if not is_student_logged_in and st.session_state.get("role") == "student":
+        # session was invalidated (password changed / account disabled elsewhere)
+        for k in ("student_id", "student_name", "session_version", "role"):
+            st.session_state.pop(k, None)
+        st.warning("Your session has expired (password may have changed elsewhere). Please log in again.")
 
-        page = st.session_state.get("page", "home")
+    page = st.session_state.get("page", "home")
 
-        if page in ("mentor", "mentor_student_analysis"):
-            page_mentor()
-        elif not is_student_logged_in:
-            # Login page: the mentor entry point lives inline below the
-            # login card (see page_student_auth), so no separate top
-            # button here.
-            page_student_auth()
-        else:
-            # Logged-in student pages: no separate "Mentor" button
-            # anywhere in the top bar (desktop or mobile) any more -
-            # Mentor Login now lives on the Profile page instead, so the
-            # nav stays a clean, consistent set of items everywhere.
-            render_top_nav(page)
+    if page in ("mentor", "mentor_student_analysis"):
+        page_mentor()
+        return
 
-            if page == "home":
-                page_home()
-            elif page in ("tests", "test_detail"):
-                page_tests_results()
-            elif page == "analysis":
-                page_student_analysis()
-            elif page == "leaderboard":
-                page_leaderboard()
-            elif page == "profile":
-                page_profile()
-            else:
-                page_home()
+    if not is_student_logged_in:
+        # Login page: the mentor entry point lives inline below the login
+        # card (see page_student_auth), so no separate top button here.
+        page_student_auth()
+        return
+
+    # Logged-in student pages: no separate "Mentor" button anywhere in the
+    # top bar (desktop or mobile) any more - Mentor Login now lives on the
+    # Profile page instead, so the nav stays a clean, consistent 4 items
+    # (Home / Tests & Results / Leaderboard / Profile) everywhere.
+    render_top_nav(page)
+
+    if page == "home":
+        page_home()
+    elif page in ("tests", "test_detail"):
+        page_tests_results()
+    elif page == "analysis":
+        page_student_analysis()
+    elif page == "leaderboard":
+        page_leaderboard()
+    elif page == "profile":
+        page_profile()
+    else:
+        page_home()
 
 
 if __name__ == "__main__":
