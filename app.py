@@ -2125,8 +2125,10 @@ def page_home():
             mins_left = max(0, int(remaining.total_seconds() // 60))
             st.markdown(f"#### 🟢 Active Test: {active['exam_name'] or active['key_id']}")
             start_label, end_label = _format_exam_window(active["start_dt"], active["end_dt"])
-            total_duration_min = int((active["end_dt"] - active["start_dt"]).total_seconds() // 60)
-            st.caption(f"🗓️ {start_label}  →  {end_label}   ·   ⏱️ {_format_duration(total_duration_min)}")
+            duration_display_min = active.get("duration_minutes") or int(
+                (active["end_dt"] - active["start_dt"]).total_seconds() // 60
+            )
+            st.caption(f"🗓️ {start_label}  →  {end_label}   ·   ⏱️ Duration: {_format_duration(duration_display_min)}")
             c1, c2 = st.columns(2)
             c1.metric("Questions", active["total_questions"])
             c2.metric("Time Left", f"{mins_left} min")
@@ -3402,8 +3404,22 @@ def _duration_picker(key_prefix, default_minutes=60):
     return DURATION_PRESETS[preset_labels.index(choice)]
 
 
+def _compute_exam_end_datetime(exam_date, start_t, end_t):
+    """Combines the exam date with the mentor-picked END time, then rolls
+    that date forward by one day if the result would land at or before the
+    start time - e.g. a 22nd 8 PM start with an 8 AM end time is
+    understood as ending on the 23rd, automatically, without the mentor
+    ever having to pick a separate end date by hand. Returns (start_dt,
+    end_dt)."""
+    start_dt = datetime.combine(exam_date, start_t)
+    end_dt = datetime.combine(exam_date, end_t)
+    if end_dt <= start_dt:
+        end_dt += timedelta(days=1)
+    return start_dt, end_dt
+
+
 def _format_exam_window(start_dt, end_dt):
-    """Human-friendly 'Aug 22, 2026 · 08:00 PM  →  Aug 23, 2026 · 08:00 AM'
+    """Human-friendly 'Aug 22, 2026 · 8:00 PM  →  Aug 23, 2026 · 8:00 AM'
     style labels for a start/end datetime pair. Always shows the full date
     on both sides (not just when they differ) so an overnight exam window
     is never ambiguous at a glance."""
@@ -3434,32 +3450,43 @@ def _format_duration(total_minutes):
 def _render_exam_window_summary(start_dt, end_dt, duration_min):
     """Small card shown on the exam-creation form (and reused on the
     student Home page's Active Test card) summarizing exactly when the
-    exam opens, when it closes, and how long it runs - including a clear
-    flag when the exam rolls over into the next calendar day (e.g. an
-    8 PM start with a 12-hour duration ending 8 AM the next morning)."""
+    exam opens, when it closes (the "exam window" - independently set by
+    the mentor's Start/End time, NOT derived from Duration), and how long
+    each student is meant to spend on it (Duration - a separate,
+    informational field; a mentor can, for example, keep an exam window
+    open all night for late submissions while still telling students it's
+    a 60-minute test). Includes a clear flag when the window rolls over
+    into the next calendar day.
+
+    IMPORTANT: the HTML below is built as ONE joined string with no blank
+    or indented "just whitespace" lines inside it (see the identical note
+    on render_hero() near the top of this file) - a blank line inside a
+    raw HTML block passed to st.markdown(unsafe_allow_html=True) makes
+    Streamlit's own markdown parser treat everything after that line as
+    literal text instead of HTML, which is exactly what was leaking raw
+    "<div>...</div>" tags onto the page here before this fix.
+    """
     start_label, end_label = _format_exam_window(start_dt, end_dt)
     crosses_midnight = start_dt.date() != end_dt.date()
     overnight_note = (
-        "<div style='font-size:12px; color:var(--mv-accent); margin-top:3px;'>"
+        "<div style='font-size:12px;color:var(--mv-accent);margin-top:3px;'>"
         "⚠️ Ends the next day - the date is auto-adjusted for you.</div>"
         if crosses_midnight else ""
     )
-    st.markdown(
-        f"""
-        <div class='app-card' style='display:flex; align-items:center; gap:18px; flex-wrap:wrap; margin-top:6px;'>
-            <div style='flex:1; min-width:240px;'>
-                <div style='font-size:11px; color:var(--mv-muted); text-transform:uppercase; letter-spacing:.06em;'>Exam Window</div>
-                <div style='font-size:15px; font-weight:700; margin-top:2px;'>🟢 {start_label} &nbsp;→&nbsp; 🔴 {end_label}</div>
-                {overnight_note}
-            </div>
-            <div>
-                <div style='font-size:11px; color:var(--mv-muted); text-transform:uppercase; letter-spacing:.06em;'>Duration</div>
-                <div style='font-size:15px; font-weight:700; margin-top:2px;'>⏱️ {_format_duration(duration_min)}</div>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    parts = [
+        "<div class='app-card' style='display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-top:6px;'>",
+        "<div style='flex:1;min-width:240px;'>",
+        "<div style='font-size:11px;color:var(--mv-muted);text-transform:uppercase;letter-spacing:.06em;'>Exam Window (online from &rarr; to)</div>",
+        f"<div style='font-size:15px;font-weight:700;margin-top:2px;'>🟢 {start_label} &nbsp;→&nbsp; 🔴 {end_label}</div>",
+        overnight_note,
+        "</div>",
+        "<div>",
+        "<div style='font-size:11px;color:var(--mv-muted);text-transform:uppercase;letter-spacing:.06em;'>Duration Given to Students</div>",
+        f"<div style='font-size:15px;font-weight:700;margin-top:2px;'>⏱️ {_format_duration(duration_min)}</div>",
+        "</div>",
+        "</div>",
+    ]
+    st.markdown("".join(parts), unsafe_allow_html=True)
 
 
 def render_answer_key_tab():
@@ -3492,18 +3519,28 @@ def render_answer_key_tab():
     exam_name = st.text_input("Exam name", placeholder="e.g. Physics Model Test - 3")
     d = st.date_input("Exam date", value=date.today())
     start_t = _time_input_12h("Start time", "mentor_start_t", default_hour_24=9, default_minute=0)
+    end_t = _time_input_12h("End time", "mentor_end_t", default_hour_24=9, default_minute=30)
+    st.caption(
+        "ℹ️ This is the window the exam stays **online / open for submission** "
+        "(e.g. 8:00 PM to 8:00 AM). If the end time is earlier than the start "
+        "time, it's automatically understood as the **next day** - you don't "
+        "need to pick a separate end date."
+    )
 
-    st.markdown("**Exam duration**")
+    st.markdown("**Exam duration (how much time each student gets)**")
     duration_min = _duration_picker("mentor_duration", default_minutes=30)
+    st.caption(
+        "ℹ️ This is separate from the window above - it's shown to students as "
+        "how long the test itself is meant to take, even if the submission "
+        "window stays open longer (e.g. for late starters)."
+    )
 
-    # The end date/time is now ALWAYS derived from start + duration instead
-    # of being picked separately - this is what makes an overnight exam
-    # (e.g. starts 10 PM, runs 12 hours) automatically land on the next
-    # calendar day instead of silently producing an end time earlier than
-    # the start time on the same date (which the old two-independent-
-    # time-pickers version could do with no warning at all).
-    start_dt_preview = datetime.combine(d, start_t)
-    end_dt_preview = start_dt_preview + timedelta(minutes=duration_min)
+    # Exam WINDOW (start -> end) is entirely independent of Duration - the
+    # end date is auto-computed from the mentor's own End Time pick (with
+    # next-day rollover when needed), never derived from Duration. This is
+    # what lets a mentor keep submissions open overnight (or for days) while
+    # still telling students the test itself is only e.g. 30 minutes long.
+    start_dt_preview, end_dt_preview = _compute_exam_end_datetime(d, start_t, end_t)
 
     _render_exam_window_summary(start_dt_preview, end_dt_preview, duration_min)
 
@@ -3621,8 +3658,7 @@ def render_answer_key_tab():
             # Recomputed here (not just reused from the live preview above)
             # so the saved value always matches exactly what's currently
             # selected in the form at the moment Save is clicked.
-            start_dt_final = datetime.combine(d, start_t)
-            end_dt_final = start_dt_final + timedelta(minutes=duration_min)
+            start_dt_final, end_dt_final = _compute_exam_end_datetime(d, start_t, end_t)
             start_str = start_dt_final.strftime("%Y-%m-%d %H:%M")
             end_str = end_dt_final.strftime("%Y-%m-%d %H:%M")
             with st.spinner("Saving..."):
@@ -3630,6 +3666,7 @@ def render_answer_key_tab():
                     exam_name.strip(), d.strftime("%Y-%m-%d"), start_str, end_str,
                     total_q, answer_string,
                     negative_marking=negative_marking, negative_marks_value=negative_value,
+                    duration_minutes=duration_min,
                 )
                 st.session_state["mentor_answers"] = {}
                 for q in range(1, total_q + 1):
