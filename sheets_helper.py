@@ -104,7 +104,14 @@ RAW = "RAW"  # value_input_option used for every write - see module docstring
 ANSWERKEYS_HEADER = [
     "key_id", "exam_name", "date", "start_time", "end_time",
     "total_questions", "answer_string", "negative_marking", "negative_marks_value",
-    "duration_minutes",
+    "duration_minutes", "question_pdf_file_id", "question_pdf_name",
+]
+
+# One persistent session row per student/exam. This lets the PDF timer survive
+# page refreshes and also lets a student finish the OMR upload after the
+# question-viewing timer has expired.
+EXAM_SESSIONS_HEADER = [
+    "student_id", "key_id", "started_at", "expires_at", "completed_at", "status",
 ]
 
 RESULTS_HEADER = [
@@ -342,6 +349,7 @@ def _cached_worksheet(title):
         "Config": CONFIG_HEADER,
         "Results": RESULTS_HEADER,
         "Students": STUDENTS_HEADER,
+        "ExamSessions": EXAM_SESSIONS_HEADER,
     }
     sh = get_spreadsheet()
     return _get_or_create_worksheet(sh, title, header_map[title])
@@ -352,12 +360,16 @@ def init_sheets():
     _cached_worksheet("Config")
     _cached_worksheet("Results")
     _cached_worksheet("Students")
+    _cached_worksheet("ExamSessions")
     return get_spreadsheet()
 
 
 def clear_data_caches():
     """Call after any write so the next read gets fresh data."""
-    for key in ("_all_answer_keys_cached", "_all_results_cached", "_all_students_cached"):
+    for key in (
+        "_all_answer_keys_cached", "_all_results_cached",
+        "_all_students_cached", "_exam_sessions_cached",
+    ):
         st.session_state.pop(key, None)
 
 
@@ -366,7 +378,8 @@ def clear_data_caches():
 def add_answer_key(exam_name, date_str, start_time_str, end_time_str,
                     total_questions, answer_string,
                     negative_marking=False, negative_marks_value=0.0,
-                    duration_minutes=0):
+                    duration_minutes=0, question_pdf_file_id="",
+                    question_pdf_name=""):
     ws = _cached_worksheet("AnswerKeys")
     # Small collision-retry loop: two mentors saving an exam at almost the
     # exact same instant could otherwise both compute the same next
@@ -385,7 +398,7 @@ def add_answer_key(exam_name, date_str, start_time_str, end_time_str,
             ws.append_row,
             [key_id, exam_name, date_str, start_time_str, end_time_str,
              total_questions, answer_string, negative_marking, negative_marks_value,
-             duration_minutes],
+             duration_minutes, question_pdf_file_id, question_pdf_name],
             value_input_option=RAW,
         )
         clear_data_caches()
@@ -416,6 +429,8 @@ def get_answer_key_by_id(key_id):
         "negative_marking": _to_bool(row.get("negative_marking", False)),
         "negative_marks_value": _to_float(row.get("negative_marks_value"), 0.0),
         "duration_minutes": _to_int(row.get("duration_minutes"), 0),
+        "question_pdf_file_id": str(row.get("question_pdf_file_id", "") or ""),
+        "question_pdf_name": str(row.get("question_pdf_name", "") or ""),
     }
 
 
@@ -833,6 +848,122 @@ def get_session_version(student_id):
     if not student:
         return None
     return _to_int(student.get("session_version"), 1)
+
+
+# ================= Question PDFs (Google Drive) =================
+
+@st.cache_resource(show_spinner=False)
+def _drive_service():
+    """Build a tiny Google Drive client using the SAME service-account
+    credentials already used for Sheets. PDFs stay private to the backend;
+    students receive the PDF bytes only through the app."""
+    from googleapiclient.discovery import build
+
+    creds_dict = dict(st.secrets["gcp_service_account"])
+    creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+    return build("drive", "v3", credentials=creds, cache_discovery=False)
+
+
+def upload_question_pdf(file_bytes, filename):
+    """Upload one mentor-provided PDF to Drive and return (file_id, name)."""
+    from googleapiclient.http import MediaIoBaseUpload
+
+    if not file_bytes:
+        raise ValueError("The question PDF is empty.")
+    name = str(filename or "questions.pdf")
+    if not name.lower().endswith(".pdf"):
+        name += ".pdf"
+
+    service = _drive_service()
+    media = MediaIoBaseUpload(
+        io.BytesIO(file_bytes),
+        mimetype="application/pdf",
+        resumable=False,
+    )
+    metadata = {"name": name, "mimeType": "application/pdf"}
+    created = service.files().create(
+        body=metadata, media_body=media, fields="id,name,mimeType"
+    ).execute()
+    return created["id"], created["name"]
+
+
+def get_question_pdf_bytes(file_id):
+    """Fetch a stored question PDF through the backend."""
+    if not file_id:
+        return None
+    service = _drive_service()
+    response = service.files().get_media(fileId=str(file_id)).execute()
+    return bytes(response)
+
+
+# ================= Exam Sessions =================
+
+@st.cache_data(ttl=10, show_spinner=False)
+def get_exam_session(student_id, key_id):
+    ws = _cached_worksheet("ExamSessions")
+    records = _safe_get_all_records(ws)
+    for row in records:
+        if str(row.get("student_id", "")) == str(student_id) and str(row.get("key_id", "")) == str(key_id):
+            return dict(row)
+    return None
+
+
+def start_exam_session(student_id, key_id, duration_minutes):
+    """Start once per student/exam. Re-opening the page never resets the timer."""
+    existing = get_exam_session(student_id, key_id)
+    if existing:
+        return existing
+
+    started = now_bd()
+    expires = started + __import__("datetime").timedelta(minutes=int(duration_minutes or 0))
+    ws = _cached_worksheet("ExamSessions")
+    _with_retry(
+        ws.append_row,
+        [
+            student_id, key_id,
+            started.strftime("%Y-%m-%d %H:%M:%S"),
+            expires.strftime("%Y-%m-%d %H:%M:%S"),
+            "", "started",
+        ],
+        value_input_option=RAW,
+    )
+    clear_data_caches()
+    get_exam_session.clear()
+    return {
+        "student_id": student_id,
+        "key_id": key_id,
+        "started_at": started.strftime("%Y-%m-%d %H:%M:%S"),
+        "expires_at": expires.strftime("%Y-%m-%d %H:%M:%S"),
+        "completed_at": "",
+        "status": "started",
+    }
+
+
+def set_exam_session_status(student_id, key_id, status):
+    ws = _cached_worksheet("ExamSessions")
+    values = _with_retry(ws.get_all_values)
+    if not values:
+        return
+    header = values[0]
+    row_idx = None
+    for i, row in enumerate(values[1:], start=2):
+        rec = dict(zip(header, row))
+        if str(rec.get("student_id", "")) == str(student_id) and str(rec.get("key_id", "")) == str(key_id):
+            row_idx = i
+            break
+    if not row_idx:
+        return
+
+    updates = {"status": status}
+    if status in ("completed", "submitted", "expired"):
+        updates["completed_at"] = now_bd().strftime("%Y-%m-%d %H:%M:%S")
+    for col, val in updates.items():
+        if col in header:
+            col_idx = header.index(col) + 1
+            col_letter = gspread.utils.rowcol_to_a1(1, col_idx).rstrip("1")
+            _with_retry(ws.update, f"{col_letter}{row_idx}", [[val]], value_input_option=RAW)
+    clear_data_caches()
+    get_exam_session.clear()
 
 
 # ================= Results =================
