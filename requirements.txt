@@ -1,4 +1,4 @@
-streamlit>=1.37
+streamlit[pdf]>=1.49
 opencv-python-headless
 numpy
 pandas
