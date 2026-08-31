@@ -922,6 +922,7 @@ def upload_question_pdf(file_bytes, filename):
 
     created = service.files().create(
         body=metadata, media_body=media, fields="id,name,mimeType",
+        supportsAllDrives=True,
     ).execute()
     return created["id"], created["name"]
 
@@ -931,7 +932,10 @@ def get_question_pdf_bytes(file_id):
     if not file_id:
         return None
     service = _drive_service()
-    response = service.files().get_media(fileId=str(file_id)).execute()
+    response = service.files().get_media(
+        fileId=str(file_id),
+        supportsAllDrives=True,
+    ).execute()
     return bytes(response)
 
 
