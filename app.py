@@ -3080,90 +3080,89 @@ def _review_status(answer, correct, was_double=False):
     return "correct" if answer == correct else "incorrect"
 
 
-def _build_review_state(final_answers, key_string, original_answers):
-    correct_map = {
-        q: (key_string[q - 1].upper() if q - 1 < len(key_string) else "")
-        for q in range(1, len(final_answers) + 1)
-    }
-    double_qs = set(st.session_state.get("submit_double_touch", []))
+def _build_review_state(final_answers, original_answers, double_qs=None):
+    """Build PRE-SUBMISSION review rows without exposing the answer key.
+
+    Important privacy rule: before submission the student must never see the
+    correct answer, correct count, wrong count, accuracy, marks, or any
+    correct/incorrect classification.  The review therefore contains only
+    what the scanner detected and what the student has edited.
+    """
+    double_set = set(double_qs or st.session_state.get("submit_double_touch", []))
     rows = []
-    for q in range(1, len(final_answers) + 1):
+    total_q = len(final_answers)
+    for q in range(1, total_q + 1):
         answer = _normalise_answer_value(final_answers.get(q))
         original = _normalise_answer_value(original_answers.get(q))
+        if q in double_set or original == "MULTI":
+            status = "double"
+        elif answer is None:
+            status = "skipped"
+        else:
+            status = "answered"
         rows.append({
             "q": q,
             "given": answer,
             "original_given": original,
-            "correct": correct_map.get(q, ""),
-            "status": _review_status(answer, correct_map.get(q, ""), q in double_qs),
+            "status": status,
+            "was_edited": answer != original and not (original == "MULTI" and answer == "MULTI"),
         })
     return rows
 
 
-def _make_review_overlay(image_bgr, grid_points, final_answers, original_answers, key_string, double_qs):
-    """Draw subtle detection/final-answer overlays on the student's own photo."""
+def _make_review_overlay(image_bgr, grid_points, final_answers, original_answers, double_qs):
+    """Overlay scanner/final-answer information on the student's ORIGINAL photo.
+
+    No answer-key information is used here.  Colors mean only:
+      green = original scanner detection
+      blue  = student-edited final selection
+      red   = double-touch detected by the scanner
+    """
     canvas = image_bgr.copy()
     if not grid_points:
         return cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
 
     overlay = canvas.copy()
+    double_set = set(double_qs or [])
     for q, opts in grid_points.items():
-        if q not in final_answers:
-            continue
         original = _normalise_answer_value(original_answers.get(q))
         final = _normalise_answer_value(final_answers.get(q))
-        correct = key_string[q - 1].upper() if q - 1 < len(key_string) else ""
+
         for opt, pt in opts.items():
             x, y = int(round(pt[0])), int(round(pt[1]))
             radius = 16
-            # Original scanner detection: intentionally light and translucent.
-            if original == "MULTI" or (q in double_qs and opt in ("A", "B", "C", "D")):
+            if q in double_set or original == "MULTI":
+                # Mark the whole question's detected bubbles as ambiguous.
                 cv2.circle(overlay, (x, y), radius, (70, 70, 235), -1)
                 cv2.circle(overlay, (x, y), radius + 2, (70, 70, 235), 2)
             elif original == opt:
                 cv2.circle(overlay, (x, y), radius, (55, 190, 135), -1)
                 cv2.circle(overlay, (x, y), radius + 2, (55, 190, 135), 2)
 
-            # Final student-reviewed answer gets a crisp outline, so edits are visible.
             if final == opt and final != "MULTI":
-                outline = (30, 190, 245) if final == correct else (70, 170, 245)
-                cv2.circle(canvas, (x, y), radius + 4, outline, 3)
+                cv2.circle(canvas, (x, y), radius + 4, (30, 190, 245), 3)
 
     return cv2.cvtColor(cv2.addWeighted(overlay, 0.28, canvas, 0.72, 0), cv2.COLOR_BGR2RGB)
 
 
 def _render_digital_omr(review_rows, filter_values=None):
-    """Render the complete digital OMR in a compact, filterable layout.
-
-    Every question is always represented when its status is selected. Each row
-    shows the student's final answer, the correct answer, and the four OMR
-    options so a 40- or 100-question paper remains easy to audit without
-    needing a second image.
-    """
-    all_filters = ["Correct", "Incorrect", "Skipped", "Double Touch"]
+    """Render a complete PRE-SUBMISSION digital OMR without answer-key leaks."""
+    all_filters = ["Answered", "Skipped", "Double Touch"]
     selected = set(filter_values or all_filters)
-
-    def status_label(status):
-        return {
-            "correct": "Correct",
-            "incorrect": "Incorrect",
-            "skipped": "Skipped",
-            "double": "Double Touch",
-        }.get(status, "Skipped")
-
     html = ["<div class='digital-omr-grid'>"]
     for row in review_rows:
-        label = status_label(row.get("status"))
-        # Double-touch is an incorrect scoring outcome, but remains independently
-        # filterable. Selecting Incorrect includes it; selecting only Correct or
-        # Skipped does not.
-        visible = label in selected or (label == "Double Touch" and "Incorrect" in selected)
-        if not visible:
+        status = row.get("status", "skipped")
+        label = {"answered": "Answered", "skipped": "Skipped", "double": "Double Touch"}.get(status, "Skipped")
+        if label not in selected:
             continue
 
         given = row.get("given") or "—"
-        correct = row.get("correct") or "—"
         original = row.get("original_given")
+        if original == "MULTI":
+            detected_text = "Multiple"
+        else:
+            detected_text = original or "—"
+
         opts = []
         for opt in ("A", "B", "C", "D"):
             classes = ["digital-bubble"]
@@ -3173,22 +3172,15 @@ def _render_digital_omr(review_rows, filter_values=None):
                 classes.append("detected")
             if given == opt:
                 classes.append("final")
-            if correct == opt:
-                classes.append("key")
-            opts.append(f"<span class='{' '.join(classes)}'>{opt}</span>")
+            opts.append(f"<span class='{ ' '.join(classes) }'>{opt}</span>")
 
-        tag_class = {
-            "Correct": "d-ok",
-            "Incorrect": "d-bad",
-            "Skipped": "d-skip",
-            "Double Touch": "d-double",
-        }[label]
+        tag_class = {"Answered": "d-ok", "Skipped": "d-skip", "Double Touch": "d-double"}[label]
+        edited = " · edited" if row.get("was_edited") else ""
         html.append(
             f"<div class='digital-omr-row'>"
             f"<span class='digital-q'>Q{row['q']}</span>"
             f"<span class='digital-options'>{''.join(opts)}</span>"
-            f"<span class='digital-your'>Your: <b>{given}</b></span>"
-            f"<span class='digital-correct'>Key: <b>{correct}</b></span>"
+            f"<span class='digital-your'>Detected: <b>{detected_text}</b> · Final: <b>{given}</b>{edited}</span>"
             f"<span class='digital-status {tag_class}'>{label}</span>"
             f"</div>"
         )
@@ -3196,35 +3188,20 @@ def _render_digital_omr(review_rows, filter_values=None):
     st.markdown("".join(html), unsafe_allow_html=True)
 
 
-def _render_interactive_omr_review(img_bgr, grid_points, detected_answers, final_answers, key_string, double_qs, radius):
-    """Review the scan on the student's original photo, or inspect the full digital OMR.
-
-    Original detection is immutable. `final_answers` is only the student's editable
-    visible answer; `double_qs` always comes from the first scanner pass and is kept
-    separately so editing cannot erase a negative-marking double-touch.
-    """
+def _render_interactive_omr_review(img_bgr, grid_points, detected_answers, final_answers, double_qs, radius):
+    """Pre-submit review.  Never exposes answer-key/correctness information."""
     total_q = len(final_answers)
-    correct_count = 0
-    skipped_count = 0
-    incorrect_count = 0
-    double_count = len(double_qs)
-    for q in range(1, total_q + 1):
-        a = _normalise_answer_value(final_answers.get(q))
-        if q in double_qs:
-            incorrect_count += 1
-        elif a is None:
-            skipped_count += 1
-        elif q <= len(key_string) and a == key_string[q - 1].upper():
-            correct_count += 1
-        else:
-            incorrect_count += 1
+    skipped_count = sum(1 for q in range(1, total_q + 1) if _normalise_answer_value(final_answers.get(q)) is None and q not in set(double_qs))
+    answered_count = total_q - skipped_count
+    double_count = len(set(double_qs))
 
     st.markdown("#### 🔍 OMR Scan Review")
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Answered", total_q - skipped_count)
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Answered", answered_count)
     c2.metric("Skipped", skipped_count)
-    c3.metric("Correct", correct_count)
-    c4.metric("Double Touch", double_count)
+    c3.metric("Double Touch", double_count)
+
+    st.caption("Before submission you can see only what the scanner detected. Correct answers and score are hidden until the result is submitted.")
 
     view = st.radio(
         "Review view",
@@ -3233,54 +3210,46 @@ def _render_interactive_omr_review(img_bgr, grid_points, detected_answers, final
         key=f"omr_review_view_{st.session_state.get('submit_file_sig', '')}",
     )
 
-    review_rows = _build_review_state(final_answers, key_string, detected_answers)
-    filter_values = ["Correct", "Incorrect", "Skipped", "Double Touch"]
+    review_rows = _build_review_state(final_answers, detected_answers, double_qs)
+
     if view == "🖥️ Digital OMR":
-        st.caption("Your = final answer · Key = correct answer · * = original double-touch detected")
         filter_values = st.multiselect(
             "Digital OMR filter",
-            ["Correct", "Incorrect", "Skipped", "Double Touch"],
-            default=["Correct", "Incorrect", "Skipped", "Double Touch"],
+            ["Answered", "Skipped", "Double Touch"],
+            default=["Answered", "Skipped", "Double Touch"],
             key=f"omr_digital_filter_{st.session_state.get('submit_file_sig', '')}",
-            help="Leave all selected to show the complete digital OMR. Select any one or more categories to narrow it.",
+            help="Default shows all questions. You can show only answered, skipped, or double-touch questions.",
         )
+        st.caption("Detected = scanner's first reading · Final = your current review selection. No answer key is shown before submission.")
+        _render_digital_omr(review_rows, filter_values)
+    else:
+        st.caption("Your original uploaded photo is shown here. 🟢 scanner detected · 🔵 your edited final answer · 🔴 double-touch. Tap a bubble to edit.")
+        overlay_rgb = _make_review_overlay(img_bgr, grid_points, final_answers, detected_answers, set(double_qs))
+        st.image(overlay_rgb, use_container_width=True)
 
-    if view == "📷 Original OMR":
-        st.caption(
-            "Your original uploaded photo is shown here. 🟢 detected answer · 🔵 final answer · 🔴 double-touch. "
-            "Tap a bubble to correct a wrong detection."
-        )
-        overlay_rgb = _make_review_overlay(
-            img_bgr, grid_points, final_answers, detected_answers, key_string, set(double_qs)
-        )
-        review_pil = Image.fromarray(overlay_rgb)
-        coords = streamlit_image_coordinates(
-            review_pil,
-            key=f"omr_review_img_{st.session_state.get('submit_file_sig','')}"
-        )
-        if coords is not None and grid_points:
-            x, y = float(coords["x"]), float(coords["y"])
-            best = None
-            best_dist = None
-            click_radius = max(18.0, float(radius or 16) * 1.7)
-            for q, opts in grid_points.items():
-                for opt, pt in opts.items():
-                    dist = ((x - pt[0]) ** 2 + (y - pt[1]) ** 2) ** 0.5
-                    if dist <= click_radius and (best_dist is None or dist < best_dist):
-                        best = (q, opt)
-                        best_dist = dist
-            if best:
-                q, opt = best
-                current = _normalise_answer_value(final_answers.get(q))
-                # The original double-touch flag is never cleared by editing.
-                final_answers[q] = None if current == opt else opt
+        # Native Streamlit controls replace streamlit_image_coordinates for REVIEW only.
+        # This avoids the custom-component 'Connecting...' failure on deployed phones.
+        if grid_points:
+            q_choices = list(range(1, total_q + 1))
+            review_q = st.selectbox(
+                "Edit question",
+                q_choices,
+                format_func=lambda q: f"Q{q} — detected: {('Multiple' if detected_answers.get(q) == 'MULTI' else detected_answers.get(q) or 'Skipped')} · final: {final_answers.get(q) or 'Skipped'}",
+                key=f"omr_edit_q_{st.session_state.get('submit_file_sig', '')}",
+            )
+            current = _normalise_answer_value(final_answers.get(review_q))
+            selected = st.radio(
+                f"Q{review_q} — choose the final answer",
+                ["None", "A", "B", "C", "D"],
+                index=["None", "A", "B", "C", "D"].index(current if current in ("A", "B", "C", "D") else "None"),
+                horizontal=True,
+                key=f"omr_edit_answer_{st.session_state.get('submit_file_sig', '')}_{review_q}",
+            )
+            new_value = None if selected == "None" else selected
+            if new_value != current:
+                final_answers[review_q] = new_value
                 st.session_state["submit_final_answers"] = final_answers
                 st.rerun()
-
-        st.markdown("**Tap directly on a bubble to edit the final answer.**")
-    else:
-        st.caption("Full digital OMR — all questions, your final answer, the answer key and scan status.")
-        _render_digital_omr(review_rows, filter_values)
 
     return review_rows
 
@@ -3412,7 +3381,7 @@ def page_tests_results():
                         if not grid_points:
                             st.warning("The detected bubble coordinates could not be mapped for direct photo editing. The full digital OMR is still available below.")
                         review_rows = _render_interactive_omr_review(
-                            img_bgr, grid_points, detected, final_answers, active["answer_string"], double_qs, radius
+                            img_bgr, grid_points, detected, final_answers, double_qs, radius
                         )
 
                         st.divider()
