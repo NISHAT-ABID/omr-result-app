@@ -862,34 +862,44 @@ def get_session_version(student_id):
     return _to_int(student.get("session_version"), 1)
 
 
-# ================= Question PDFs (Google Drive) =================
+# ================= Question PDFs (Google Drive - personal account) =================
+# IMPORTANT: unlike Sheets (which uses the service account), question PDFs
+# are uploaded using OAuth credentials for a REAL personal Google account
+# (see get_token.py / GDRIVE_REFRESH_TOKEN in secrets.toml). This is
+# because a service account has NO Drive storage quota of its own and
+# Google requires either a paid Shared Drive or a real account's quota to
+# store files - a personal Gmail account gives 15GB free with no billing
+# needed. The refresh token was generated ONCE locally and never expires
+# unless revoked, so the app can silently mint new access tokens forever
+# without any human re-authorizing.
+
+from google.oauth2.credentials import Credentials as UserCredentials
+
 
 @st.cache_resource(show_spinner=False)
 def _drive_service():
-    """Build a tiny Google Drive client using the SAME service-account
-    credentials already used for Sheets. PDFs stay private to the backend;
-    students receive the PDF bytes only through the app."""
+    """Build a Drive client using the mentor's own personal Google account
+    (via a long-lived refresh token), NOT the service account - this is
+    what lets PDFs count against a real 15GB free quota instead of the
+    service account's 0-byte quota."""
     from googleapiclient.discovery import build
 
-    creds_dict = dict(st.secrets["gcp_service_account"])
-    creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+    creds = UserCredentials(
+        token=None,
+        refresh_token=st.secrets["GDRIVE_REFRESH_TOKEN"],
+        client_id=st.secrets["GDRIVE_CLIENT_ID"],
+        client_secret=st.secrets["GDRIVE_CLIENT_SECRET"],
+        token_uri="https://oauth2.googleapis.com/token",
+        scopes=["https://www.googleapis.com/auth/drive"],
+    )
     return build("drive", "v3", credentials=creds, cache_discovery=False)
 
 
 def upload_question_pdf(file_bytes, filename):
-    """Upload one mentor-provided PDF to Drive and return (file_id, name).
-
-    IMPORTANT: a service account has no Drive storage quota of its own -
-    without a `parents` folder, Drive tries to store the file in the
-    service account's own (nonexistent) storage and the upload fails with
-    a "Service Accounts do not have storage quota" error. The upload is
-    therefore always targeted at st.secrets["QUESTION_PDF_FOLDER_ID"], a
-    folder owned by a real Google account that has shared Editor access
-    with the service account's email (see the [gcp_service_account]
-    client_email in secrets.toml). `supportsAllDrives=True` is passed as
-    a belt-and-suspenders measure in case that folder is ever moved into
-    a Shared Drive instead of a personal "My Drive" folder.
-    """
+    """Upload one mentor-provided PDF to the mentor's own Google Drive and
+    return (file_id, name). Uploaded into QUESTION_PDF_FOLDER_ID if set
+    (keeps everything organized in one folder); otherwise lands in the
+    account's My Drive root."""
     from googleapiclient.http import MediaIoBaseUpload
 
     if not file_bytes:
@@ -912,24 +922,16 @@ def upload_question_pdf(file_bytes, filename):
 
     created = service.files().create(
         body=metadata, media_body=media, fields="id,name,mimeType",
-        supportsAllDrives=True,
     ).execute()
     return created["id"], created["name"]
 
 
 def get_question_pdf_bytes(file_id):
-    """Fetch a stored question PDF through the backend.
-
-    `supportsAllDrives=True` mirrors the same flag used in
-    upload_question_pdf() - needed if QUESTION_PDF_FOLDER_ID ever points
-    into a Shared Drive rather than a personal "My Drive" folder.
-    """
+    """Fetch a stored question PDF's bytes from the mentor's Drive."""
     if not file_id:
         return None
     service = _drive_service()
-    response = service.files().get_media(
-        fileId=str(file_id), supportsAllDrives=True
-    ).execute()
+    response = service.files().get_media(fileId=str(file_id)).execute()
     return bytes(response)
 
 
