@@ -274,6 +274,29 @@ def inject_global_css():
             color: var(--mv-muted) !important;
             font-family: var(--sans) !important;
         }
+
+        .mv-exam-meta-grid {
+            display:grid; grid-template-columns:1fr 1fr 1.35fr; gap:10px;
+            margin:10px 0 4px;
+        }
+        .mv-exam-meta-grid > div {
+            border:1px solid var(--mv-border); border-radius:12px;
+            background:var(--mv-card-bg); padding:10px 12px;
+        }
+        .mv-exam-meta-grid span {
+            display:block; color:var(--mv-muted); font-size:10px;
+            text-transform:uppercase; letter-spacing:.07em; margin-bottom:3px;
+        }
+        .mv-exam-meta-grid strong {
+            display:block; font-family:var(--mono); color:var(--mv-ink);
+            font-size:21px; line-height:1.1;
+        }
+        .mv-exam-meta-primary strong { color:var(--mv-primary); }
+        .mv-exam-meta-secondary strong { font-size:19px; }
+        @media (max-width: 640px) {
+            .mv-exam-meta-grid { grid-template-columns:1fr 1fr; }
+            .mv-exam-meta-secondary { grid-column:1 / -1; }
+        }
         [data-testid="stCaptionContainer"], .stCaption, small {
             color: var(--mv-muted) !important;
         }
@@ -2259,42 +2282,54 @@ def render_top_nav(current_page):
 # =========================================================================
 
 def _render_question_pdf(pdf_bytes, remaining_seconds=None, key_id=""):
-    """Render a PDF inside the app. When remaining_seconds is supplied, the
-    viewer has a live countdown and reloads the page at expiry. History mode
-    passes None, so old question papers open normally without a fake timer."""
+    """Render a stored question PDF with an optional live countdown.
+
+    The PDF is converted to a browser Blob instead of using a ``data:`` iframe
+    URL. Chrome/Edge can be picky about PDF data URLs inside Streamlit's
+    sandboxed component iframe; the Blob approach is much more reliable while
+    keeping the PDF bytes private (students never need the Drive URL).
+    """
     import base64
 
     b64 = base64.b64encode(pdf_bytes).decode("ascii")
     safe_seconds = max(0, int(remaining_seconds)) if remaining_seconds is not None else 0
     height = 760
-    timer_script = f"""
-      let left = {safe_seconds};
-      const timer = document.getElementById("timer");
-      const pdf = document.getElementById("pdf");
-      const expired = document.getElementById("expired");
-      function tick() {{
-        if (left <= 0) {{
-          pdf.style.display = "none";
-          expired.style.display = "block";
-          timer.textContent = "Time over";
-          try {{ window.parent.location.reload(); }} catch (e) {{}}
-          return;
-        }}
-        const h = Math.floor(left / 3600);
-        const m = Math.floor((left % 3600) / 60);
-        const s = left % 60;
-        timer.textContent =
-          String(h).padStart(2,"0") + ":" +
-          String(m).padStart(2,"0") + ":" +
-          String(s).padStart(2,"0");
-        left -= 1;
-        setTimeout(tick, 1000);
-      }}
-      tick();
-    """ if remaining_seconds is not None else """
-      document.getElementById("timer").style.display = "none";
-      document.getElementById("expired").style.display = "none";
+
+    if remaining_seconds is not None:
+        timer_script = f"""
+          let left = {safe_seconds};
+          const timer = document.getElementById("timer");
+          function tick() {{
+            if (left <= 0) {{
+              timer.textContent = "00:00:00";
+              try {{ window.parent.location.reload(); }} catch (e) {{}}
+              return;
+            }}
+            const h = Math.floor(left / 3600);
+            const m = Math.floor((left % 3600) / 60);
+            const sec = left % 60;
+            timer.textContent =
+              String(h).padStart(2,"0") + ":" +
+              String(m).padStart(2,"0") + ":" +
+              String(sec).padStart(2,"0");
+            left -= 1;
+            setTimeout(tick, 1000);
+          }}
+          tick();
+        """
+    else:
+        timer_script = "document.getElementById(\"timer\").style.display = \"none\";"
+
+    pdf_script = f"""
+      const b64 = "{b64}";
+      const raw = atob(b64);
+      const bytes = new Uint8Array(raw.length);
+      for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+      const blob = new Blob([bytes], {{type: "application/pdf"}});
+      const pdfUrl = URL.createObjectURL(blob);
+      document.getElementById("pdf").src = pdfUrl;
     """
+
     html = f"""
     <div style="font-family:system-ui,sans-serif;">
       <div style="display:flex;justify-content:space-between;align-items:center;
@@ -2303,17 +2338,11 @@ def _render_question_pdf(pdf_bytes, remaining_seconds=None, key_id=""):
         <div><b>📄 Question Paper</b></div>
         <div id="timer" style="font-weight:800;white-space:nowrap;">--:--:--</div>
       </div>
-      <div id="expired" style="display:none;padding:28px 18px;border:1px solid #e5d8d3;
-           border-radius:12px;text-align:center;background:#fffaf8;">
-        <div style="font-size:28px;">⏱️</div>
-        <div style="font-weight:800;font-size:17px;margin-top:6px;">Question-viewing time is over</div>
-        <div style="color:#66736d;margin-top:5px;">The PDF is now locked. Continue below to submit your OMR.</div>
-      </div>
-      <iframe id="pdf" src="data:application/pdf;base64,{b64}"
+      <iframe id="pdf"
               style="width:100%;height:{height}px;border:1px solid #d9e3df;
                      border-radius:12px;background:white;"></iframe>
     </div>
-    <script>{timer_script}</script>
+    <script>{pdf_script}{timer_script}</script>
     """
     components.html(html, height=height + 70, scrolling=True)
 
@@ -2345,13 +2374,14 @@ def render_student_exam_room(sid, key):
     )
 
     if session.get("status") in ("completed", "submitted") or remaining <= 0:
+        # Once the student's personal duration expires, lock the PDF and move
+        # straight to the OMR page. The student can still submit the OMR even
+        # if the mentor's broader exam window has already closed.
         if session.get("status") == "started" and remaining <= 0:
             sh.set_exam_session_status(sid, key["key_id"], "expired")
-        st.warning("⏱️ Question-paper time is over. The question PDF is no longer available.")
-        if st.button("📤 Continue to OMR Submission", type="primary", use_container_width=True):
-            st.session_state["submit_key_id"] = key["key_id"]
-            st.session_state.pop("exam_room_key_id", None)
-            go_to("tests")
+        st.session_state["submit_key_id"] = key["key_id"]
+        st.session_state.pop("exam_room_key_id", None)
+        go_to("tests")
         return
 
     pdf_id = key.get("question_pdf_file_id")
@@ -2400,17 +2430,32 @@ def page_home():
     with st.container(key="card_home_active"):
         if active:
             already = sh.has_submitted(sid, active["key_id"])
-            remaining = active["end_dt"] - sh.now_bd()
-            mins_left = max(0, int(remaining.total_seconds() // 60))
-            st.markdown(f"#### 🟢 Active Test: {active['exam_name'] or active['key_id']}")
-            start_label, end_label = _format_exam_window(active["start_dt"], active["end_dt"])
             duration_display_min = active.get("duration_minutes") or int(
                 (active["end_dt"] - active["start_dt"]).total_seconds() // 60
             )
-            st.caption(f"🗓️ {start_label}  →  {end_label}   ·   ⏱️ Duration: {_format_duration(duration_display_min)}")
-            c1, c2 = st.columns(2)
-            c1.metric("Questions", active["total_questions"])
-            c2.metric("Time Left", f"{mins_left} min")
+            duration_seconds = max(0, int(duration_display_min * 60))
+            existing_session = sh.get_exam_session(sid, active["key_id"])
+            if existing_session and existing_session.get("status") == "started":
+                expires_home = _parse_bd_dt(existing_session.get("expires_at"))
+                remaining_seconds = max(0, int((expires_home - sh.now_bd()).total_seconds())) if expires_home else 0
+            else:
+                remaining_seconds = duration_seconds
+
+            st.markdown(f"#### 🟢 Active Test: {active['exam_name'] or active['key_id']}")
+            st.markdown(
+                f"<div class='mv-exam-meta-grid'>"
+                f"<div class='mv-exam-meta-primary'><span>Total Marks</span><strong>{active['total_questions']}</strong></div>"
+                f"<div class='mv-exam-meta-primary'><span>Duration</span><strong>{_format_duration(duration_display_min)}</strong></div>"
+                f"<div class='mv-exam-meta-secondary'><span>Time Remaining</span><strong>{_format_hms(remaining_seconds)}</strong></div>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+            if sh._to_bool(active.get("negative_marking", False)):
+                st.caption(
+                    f"Negative marking: −{float(active.get('negative_marks_value', 0.0) or 0.0):.2f} per wrong answer"
+                )
+            else:
+                st.caption("No negative marking")
             if already:
                 st.info("You already submitted this test. Check it in Tests & Results.")
             else:
@@ -2592,7 +2637,7 @@ def render_result_detail(result_row, key_row):
             try:
                 pdf_bytes = sh.get_question_pdf_bytes(pdf_id)
                 if pdf_bytes:
-                    _render_question_pdf(pdf_bytes, 10**9, result_row["key_id"])
+                    _render_question_pdf(pdf_bytes, None, result_row["key_id"])
                 else:
                     st.info("Question PDF is unavailable.")
             except Exception:
@@ -2776,7 +2821,8 @@ def page_tests_results():
                             st.session_state[submitting_key] = True
                             try:
                                 with st.spinner("Reading your answers..."):
-                                    active_now = sh.get_answer_key_by_id(key_id)
+                                    submit_key_id = active["key_id"]
+                                    active_now = sh.get_answer_key_by_id(submit_key_id)
                                     if not active_now:
                                         st.error("This exam could not be loaded. Your result can't be recorded.")
                                     elif sh.has_submitted(sid, active_now["key_id"]):
@@ -2790,7 +2836,7 @@ def page_tests_results():
                                         radius = omr_scanner.compute_bubble_radius(img_bgr)
                                         student_answers = omr_scanner.read_answers(img_bgr, grid, radius=radius)
                                         key_string = active_now["answer_string"]
-                                        key_id = active_now["key_id"]
+                                        submit_key_id = active_now["key_id"]
 
                                         result = omr_scanner.score_answers(
                                             student_answers, key_string,
@@ -2827,14 +2873,14 @@ def page_tests_results():
                                         # a second open tab, or another device) is caught here
                                         # even if the has_submitted() check above was stale.
                                         saved = sh.append_result_if_not_submitted(
-                                            sid, st.session_state["student_name"], key_id, result
+                                            sid, st.session_state["student_name"], submit_key_id, result
                                         )
                                         clear_all_caches()
 
                                         if not saved:
                                             st.warning("You've already submitted this test (from another tab or device).")
                                         else:
-                                            sh.set_exam_session_status(sid, key_id, "submitted")
+                                            sh.set_exam_session_status(sid, submit_key_id, "submitted")
                                             st.session_state.pop("submit_key_id", None)
                                             _reset_submission_state()
                                             st.success("✅ Result saved!")
@@ -3870,6 +3916,14 @@ def _format_duration(total_minutes):
     if minutes or not parts:
         parts.append(f"{minutes}m")
     return " ".join(parts)
+
+
+def _format_hms(total_seconds):
+    """Format a countdown as HH:MM:SS for student-facing exam timers."""
+    total_seconds = max(0, int(total_seconds or 0))
+    hours, rem = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(rem, 60)
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
 
 def _render_exam_window_summary(start_dt, end_dt, duration_min):
