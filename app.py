@@ -2459,11 +2459,18 @@ def _parse_bd_dt(value):
         return None
 
 
+@st.dialog("📖 Exam Room", width="large")
 def render_student_exam_room(sid, key):
+    """Show the student's personal exam session in a modal exam room.
+
+    The mentor exam window is checked only when the student STARTS. Once
+    started, the persistent session expiry controls the room, so the full
+    personal duration may cross the mentor exam-window end.
+    """
     session = sh.get_exam_session(sid, key["key_id"])
     if not session:
         st.warning("This exam has not been opened yet.")
-        if st.button("← Back"):
+        if st.button("← Back", use_container_width=True):
             st.session_state.pop("exam_room_key_id", None)
             st.rerun()
         return
@@ -2472,21 +2479,19 @@ def render_student_exam_room(sid, key):
     now = sh.now_bd()
     remaining = int((expires - now).total_seconds()) if expires else 0
 
-    st.markdown(f"### 📖 {key.get('exam_name') or key['key_id']}")
+    st.markdown(f"### {key.get('exam_name') or key['key_id']}")
     st.caption(
         f"{key['total_questions']} questions · "
-        f"Question viewing time: {_format_duration(key.get('duration_minutes', 0) or 0)}"
+        f"Personal duration: {_format_duration(key.get('duration_minutes', 0) or 0)}"
     )
 
+    # Server-side expiry is authoritative; the browser countdown is only UI.
     if session.get("status") in ("completed", "submitted") or remaining <= 0:
-        # Once the student's personal duration expires, lock the PDF and move
-        # straight to the OMR page. The student can still submit the OMR even
-        # if the mentor's broader exam window has already closed.
         if session.get("status") == "started" and remaining <= 0:
             sh.set_exam_session_status(sid, key["key_id"], "expired")
         st.session_state["submit_key_id"] = key["key_id"]
         st.session_state.pop("exam_room_key_id", None)
-        go_to("tests")
+        st.rerun()
         return
 
     pdf_id = key.get("question_pdf_file_id")
@@ -2500,12 +2505,13 @@ def render_student_exam_room(sid, key):
         return
 
     _render_question_pdf(pdf_bytes, remaining, key["key_id"])
+    st.caption("When the timer reaches 00:00, the PDF will lock and you will be taken to OMR submission automatically.")
 
     if st.button("✅ Complete Exam & Go to OMR", type="primary", use_container_width=True):
         sh.set_exam_session_status(sid, key["key_id"], "completed")
         st.session_state["submit_key_id"] = key["key_id"]
         st.session_state.pop("exam_room_key_id", None)
-        go_to("tests")
+        st.rerun()
 
 
 # =========================================================================
