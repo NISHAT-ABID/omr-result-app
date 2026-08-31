@@ -2708,7 +2708,10 @@ def page_home():
             if already:
                 st.info("You already submitted this test. Check it in Tests & Results.")
             else:
-                if active.get("question_pdf_file_id"):
+                # Exams with a mentor-uploaded question PDF always use the
+                # controlled PDF + personal countdown flow. Keep Quick OMR
+                # Submit only as the legacy fallback for exams that have no PDF.
+                if str(active.get("question_pdf_file_id", "") or "").strip():
                     if st.button("📖 Open Exam", type="primary", use_container_width=True):
                         try:
                             sh.start_exam_session(
