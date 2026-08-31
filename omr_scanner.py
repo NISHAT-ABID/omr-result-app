@@ -44,7 +44,11 @@ MIN_STRONG_INK_FRACTION = 0.10
 # This threshold is applied to the max(R,G,B) value channel, NOT grayscale.
 # Printed pink/magenta graphics normally retain a high max channel value,
 # while black/dark pen or pencil marks have a low value in all channels.
-DARK_PIXEL_THRESHOLD = 175
+# IMPORTANT: This threshold is for the max(R,G,B) / HSV Value channel.
+# The previous 175 value was still too high for this particular OMR print:
+# anti-aliased pink letters/outlines can fall below 175 in a phone photo.
+# Real dark pen marks in the supplied sheet are substantially darker.
+DARK_PIXEL_THRESHOLD = 150
 
 
 def get_layout(total_questions):
@@ -283,19 +287,15 @@ def build_grid(calibration, total_questions=TOTAL_QUESTIONS):
 
 
 def _bubble_metrics(bgr, center, radius):
-    """Measure how strongly a bubble is actually filled.
+    """Measure actual student ink while ignoring the sheet's pink print.
 
-    The important part is that darkness is measured from max(R,G,B), i.e.
-    the HSV Value channel, instead of grayscale luminance.
+    The printed OMR outlines and A/B/C/D letters are pink/red. Grayscale
+    luminance can make those printed pixels look dark. We therefore identify
+    red/pink printed pixels from their colour dominance and exclude them
+    before calculating ink density.
 
-    Why:
-    - Printed pink/magenta OMR graphics have a high red channel.
-    - Their max(R,G,B) therefore stays relatively bright.
-    - Black/dark pen or pencil marks are dark in all three channels.
-    - Their max(R,G,B) becomes low.
-
-    The inner circle is used for the answer mark. The outer ring is used as
-    a local paper/background reference.
+    Black/grey pencil and pen remain detectable, and dark blue ink is kept
+    because only red/pink dominance is suppressed.
     """
 
     x, y = center
@@ -305,62 +305,132 @@ def _bubble_metrics(bgr, center, radius):
     yy, xx = np.ogrid[-r:r + 1, -r:r + 1]
     d2 = xx * xx + yy * yy
 
-    # Keep the center away from most printed bubble outlines.
+    # Sample the center, away from most of the printed bubble outline.
     inner_mask = d2 <= (r * 0.58) ** 2
 
-    # Local background reference.
+    # Sample the surrounding paper as a local reference.
     ring_mask = (
         (d2 >= (r * 0.72) ** 2)
         & (d2 <= r * r)
     )
 
-    x0, x1 = max(0, x - r), min(w, x + r + 1)
-    y0, y1 = max(0, y - r), min(h, y + r + 1)
+    x0 = max(0, x - r)
+    x1 = min(w, x + r + 1)
+    y0 = max(0, y - r)
+    y1 = min(h, y + r + 1)
 
     patch = bgr[y0:y1, x0:x1]
 
     if patch.size == 0:
         return 0.0, 0.0, 255.0, 255.0
 
-    # IMPORTANT:
-    # OpenCV stores BGR, but max(B,G,R) is the same as max(R,G,B).
-    # This is exactly the Value channel used by HSV.
-    value = np.max(
-        patch,
-        axis=2,
-    ).astype(np.float32)
-
-    # Masks are cropped automatically if the patch touches an image edge.
-    mh, mw = value.shape[:2]
+    mh, mw = patch.shape[:2]
     im = inner_mask[:mh, :mw]
     rm = ring_mask[:mh, :mw]
 
-    inner = value[im]
-    ring = value[rm]
+    # ---------------------------------------------------------
+    # Detect the sheet's printed pink/red colour.
+    #
+    # OpenCV image order is BGR. Printed pink has R noticeably above
+    # both B and G. Black/grey ink has little channel separation.
+    # Blue ink has B dominant, so it is intentionally NOT suppressed.
+    # ---------------------------------------------------------
 
-    if inner.size == 0:
+    b_chan = patch[:, :, 0].astype(np.int16)
+    g_chan = patch[:, :, 1].astype(np.int16)
+    r_chan = patch[:, :, 2].astype(np.int16)
+
+    max_rgb = np.maximum(
+        np.maximum(b_chan, g_chan),
+        r_chan,
+    )
+    min_rgb = np.minimum(
+        np.minimum(b_chan, g_chan),
+        r_chan,
+    )
+
+    red_dominance = (
+        r_chan - np.maximum(b_chan, g_chan)
+    )
+
+    chroma = max_rgb - min_rgb
+
+    printed_red = (
+        (red_dominance >= 18)
+        & (chroma >= 24)
+        & (r_chan >= 80)
+    )
+
+    # Protect genuinely dark neutral pen/pencil pixels from being classified
+    # as printed just because the photograph has a warm/red cast.
+    very_dark_neutral = (
+        (max_rgb <= 95)
+        & (np.abs(r_chan - g_chan) <= 28)
+        & (np.abs(g_chan - b_chan) <= 28)
+    )
+
+    printed_red &= ~very_dark_neutral
+
+    # ---------------------------------------------------------
+    # Value channel = max(B,G,R).
+    #
+    # This is deliberately used instead of grayscale luminance.
+    # ---------------------------------------------------------
+
+    value = max_rgb.astype(np.float32)
+
+    inner_value = value[im]
+    inner_printed = printed_red[im]
+
+    if inner_value.size == 0:
         return 0.0, 0.0, 255.0, 255.0
 
-    center_mean = float(np.mean(inner))
-    ring_mean = (
-        float(np.median(ring))
-        if ring.size
-        else 255.0
+    # Ignore printed red/pink when estimating center brightness.
+    clean_inner = inner_value[~inner_printed]
+
+    if clean_inner.size:
+        center_mean = float(np.mean(clean_inner))
+    else:
+        center_mean = float(np.mean(inner_value))
+
+    # ---------------------------------------------------------
+    # Actual student-ink mask.
+    #
+    # The colour filter removes printed pink first; the Value threshold
+    # then separates dark ink from the bright paper.
+    # ---------------------------------------------------------
+
+    dark_pixels = (
+        (value < DARK_PIXEL_THRESHOLD)
+        & (~printed_red)
     )
 
-    # Pixels genuinely dark across all RGB channels.
     ink_fraction = float(
-        np.mean(inner < DARK_PIXEL_THRESHOLD)
+        np.mean(dark_pixels[im])
     )
 
-    # How much darker the center is than the local paper/background.
+    # ---------------------------------------------------------
+    # Local background ring.
+    # ---------------------------------------------------------
+
+    ring_value = value[rm]
+    ring_printed = printed_red[rm]
+
+    clean_ring = ring_value[~ring_printed]
+
+    if clean_ring.size:
+        ring_mean = float(np.median(clean_ring))
+    elif ring_value.size:
+        ring_mean = float(np.median(ring_value))
+    else:
+        ring_mean = 255.0
+
     contrast = max(
         0.0,
         ring_mean - center_mean,
     )
 
-    # Contrast is the strongest signal.
-    # Ink fraction catches lighter pen/pencil marks.
+    # Keep the same scoring model expected by the rest of the app.
     score = (
         0.72 * contrast
         + 28.0 * ink_fraction
