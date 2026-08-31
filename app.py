@@ -1507,49 +1507,154 @@ def inject_global_css():
                 text-align: center !important;
             }
 
-            /* Preserve the desktop leaderboard row as the default. Only
-               when a real phone is too narrow do we compact it into TWO
-               horizontal bands instead of turning every metric into its own
-               vertical line. */
-            .lb-row {
-                display: grid !important;
-                grid-template-columns: auto minmax(0, 1fr) !important;
-                column-gap: 10px !important;
-                row-gap: 7px !important;
-                align-items: center !important;
-                padding: 10px 12px !important;
+            /* Leaderboard: do NOT squeeze the desktop row into a tiny phone.
+               Keep the same one-line proportions as desktop and let the user
+               swipe horizontally. This is much easier to read than stacked
+               or compressed columns and keeps the desktop/mobile UI visually
+               consistent. */
+            .st-key-leaderboard_table_student,
+            .st-key-leaderboard_table_mentor {
+                width: 100% !important;
+                max-width: 100% !important;
+                overflow-x: auto !important;
+                overflow-y: visible !important;
+                -webkit-overflow-scrolling: touch !important;
+                scrollbar-width: thin;
+                padding-bottom: 4px !important;
             }
-            .lb-row > span {
-                min-width: 0 !important;
+            .st-key-leaderboard_table_student .lb-row,
+            .st-key-leaderboard_table_mentor .lb-row {
+                display: flex !important;
+                flex-wrap: nowrap !important;
+                width: 720px !important;
+                min-width: 720px !important;
+                max-width: none !important;
+                box-sizing: border-box !important;
+                align-items: center !important;
+                gap: 10px !important;
+                overflow: visible !important;
                 white-space: nowrap !important;
             }
-            .lb-row > span:nth-child(1) {
-                grid-column: 1 !important;
-                grid-row: 1 !important;
+            .st-key-leaderboard_table_student .lb-row > span,
+            .st-key-leaderboard_table_mentor .lb-row > span {
+                flex: 0 0 auto !important;
+                min-width: 0 !important;
+                white-space: nowrap !important;
+                overflow: visible !important;
+                text-overflow: clip !important;
             }
-            .lb-row > span:nth-child(2) {
-                grid-column: 2 !important;
-                grid-row: 1 !important;
+            /* rank */
+            .st-key-leaderboard_table_student .lb-row > span:nth-child(1),
+            .st-key-leaderboard_table_mentor .lb-row > span:nth-child(1) {
+                width: 54px !important;
+                text-align: center !important;
+            }
+            /* student name */
+            .st-key-leaderboard_table_student .lb-row > span:nth-child(2),
+            .st-key-leaderboard_table_mentor .lb-row > span:nth-child(2) {
+                width: 205px !important;
+                flex: 0 0 205px !important;
                 overflow: hidden !important;
                 text-overflow: ellipsis !important;
             }
-            .lb-row > span:nth-child(n+3) {
-                grid-row: 2 !important;
-                font-size: 12px !important;
-                overflow: visible !important;
-            }
-            /* Overall rows: Tests / Best / Avg / Acc / Trend share one
-               horizontal second band. */
-            .lb-row > span:nth-child(3) { grid-column: 1 !important; }
-            .lb-row > span:nth-child(4) { grid-column: 2 !important; }
-            .lb-row > span:nth-child(5) { grid-column: 1 !important; }
-            .lb-row > span:nth-child(6) { grid-column: 2 !important; text-align: left !important; }
-            .lb-row > span:nth-child(7) { grid-column: 2 !important; text-align: right !important; }
+            /* Overall: Tests / Best / Avg / Acc / Trend */
+            .st-key-leaderboard_table_student .lb-row > span:nth-child(3),
+            .st-key-leaderboard_table_mentor .lb-row > span:nth-child(3) { width: 82px !important; }
+            .st-key-leaderboard_table_student .lb-row > span:nth-child(4),
+            .st-key-leaderboard_table_mentor .lb-row > span:nth-child(4) { width: 82px !important; }
+            .st-key-leaderboard_table_student .lb-row > span:nth-child(5),
+            .st-key-leaderboard_table_mentor .lb-row > span:nth-child(5) { width: 82px !important; }
+            .st-key-leaderboard_table_student .lb-row > span:nth-child(6),
+            .st-key-leaderboard_table_mentor .lb-row > span:nth-child(6) { width: 82px !important; }
+            .st-key-leaderboard_table_student .lb-row > span:nth-child(7),
+            .st-key-leaderboard_table_mentor .lb-row > span:nth-child(7) { width: 82px !important; text-align: right !important; }
 
-            /* Test-wise rows only have two metrics; keep them on the same
-               second band without changing the desktop layout. */
-            .lb-row > span:nth-child(3):last-child { grid-column: 1 !important; }
-            .lb-row > span:nth-child(4):last-child { grid-column: 2 !important; }
+            /* Test-wise has only Score + Accuracy. Keep those columns
+               comfortably spaced instead of stretching them across the phone. */
+            .st-key-leaderboard_table_student .lb-row > span:nth-child(3):last-child,
+            .st-key-leaderboard_table_mentor .lb-row > span:nth-child(3):last-child { width: 105px !important; }
+            .st-key-leaderboard_table_student .lb-row > span:nth-child(4):last-child,
+            .st-key-leaderboard_table_mentor .lb-row > span:nth-child(4):last-child { width: 115px !important; }
+        }
+
+        /* ---- Analysis / exam-history rows on mobile -------------------
+           Keep the desktop row intact and make the card itself horizontally
+           scrollable. This avoids the cramped 5-column grid that makes Marks,
+           Correct, Wrong and View unreadable on narrow phones. */
+        @media (max-width: 767px) {
+            [class*="st-key-acard_"] {
+                width: 100% !important;
+                max-width: 100% !important;
+                box-sizing: border-box !important;
+                overflow-x: auto !important;
+                overflow-y: visible !important;
+                -webkit-overflow-scrolling: touch !important;
+                scrollbar-width: thin;
+                padding: 9px 10px 8px !important;
+            }
+            [class*="st-key-acard_"] div[data-testid="stHorizontalBlock"] {
+                display: flex !important;
+                flex-direction: row !important;
+                flex-wrap: nowrap !important;
+                width: 610px !important;
+                min-width: 610px !important;
+                max-width: none !important;
+                gap: 8px !important;
+                align-items: center !important;
+            }
+            [class*="st-key-acard_"] div[data-testid="column"] {
+                min-width: 0 !important;
+                max-width: none !important;
+                overflow: visible !important;
+                width: auto !important;
+            }
+            [class*="st-key-acard_"] div[data-testid="column"]:nth-child(1) {
+                flex: 0 0 275px !important;
+                width: 275px !important;
+            }
+            [class*="st-key-acard_"] div[data-testid="column"]:nth-child(2),
+            [class*="st-key-acard_"] div[data-testid="column"]:nth-child(3),
+            [class*="st-key-acard_"] div[data-testid="column"]:nth-child(4) {
+                flex: 0 0 72px !important;
+                width: 72px !important;
+                text-align: center !important;
+            }
+            [class*="st-key-acard_"] div[data-testid="column"]:nth-child(5) {
+                flex: 0 0 78px !important;
+                width: 78px !important;
+            }
+            [class*="st-key-acard_"] [data-testid="stMetricValue"] {
+                font-size: 16px !important;
+                white-space: nowrap !important;
+                overflow: visible !important;
+                text-overflow: clip !important;
+            }
+            [class*="st-key-acard_"] [data-testid="stMetricLabel"] p {
+                font-size: 10px !important;
+                white-space: nowrap !important;
+                overflow: visible !important;
+                text-overflow: clip !important;
+            }
+            [class*="st-key-acard_"] div[data-testid="column"]:nth-child(1) .analysis-title {
+                font-size: 14px !important;
+                white-space: nowrap !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+            }
+            [class*="st-key-acard_"] div[data-testid="column"]:nth-child(1) .analysis-subtle {
+                font-size: 11px !important;
+                white-space: nowrap !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+            }
+            [class*="st-key-acard_"] .stButton > button {
+                min-width: 72px !important;
+                padding: 5px 8px !important;
+                font-size: 12px !important;
+            }
+            [class*="st-key-acard_"] > div[data-testid="stVerticalBlock"] {
+                min-width: 610px !important;
+            }
         }
 
         /* ---- Themed spinner (recolors Streamlit's built-in spinner to
@@ -3175,54 +3280,54 @@ def render_leaderboard_stats(df, mode):
     )
 
 
-def render_leaderboard_rows(df, mode, sid=None):
-    for _, row in df.head(50).iterrows():
-        rank = int(row["rank"])
-        is_me = sid is not None and row["student_id"] == sid
-        css_class = "lb-row me" if is_me else "lb-row"
-        icon = _rank_icon(rank) if rank <= 3 else f"#{rank}"
-        badge_class = _rank_class(rank)
-        avatar_html = render_avatar(row["student_id"], row["student"], size=26, font_size=11)
-        name_html = (
-            f"<span style='display:inline-flex; align-items:center; gap:7px;'>"
-            f"{avatar_html}<span>{row['student']}{' (You)' if is_me else ''}</span></span>"
-        )
-
-        if mode == "Overall":
-            trend = row.get("trend")
-            trend_html = "<span style='opacity:.4;'>—</span>"
-            if trend is not None and pd.notna(trend):
-                arrow = "↑" if trend >= 0 else "↓"
-                color = "#22c55e" if trend >= 0 else "#ef4444"
-                trend_html = f"<span style='color:{color}; font-weight:700;'>{arrow} {abs(trend)}%</span>"
-            st.markdown(
-                f"""
-                <div class="{css_class}">
-                    <span class="rank-badge {badge_class}">{icon}</span>
-                    <span style="flex:1.5; font-weight:{'700' if is_me else '500'};">{name_html}</span>
-                    <span style="flex:0.8; opacity:.85;">Tests: <b>{int(row['exams_taken'])}</b></span>
-                    <span style="flex:0.8; opacity:.85;">Best: <b>{row['best_score']}</b></span>
-                    <span style="flex:0.9; opacity:.85;">Avg: <b>{row['avg_percent']}%</b></span>
-                    <span style="flex:0.9; opacity:.7;">Acc: {row['accuracy']}%</span>
-                    <span style="flex:0.8; text-align:right;">{trend_html}</span>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-        else:
-            accuracy_val = row.get("accuracy", "-")
-            st.markdown(
-                f"""
-                <div class="{css_class}">
-                    <span class="rank-badge {badge_class}">{icon}</span>
-                    <span style="flex:1; font-weight:{'700' if is_me else '500'};">{name_html}</span>
-                    <span>Score: <b>{row['marks']}</b></span>
-                    <span style="opacity:.7;">Accuracy: {accuracy_val}%</span>
-                </div>
-                """,
-                unsafe_allow_html=True,
+def render_leaderboard_rows(df, mode, sid=None, key_suffix="student"):
+    with st.container(key=f"leaderboard_table_{key_suffix}"):
+        for _, row in df.head(50).iterrows():
+            rank = int(row["rank"])
+            is_me = sid is not None and row["student_id"] == sid
+            css_class = "lb-row me" if is_me else "lb-row"
+            icon = _rank_icon(rank) if rank <= 3 else f"#{rank}"
+            badge_class = _rank_class(rank)
+            avatar_html = render_avatar(row["student_id"], row["student"], size=26, font_size=11)
+            name_html = (
+                f"<span style='display:inline-flex; align-items:center; gap:7px;'>"
+                f"{avatar_html}<span>{row['student']}{' (You)' if is_me else ''}</span></span>"
             )
 
+            if mode == "Overall":
+                trend = row.get("trend")
+                trend_html = "<span style='opacity:.4;'>—</span>"
+                if trend is not None and pd.notna(trend):
+                    arrow = "↑" if trend >= 0 else "↓"
+                    color = "#22c55e" if trend >= 0 else "#ef4444"
+                    trend_html = f"<span style='color:{color}; font-weight:700;'>{arrow} {abs(trend)}%</span>"
+                st.markdown(
+                    f"""
+                    <div class="{css_class}">
+                        <span class="rank-badge {badge_class}">{icon}</span>
+                        <span style="flex:1.5; font-weight:{'700' if is_me else '500'};">{name_html}</span>
+                        <span style="flex:0.8; opacity:.85;">Tests: <b>{int(row['exams_taken'])}</b></span>
+                        <span style="flex:0.8; opacity:.85;">Best: <b>{row['best_score']}</b></span>
+                        <span style="flex:0.9; opacity:.85;">Avg: <b>{row['avg_percent']}%</b></span>
+                        <span style="flex:0.9; opacity:.7;">Acc: {row['accuracy']}%</span>
+                        <span style="flex:0.8; text-align:right;">{trend_html}</span>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+            else:
+                accuracy_val = row.get("accuracy", "-")
+                st.markdown(
+                    f"""
+                    <div class="{css_class}">
+                        <span class="rank-badge {badge_class}">{icon}</span>
+                        <span style="flex:1; font-weight:{'700' if is_me else '500'};">{name_html}</span>
+                        <span>Score: <b>{row['marks']}</b></span>
+                        <span style="opacity:.7;">Accuracy: {accuracy_val}%</span>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
 
 def render_leaderboard(sid=None, key_suffix="student"):
     """Shared leaderboard renderer. sid=None -> mentor view (no personal
@@ -3260,7 +3365,7 @@ def render_leaderboard(sid=None, key_suffix="student"):
         if my_rank:
             st.caption(f"Your current rank: **#{my_rank}**")
 
-    render_leaderboard_rows(df, mode, sid=sid)
+    render_leaderboard_rows(df, mode, sid=sid, key_suffix=key_suffix)
 
     if sid is not None and mode == "Overall":
         match = df[df["student_id"] == sid]
