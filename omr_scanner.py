@@ -4,6 +4,15 @@ Student calibration is performed on the exact uploaded photo.  Reading uses
 local bubble-center contrast + ink density instead of a single whole-patch
 mean, which is much less likely to mistake printed bubble outlines/letters for
 filled answers.
+
+NOTE (fix): darkness is measured from the max(R,G,B) "value" channel instead
+of grayscale luminance (0.299R+0.587G+0.114B). Luminance under-weights the Red
+channel, so bright printed pink/magenta bubble outlines and A/B/C/D letters
+(high-R, low-G, low-B) were being scored as "dark ink" and almost every
+question came out as MULTI (double-touch). Actual pen/pencil marks are dark in
+every channel, so max(R,G,B) stays low for them but stays high for printed
+pink - this alone separates the two without risking false negatives on
+saturated blue pen ink (which a saturation-based filter would risk).
 """
 import cv2
 import numpy as np
@@ -143,9 +152,16 @@ def build_grid(calibration, total_questions=TOTAL_QUESTIONS):
     return grid
 
 
-def _bubble_metrics(gray, center, radius):
+def _bubble_metrics(bgr, center, radius):
+    """Measures how "inked" a bubble is.
+
+    `bgr` is a color (BGR) image/patch. Darkness is measured from the
+    max(R,G,B) value channel instead of grayscale luminance, so bright
+    printed pink/magenta outlines and letters (high-R, low-G/B) are not
+    mistaken for dark pen/pencil ink (which is dark across all channels).
+    """
     x, y = center
-    h, w = gray.shape[:2]
+    h, w = bgr.shape[:2]
     r = max(5, int(radius))
     # Inner area avoids most printed circle outlines; ring estimates local paper brightness.
     yy, xx = np.ogrid[-r:r+1, -r:r+1]
@@ -154,13 +170,19 @@ def _bubble_metrics(gray, center, radius):
     ring_mask = (d2 >= (r*0.72)**2) & (d2 <= r*r)
     x0, x1 = max(0,x-r), min(w,x+r+1)
     y0, y1 = max(0,y-r), min(h,y+r+1)
-    patch = gray[y0:y1, x0:x1]
+    patch = bgr[y0:y1, x0:x1]
+    if patch.size == 0:
+        return 0.0, 0.0, 255.0, 255.0
+    # "value" = max(R,G,B) per pixel, i.e. the HSV V channel. Robust to hue,
+    # so it doesn't matter whether the printed ink is pink/magenta/red -
+    # only genuinely dark (low in every channel) pixels score as ink.
+    value = np.max(patch, axis=2).astype(np.float32)
     # Masks are cropped at image edges if necessary.
-    mh, mw = patch.shape[:2]
+    mh, mw = value.shape[:2]
     im = inner_mask[:mh,:mw]
     rm = ring_mask[:mh,:mw]
-    inner = patch[im]
-    ring = patch[rm]
+    inner = value[im]
+    ring = value[rm]
     if inner.size == 0: return 0.0, 0.0, 255.0, 255.0
     center_mean = float(np.mean(inner))
     ring_mean = float(np.median(ring)) if ring.size else 255.0
@@ -176,14 +198,16 @@ def read_answers(warped_bgr, grid, dark_threshold=150, min_gap=15, radius=None):
 
     None = blank, A-D = one confident mark, MULTI = two or more independently
     strong marks.  Printed bubble outlines/letters are suppressed by sampling
-    the inner bubble area and comparing it with the surrounding paper ring.
+    the inner bubble area (via the max(R,G,B) value channel, not grayscale
+    luminance) and comparing it with the surrounding paper ring.
     """
     radius = BUBBLE_SAMPLE_RADIUS if radius is None else int(radius)
-    gray = cv2.cvtColor(warped_bgr, cv2.COLOR_BGR2GRAY)
-    gray = cv2.GaussianBlur(gray, (3,3), 0)
+    # Blur in color (not converted to grayscale) so the value-channel trick
+    # in _bubble_metrics keeps working on real RGB information.
+    smoothed = cv2.GaussianBlur(warped_bgr, (3,3), 0)
     answers = {}
     for q_no, options in grid.items():
-        metrics = {opt: _bubble_metrics(gray, center, radius) for opt, center in options.items()}
+        metrics = {opt: _bubble_metrics(smoothed, center, radius) for opt, center in options.items()}
         scores = {opt: metrics[opt][0] for opt in OPTIONS}
         inks = {opt: metrics[opt][1] for opt in OPTIONS}
         ordered = sorted(OPTIONS, key=lambda o: scores[o], reverse=True)
