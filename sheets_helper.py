@@ -952,26 +952,47 @@ def get_exam_session(student_id, key_id):
 
 
 def start_exam_session(student_id, key_id, duration_minutes):
-    """Start once per student/exam. Re-opening the page never resets the timer."""
+    """
+    Starts the student's personal exam timer exactly once.
+
+    IMPORTANT:
+    - This timer is NOT the exam's global live window.
+    - duration_minutes is the student's allowed solving/viewing time.
+    - The exam's start/end window is stored separately in AnswerKeys.
+    - Refreshing/reopening the page never resets an existing session.
+    """
     existing = get_exam_session(student_id, key_id)
     if existing:
         return existing
 
+    duration_minutes = _to_int(duration_minutes, 0)
+
+    if duration_minutes <= 0:
+        raise ValueError("This exam has an invalid duration.")
+
     started = now_bd()
-    expires = started + __import__("datetime").timedelta(minutes=int(duration_minutes or 0))
+    expires = started + __import__("datetime").timedelta(
+        minutes=duration_minutes
+    )
+
     ws = _cached_worksheet("ExamSessions")
+
     _with_retry(
         ws.append_row,
         [
-            student_id, key_id,
+            student_id,
+            key_id,
             started.strftime("%Y-%m-%d %H:%M:%S"),
             expires.strftime("%Y-%m-%d %H:%M:%S"),
-            "", "started",
+            "",
+            "started",
         ],
         value_input_option=RAW,
     )
+
     clear_data_caches()
     get_exam_session.clear()
+
     return {
         "student_id": student_id,
         "key_id": key_id,
