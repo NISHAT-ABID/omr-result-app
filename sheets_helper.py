@@ -489,6 +489,11 @@ def get_active_answer_key(now=None):
                 "negative_marking": _to_bool(row.get("negative_marking", False)),
                 "negative_marks_value": _to_float(row.get("negative_marks_value"), 0.0),
                 "duration_minutes": _to_int(row.get("duration_minutes"), 0),
+                # IMPORTANT: the student Home page uses this field to decide
+                # whether the exam must open through the PDF/timer flow.
+                # Keep the PDF metadata here, not only in get_answer_key_by_id().
+                "question_pdf_file_id": str(row.get("question_pdf_file_id", "") or ""),
+                "question_pdf_name": str(row.get("question_pdf_name", "") or ""),
             }
     return None
 
