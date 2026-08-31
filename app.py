@@ -2387,22 +2387,32 @@ def render_top_nav(current_page):
 # =========================================================================
 
 def _render_question_pdf(pdf_bytes, remaining_seconds=None, key_id=""):
-    """Render a stored PDF with Streamlit's native PDF viewer.
+    """Render the question paper inside Streamlit using PDF.js.
 
-    The old implementation loaded a Blob URL inside a nested iframe. Chrome
-    can block that PDF navigation inside Streamlit's sandboxed component
-    iframe, leaving a large blank/blocked viewer. Streamlit's native st.pdf
-    component avoids that browser restriction.
+    This intentionally does not depend on st.pdf(). Some deployments may
+    still run an older Streamlit build even after requirements changes.
+    PDF.js renders the PDF pages onto canvases, so Chrome does not have to
+    navigate an iframe to a PDF URL (which was the source of the
+    'This page has been blocked by Chrome' problem).
     """
+    import base64
+
     if not pdf_bytes:
         st.info("Question PDF is unavailable.")
         return
 
+    b64 = base64.b64encode(pdf_bytes).decode("ascii")
     safe_seconds = max(0, int(remaining_seconds)) if remaining_seconds is not None else None
 
+    timer_block = ""
+    timer_script = ""
+
     if safe_seconds is not None:
-        timer_html = f"""
+        timer_block = f"""
         <div style="
+            position:sticky;
+            top:0;
+            z-index:20;
             display:flex;
             justify-content:space-between;
             align-items:center;
@@ -2413,6 +2423,7 @@ def _render_question_pdf(pdf_bytes, remaining_seconds=None, key_id=""):
             border-radius:12px;
             background:#f8fbfa;
             font-family:system-ui,sans-serif;
+            box-sizing:border-box;
         ">
           <div style="font-weight:700;">📄 Question Paper</div>
           <div id="exam-timer"
@@ -2420,54 +2431,149 @@ def _render_question_pdf(pdf_bytes, remaining_seconds=None, key_id=""):
             --:--:--
           </div>
         </div>
-        <script>
-          (function() {{
-            let left = {safe_seconds};
-            const timer = document.getElementById("exam-timer");
+        """
+        timer_script = f"""
+        let remaining = {safe_seconds};
+        const timerEl = document.getElementById("exam-timer");
 
-            function tick() {{
-              if (!timer) return;
+        function updateExamTimer() {{
+          if (!timerEl) return;
 
-              if (left <= 0) {{
-                timer.textContent = "00:00:00";
-                try {{
-                  window.parent.location.reload();
-                }} catch (e) {{
-                  try {{ window.top.location.reload(); }} catch (e2) {{}}
-                }}
-                return;
-              }}
+          if (remaining <= 0) {{
+            timerEl.textContent = "00:00:00";
+            try {{
+              window.parent.location.reload();
+            }} catch (e) {{
+              try {{ window.top.location.reload(); }} catch (e2) {{}}
+            }}
+            return;
+          }}
 
-              const h = Math.floor(left / 3600);
-              const m = Math.floor((left % 3600) / 60);
-              const s = left % 60;
+          const h = Math.floor(remaining / 3600);
+          const m = Math.floor((remaining % 3600) / 60);
+          const s = remaining % 60;
 
-              timer.textContent =
-                String(h).padStart(2, "0") + ":" +
-                String(m).padStart(2, "0") + ":" +
-                String(s).padStart(2, "0");
+          timerEl.textContent =
+            String(h).padStart(2, "0") + ":" +
+            String(m).padStart(2, "0") + ":" +
+            String(s).padStart(2, "0");
 
-              left -= 1;
-              setTimeout(tick, 1000);
+          remaining -= 1;
+          setTimeout(updateExamTimer, 1000);
+        }}
+
+        updateExamTimer();
+        """
+
+    html = f"""
+    <div id="pdf-root"
+         style="font-family:system-ui,sans-serif;width:100%;box-sizing:border-box;">
+      {timer_block}
+
+      <div id="pdf-status"
+           style="padding:12px 14px;border:1px solid #d9e3df;border-radius:12px;
+                  background:#f8fbfa;margin-bottom:12px;">
+        Loading question paper…
+      </div>
+
+      <div id="pdf-pages"
+           style="display:flex;flex-direction:column;align-items:center;gap:16px;
+                  width:100%;box-sizing:border-box;"></div>
+    </div>
+
+    <script>
+    (async function() {{
+      {timer_script}
+
+      const pdfBase64 = "{b64}";
+      const status = document.getElementById("pdf-status");
+      const pages = document.getElementById("pdf-pages");
+
+      try {{
+        // PDF.js 3.x exposes the browser-friendly global `pdfjsLib`.
+        const script = document.createElement("script");
+        script.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+        script.onload = async function() {{
+          try {{
+            pdfjsLib.GlobalWorkerOptions.workerSrc =
+              "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+            const raw = atob(pdfBase64);
+            const bytes = new Uint8Array(raw.length);
+            for (let i = 0; i < raw.length; i++) {{
+              bytes[i] = raw.charCodeAt(i);
             }}
 
-            tick();
-          }})();
-        </script>
-        """
-        components.html(timer_html, height=62, scrolling=False)
+            const pdf = await pdfjsLib.getDocument({{data: bytes}}).promise;
+            status.textContent = "📄 Question Paper · " + pdf.numPages + " page" +
+              (pdf.numPages === 1 ? "" : "s");
 
-    try:
-        # Native Streamlit PDF viewer. Keeping it outside components.html
-        # prevents Chrome from blocking the PDF inside a sandboxed iframe.
-        st.pdf(pdf_bytes, height=820)
-    except AttributeError:
-        st.error(
-            "PDF viewer support is missing. Please deploy with "
-            "`streamlit[pdf]>=1.49` from requirements.txt."
-        )
-    except Exception as e:
-        st.error(f"Could not display the question PDF: {e}")
+            for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {{
+              const page = await pdf.getPage(pageNumber);
+
+              const wrapper = document.createElement("div");
+              wrapper.style.width = "100%";
+              wrapper.style.display = "flex";
+              wrapper.style.justifyContent = "center";
+
+              const canvas = document.createElement("canvas");
+              canvas.style.display = "block";
+              canvas.style.maxWidth = "100%";
+              canvas.style.height = "auto";
+              canvas.style.background = "white";
+              canvas.style.borderRadius = "8px";
+              canvas.style.boxShadow = "0 1px 5px rgba(0,0,0,.12)";
+
+              wrapper.appendChild(canvas);
+              pages.appendChild(wrapper);
+
+              const baseViewport = page.getViewport({{scale: 1}});
+              const maxWidth = Math.min(
+                document.documentElement.clientWidth - 24,
+                1100
+              );
+              const scale = Math.max(0.75, Math.min(1.5, maxWidth / baseViewport.width));
+              const viewport = page.getViewport({{scale: scale}});
+
+              const dpr = Math.min(window.devicePixelRatio || 1, 2);
+              canvas.width = Math.floor(viewport.width * dpr);
+              canvas.height = Math.floor(viewport.height * dpr);
+              canvas.style.width = Math.floor(viewport.width) + "px";
+              canvas.style.height = Math.floor(viewport.height) + "px";
+
+              const ctx = canvas.getContext("2d", {{alpha: false}});
+              await page.render({{
+                canvasContext: ctx,
+                viewport: viewport,
+                transform: [dpr, 0, 0, dpr, 0, 0]
+              }}).promise;
+            }}
+          }} catch (err) {{
+            status.textContent = "Could not render the question paper.";
+            status.style.color = "#b42318";
+            console.error("PDF.js error:", err);
+          }}
+        }};
+
+        script.onerror = function() {{
+          status.textContent =
+            "PDF viewer could not load. Please check the browser/network connection.";
+          status.style.color = "#b42318";
+        }};
+
+        document.head.appendChild(script);
+      }} catch (err) {{
+        status.textContent = "Could not load the question paper.";
+        status.style.color = "#b42318";
+        console.error(err);
+      }}
+    }})();
+    </script>
+    """
+
+    # The component height is large enough for the first part of the paper;
+    # the inner viewer itself remains scrollable through the Streamlit page.
+    components.html(html, height=900, scrolling=True)
 
 def _parse_bd_dt(value):
     try:
