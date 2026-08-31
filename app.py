@@ -2524,6 +2524,24 @@ def page_home():
             return
         st.session_state.pop("exam_room_key_id", None)
 
+    # Resume a legitimately started session even when the mentor's exam
+    # window has already closed. The exam window controls START permission;
+    # the student's personal duration controls the session itself.
+    resume_session = sh.get_student_resume_session(sid)
+    if resume_session:
+        resume_key = sh.get_answer_key_by_id(resume_session.get("key_id"))
+        if resume_key:
+            if resume_session.get("status") == "started":
+                st.session_state["exam_room_key_id"] = resume_key["key_id"]
+                render_student_exam_room(sid, resume_key)
+                return
+            # The personal timer has ended (or the student already clicked
+            # Complete). Send the student straight to the OMR page, even if
+            # the global exam window is now closed.
+            st.session_state["submit_key_id"] = resume_key["key_id"]
+            go_to("tests")
+            return
+
     st.markdown(f"### 👋 Welcome, {name}")
 
     active = cached_active_answer_key()
@@ -2538,20 +2556,17 @@ def page_home():
             duration_display_min = active.get("duration_minutes") or int(
                 (active["end_dt"] - active["start_dt"]).total_seconds() // 60
             )
-            duration_seconds = max(0, int(duration_display_min * 60))
-            existing_session = sh.get_exam_session(sid, active["key_id"])
-            if existing_session and existing_session.get("status") == "started":
-                expires_home = _parse_bd_dt(existing_session.get("expires_at"))
-                remaining_seconds = max(0, int((expires_home - sh.now_bd()).total_seconds())) if expires_home else 0
-            else:
-                remaining_seconds = duration_seconds
-
             st.markdown(f"#### 🟢 Active Test: {active['exam_name'] or active['key_id']}")
+            window_text = (
+                f"{active['start_dt'].strftime('%d %b %Y, %I:%M %p')} → "
+                f"{active['end_dt'].strftime('%d %b %Y, %I:%M %p')}"
+                if active.get("start_dt") and active.get("end_dt") else "Exam window unavailable"
+            )
             st.markdown(
                 f"<div class='mv-exam-meta-grid'>"
-                f"<div class='mv-exam-meta-primary'><span>Total Marks</span><strong>{active['total_questions']}</strong></div>"
-                f"<div class='mv-exam-meta-primary'><span>Duration</span><strong>{_format_duration(duration_display_min)}</strong></div>"
-                f"<div class='mv-exam-meta-secondary'><span>Time Remaining</span><strong>{_format_hms(remaining_seconds)}</strong></div>"
+                f"<div class='mv-exam-meta-primary'><span>Total Questions</span><strong>{active['total_questions']}</strong></div>"
+                f"<div class='mv-exam-meta-primary'><span>Student Duration</span><strong>{_format_duration(duration_display_min)}</strong></div>"
+                f"<div class='mv-exam-meta-secondary'><span>Exam Window</span><strong style='font-size:14px;line-height:1.35;'>{window_text}</strong></div>"
                 f"</div>",
                 unsafe_allow_html=True,
             )
@@ -2566,14 +2581,18 @@ def page_home():
             else:
                 if active.get("question_pdf_file_id"):
                     if st.button("📖 Open Exam", type="primary", use_container_width=True):
-                        sh.start_exam_session(
-                            sid, active["key_id"],
-                            active.get("duration_minutes") or int(
-                                (active["end_dt"] - active["start_dt"]).total_seconds() // 60
-                            ),
-                        )
-                        st.session_state["exam_room_key_id"] = active["key_id"]
-                        st.rerun()
+                        try:
+                            sh.start_exam_session(
+                                sid, active["key_id"],
+                                active.get("duration_minutes") or int(
+                                    (active["end_dt"] - active["start_dt"]).total_seconds() // 60
+                                ),
+                            )
+                        except ValueError as e:
+                            st.error(str(e))
+                        else:
+                            st.session_state["exam_room_key_id"] = active["key_id"]
+                            st.rerun()
                 else:
                     if st.button("📤 Quick OMR Submit", type="primary", use_container_width=True):
                         go_to("tests", quick_submit=True)
@@ -4415,7 +4434,7 @@ def page_mentor_students():
 # =========================================================================
 
 def page_mentor_results():
-    st.subheader("🧾 Results & Result Override")
+    st.subheader("🧾 Results & Result Editing")
     keys_df = cached_answer_keys()
     if keys_df.empty:
         st.info("No exams created yet.")
@@ -4467,21 +4486,37 @@ def page_mentor_results():
                 c3.metric("Skipped", int(row["skipped"]))
 
             with st.form(key=f"edit_form_{row['student_id']}"):
-                new_correct = st.number_input("Correct", min_value=0, max_value=int(row["total"]),
-                                               value=int(row["correct"]))
-                new_wrong = st.number_input("Wrong", min_value=0, max_value=int(row["total"]),
-                                             value=int(row["wrong_count"]))
-                new_marks = st.number_input("Marks (override)", value=float(row["marks"]), step=0.25)
-                submitted = st.form_submit_button("💾 Save Override", type="primary")
+                total_q = int(row["total"])
+                new_correct = st.number_input(
+                    "Correct", min_value=0, max_value=total_q, value=int(row["correct"])
+                )
+                new_wrong = st.number_input(
+                    "Wrong", min_value=0, max_value=total_q, value=int(row["wrong_count"])
+                )
+                new_skipped = st.number_input(
+                    "Skipped", min_value=0, max_value=total_q, value=int(row["skipped"])
+                )
+                st.caption(
+                    f"Total must be {total_q}. Marks will be recalculated automatically from Correct/Wrong/Skipped."
+                )
+                submitted = st.form_submit_button("💾 Save Result", type="primary")
                 if submitted:
-                    with st.spinner("Saving..."):
-                        sh.update_result(
-                            row["student_id"], key_id,
-                            new_marks=new_marks, new_correct=new_correct, new_wrong_count=new_wrong,
-                        )
-                        clear_all_caches()
-                    st.success("Result updated.")
-                    st.rerun()
+                    if int(new_correct) + int(new_wrong) + int(new_skipped) != total_q:
+                        st.error(f"Correct + Wrong + Skipped must equal {total_q}.")
+                    else:
+                        try:
+                            with st.spinner("Saving..."):
+                                sh.update_result(
+                                    row["student_id"], key_id,
+                                    new_correct=int(new_correct),
+                                    new_wrong_count=int(new_wrong),
+                                    new_skipped=int(new_skipped),
+                                )
+                                clear_all_caches()
+                            st.success("Result updated and marks recalculated.")
+                            st.rerun()
+                        except ValueError as e:
+                            st.error(str(e))
 
 
 # =========================================================================
