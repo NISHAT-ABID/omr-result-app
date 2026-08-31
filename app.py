@@ -2387,70 +2387,87 @@ def render_top_nav(current_page):
 # =========================================================================
 
 def _render_question_pdf(pdf_bytes, remaining_seconds=None, key_id=""):
-    """Render a stored question PDF with an optional live countdown.
+    """Render a stored PDF with Streamlit's native PDF viewer.
 
-    The PDF is converted to a browser Blob instead of using a ``data:`` iframe
-    URL. Chrome/Edge can be picky about PDF data URLs inside Streamlit's
-    sandboxed component iframe; the Blob approach is much more reliable while
-    keeping the PDF bytes private (students never need the Drive URL).
+    The old implementation loaded a Blob URL inside a nested iframe. Chrome
+    can block that PDF navigation inside Streamlit's sandboxed component
+    iframe, leaving a large blank/blocked viewer. Streamlit's native st.pdf
+    component avoids that browser restriction.
     """
-    import base64
+    if not pdf_bytes:
+        st.info("Question PDF is unavailable.")
+        return
 
-    b64 = base64.b64encode(pdf_bytes).decode("ascii")
-    safe_seconds = max(0, int(remaining_seconds)) if remaining_seconds is not None else 0
-    height = 760
+    safe_seconds = max(0, int(remaining_seconds)) if remaining_seconds is not None else None
 
-    if remaining_seconds is not None:
-        timer_script = f"""
-          let left = {safe_seconds};
-          const timer = document.getElementById("timer");
-          function tick() {{
-            if (left <= 0) {{
-              timer.textContent = "00:00:00";
-              try {{ window.parent.location.reload(); }} catch (e) {{}}
-              return;
+    if safe_seconds is not None:
+        timer_html = f"""
+        <div style="
+            display:flex;
+            justify-content:space-between;
+            align-items:center;
+            gap:12px;
+            margin:0 0 12px;
+            padding:12px 16px;
+            border:1px solid #d9e3df;
+            border-radius:12px;
+            background:#f8fbfa;
+            font-family:system-ui,sans-serif;
+        ">
+          <div style="font-weight:700;">📄 Question Paper</div>
+          <div id="exam-timer"
+               style="font-weight:900;font-size:20px;letter-spacing:.03em;white-space:nowrap;">
+            --:--:--
+          </div>
+        </div>
+        <script>
+          (function() {{
+            let left = {safe_seconds};
+            const timer = document.getElementById("exam-timer");
+
+            function tick() {{
+              if (!timer) return;
+
+              if (left <= 0) {{
+                timer.textContent = "00:00:00";
+                try {{
+                  window.parent.location.reload();
+                }} catch (e) {{
+                  try {{ window.top.location.reload(); }} catch (e2) {{}}
+                }}
+                return;
+              }}
+
+              const h = Math.floor(left / 3600);
+              const m = Math.floor((left % 3600) / 60);
+              const s = left % 60;
+
+              timer.textContent =
+                String(h).padStart(2, "0") + ":" +
+                String(m).padStart(2, "0") + ":" +
+                String(s).padStart(2, "0");
+
+              left -= 1;
+              setTimeout(tick, 1000);
             }}
-            const h = Math.floor(left / 3600);
-            const m = Math.floor((left % 3600) / 60);
-            const sec = left % 60;
-            timer.textContent =
-              String(h).padStart(2,"0") + ":" +
-              String(m).padStart(2,"0") + ":" +
-              String(sec).padStart(2,"0");
-            left -= 1;
-            setTimeout(tick, 1000);
-          }}
-          tick();
+
+            tick();
+          }})();
+        </script>
         """
-    else:
-        timer_script = "document.getElementById(\"timer\").style.display = \"none\";"
+        components.html(timer_html, height=62, scrolling=False)
 
-    pdf_script = f"""
-      const b64 = "{b64}";
-      const raw = atob(b64);
-      const bytes = new Uint8Array(raw.length);
-      for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
-      const blob = new Blob([bytes], {{type: "application/pdf"}});
-      const pdfUrl = URL.createObjectURL(blob);
-      document.getElementById("pdf").src = pdfUrl;
-    """
-
-    html = f"""
-    <div style="font-family:system-ui,sans-serif;">
-      <div style="display:flex;justify-content:space-between;align-items:center;
-                  gap:12px;margin:0 0 10px;padding:10px 14px;border:1px solid #d9e3df;
-                  border-radius:12px;background:#f8fbfa;">
-        <div><b>📄 Question Paper</b></div>
-        <div id="timer" style="font-weight:800;white-space:nowrap;">--:--:--</div>
-      </div>
-      <iframe id="pdf"
-              style="width:100%;height:{height}px;border:1px solid #d9e3df;
-                     border-radius:12px;background:white;"></iframe>
-    </div>
-    <script>{pdf_script}{timer_script}</script>
-    """
-    components.html(html, height=height + 70, scrolling=True)
-
+    try:
+        # Native Streamlit PDF viewer. Keeping it outside components.html
+        # prevents Chrome from blocking the PDF inside a sandboxed iframe.
+        st.pdf(pdf_bytes, height=820)
+    except AttributeError:
+        st.error(
+            "PDF viewer support is missing. Please deploy with "
+            "`streamlit[pdf]>=1.49` from requirements.txt."
+        )
+    except Exception as e:
+        st.error(f"Could not display the question PDF: {e}")
 
 def _parse_bd_dt(value):
     try:
@@ -2507,7 +2524,7 @@ def render_student_exam_room(sid, key):
     _render_question_pdf(pdf_bytes, remaining, key["key_id"])
     st.caption("When the timer reaches 00:00, the PDF will lock and you will be taken to OMR submission automatically.")
 
-    if st.button("✅ Complete Exam & Go to OMR", type="primary", use_container_width=True):
+    if st.button("✅ Complete Exam & Go to OMR", key=f"complete_exam_{sid}_{key['key_id']}", type="primary", use_container_width=True):
         sh.set_exam_session_status(sid, key["key_id"], "completed")
         st.session_state["submit_key_id"] = key["key_id"]
         st.session_state.pop("exam_room_key_id", None)
