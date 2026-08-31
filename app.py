@@ -13,6 +13,7 @@ Run with: streamlit run app.py
 """
 
 import random
+import io
 from datetime import datetime, date, time as dtime, timedelta
 
 import cv2
@@ -1182,6 +1183,31 @@ def inject_global_css():
             .digital-bubble { width:18px !important; height:18px !important; font-size:7.5px !important; }
             .digital-your, .digital-correct { font-size:9px !important; }
             .digital-status { font-size:7.5px !important; padding:2px 4px !important; }
+        }
+
+        /* Direct digital OMR editor: one compact question row with clickable
+           answer choices. Each widget has its own stable session key, so a
+           single click immediately becomes the new final answer. */
+        [class*="st-key-omr_digital_edit_"] {
+            border:1px solid var(--mv-border);
+            border-radius:9px;
+            padding:4px 7px 1px;
+            margin-bottom:5px;
+            background:rgba(255,255,255,.018);
+        }
+        [class*="st-key-omr_digital_edit_"] [data-testid="stRadio"] > label p {
+            font-family:var(--mono) !important;
+            font-weight:800 !important;
+            font-size:11px !important;
+            margin-bottom:2px !important;
+        }
+        [class*="st-key-omr_digital_edit_"] [data-testid="stRadio"] div[role="radiogroup"] {
+            gap:2px !important;
+            flex-wrap:wrap !important;
+        }
+        [class*="st-key-omr_digital_edit_"] [data-testid="stRadio"] label {
+            margin-right:2px !important;
+            padding:1px 4px !important;
         }
 
         .strength-bar { height:6px; border-radius:4px; background:rgba(128,128,128,0.2); overflow:hidden; margin-top:4px; }
@@ -2859,40 +2885,148 @@ def render_omr_review(rows):
         )
 
 
+def _parse_json_field(value, default):
+    import json as _json
+    try:
+        if value is None or str(value).strip() == "":
+            return default
+        return _json.loads(value)
+    except Exception:
+        return default
+
+
+def _make_result_omr_overlay(image_bgr, grid_points, final_answers, correct_answers, issue_questions):
+    """Show the submitted ORIGINAL OMR with correction guidance only.
+
+    Only wrong/skipped/double-touch questions are annotated. Correctly answered
+    bubbles are deliberately left untouched so the sheet stays visually clean.
+
+    Red = student's final wrong/double-touch selection.
+    Teal = correct answer that should have been selected.
+    """
+    canvas = image_bgr.copy()
+    if not grid_points:
+        return cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
+
+    issue_set = set(issue_questions or [])
+    for q in issue_set:
+        opts = grid_points.get(q)
+        if not opts:
+            continue
+
+        final = _normalise_answer_value(final_answers.get(q))
+        correct = _normalise_answer_value(correct_answers.get(q))
+
+        # Student's final wrong answer / confirmed MULTI.
+        if final and final != "MULTI" and final in opts and final != correct:
+            x, y = map(int, map(round, opts[final]))
+            cv2.circle(canvas, (x, y), 17, (65, 75, 235), 4)
+
+        # Correct answer. This is shown only for issue questions.
+        if correct in opts:
+            x, y = map(int, map(round, opts[correct]))
+            cv2.circle(canvas, (x, y), 15, (40, 185, 145), 4)
+            cv2.circle(canvas, (x, y), 20, (40, 185, 145), 2)
+
+        # Double-touch: put a neutral red cross over the question's detected
+        # state without pretending that one of the touched bubbles is correct.
+        if final == "MULTI":
+            for opt, pt in opts.items():
+                x, y = map(int, map(round, pt))
+                cv2.circle(canvas, (x, y), 13, (65, 75, 235), 2)
+
+    return cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
+
+
+def _render_result_digital_omr(rows):
+    """Post-submission digital OMR: only issue questions, with real key answer."""
+    if not rows:
+        st.success("🎉 No wrong, skipped, or double-touch answers.")
+        return
+
+    html = ["<div class='digital-omr-grid'>"]
+    for row in rows:
+        q = row["q"]
+        given = _normalise_answer_value(row.get("given"))
+        correct = _normalise_answer_value(row.get("correct"))
+        status = row.get("status", "wrong")
+
+        if status == "double":
+            label = "Double Touch"
+            tag_class = "d-double"
+        elif status == "skipped":
+            label = "Skipped"
+            tag_class = "d-skip"
+        else:
+            label = "Wrong"
+            tag_class = "d-bad"
+
+        detected_text = "Multiple" if given == "MULTI" else (given or "Skipped")
+        bubbles = []
+        for opt in ("A", "B", "C", "D"):
+            classes = ["digital-bubble"]
+            if given == opt and given != correct:
+                classes.append("detected-double" if status == "double" else "detected")
+            if correct == opt:
+                classes.append("key")
+            bubbles.append(f"<span class='{ ' '.join(classes) }'>{opt}</span>")
+
+        html.append(
+            f"<div class='digital-omr-row'>"
+            f"<span class='digital-q'>Q{q}</span>"
+            f"<span class='digital-options'>{''.join(bubbles)}</span>"
+            f"<span class='digital-your'>Your answer: <b>{detected_text}</b> · Correct: <b>{correct or '—'}</b></span>"
+            f"<span class='digital-status {tag_class}'>{label}</span>"
+            f"</div>"
+        )
+
+    html.append("</div>")
+    st.markdown("".join(html), unsafe_allow_html=True)
+
+
 def render_result_detail(result_row, key_row):
     exam_name = key_row.get("exam_name") or result_row["key_id"]
     st.markdown(f"### {exam_name}")
-    total, correct, wrong_count, skipped = (
-        int(result_row["total"]), int(result_row["correct"]),
-        int(result_row["wrong_count"]), int(result_row["skipped"]),
-    )
+
+    total = int(result_row.get("total", 0) or 0)
+    correct_count = int(result_row.get("correct", 0) or 0)
+    wrong_count = int(result_row.get("wrong_count", 0) or 0)
+    skipped_count = int(result_row.get("skipped", 0) or 0)
+
     st.markdown(
-        f"`Score: {correct}/{total}` &nbsp; `❌ Wrong {wrong_count}` &nbsp; "
-        f"`⚪ Skipped {skipped}` &nbsp; `✅ Correct {correct}`"
+        f"`Score: {correct_count}/{total}` &nbsp; `❌ Wrong {wrong_count}` &nbsp; "
+        f"`⚪ Skipped {skipped_count}` &nbsp; `✅ Correct {correct_count}`"
     )
-    # Google Sheets may return the checkbox/boolean as the text "TRUE"/"FALSE".
-    # Do not use bool("FALSE"), because any non-empty string is truthy in Python.
+
     if sh._to_bool(result_row.get("edited_by_mentor", False)):
         st.caption("ℹ️ This result was reviewed/edited by your mentor.")
 
-    import json as _json
-    answer_string = key_row["answer_string"]
+    answer_string = str(key_row.get("answer_string", "") or "").upper()
+    original_answers = _parse_json_field(result_row.get("omr_original_answers_json"), {})
+    final_answers = _parse_json_field(result_row.get("omr_final_answers_json"), {})
+    saved_grid = _parse_json_field(result_row.get("omr_grid_json"), {})
+    saved_double = _parse_json_field(result_row.get("omr_double_touch_json"), [])
 
-    try:
-        wrong_details = _json.loads(result_row.get("wrong_details_json") or "{}")
-    except Exception:
-        wrong_details = {}
-    try:
-        skipped_qs = _json.loads(result_row.get("skipped_json") or "[]")
-    except Exception:
-        skipped_qs = []
+    # Normalise all saved question keys back to integers.
+    total_q = total or len(answer_string)
+    final_answers = _normalise_answers(final_answers, total_q)
+    original_answers = _normalise_answers(original_answers, total_q)
+    saved_double = [int(q) for q in saved_double if str(q).isdigit()]
 
-    rows = []
-    for q_str, detail in sorted(wrong_details.items(), key=lambda kv: int(kv[0])):
-        rows.append({"q": int(q_str), "given": detail["given"], "correct": detail["correct"], "status": "wrong"})
-    for q in skipped_qs:
-        rows.append({"q": q, "given": None, "correct": answer_string[q - 1].upper(), "status": "skipped"})
-    rows.sort(key=lambda r: r["q"])
+    # The final answer is authoritative. This is what fixes false scanner
+    # double-touch flags after the student corrected them during submission.
+    issue_rows = []
+    for q in range(1, total_q + 1):
+        given = final_answers.get(q)
+        correct = answer_string[q - 1] if q <= len(answer_string) else None
+        status = _review_status(given, correct, was_double=(given == "MULTI"))
+        if status in ("incorrect", "skipped", "double"):
+            issue_rows.append({
+                "q": q,
+                "given": given,
+                "correct": correct,
+                "status": "double" if status == "double" else ("skipped" if status == "skipped" else "wrong"),
+            })
 
     pdf_id = str(key_row.get("question_pdf_file_id", "") or "")
     if pdf_id:
@@ -2907,20 +3041,59 @@ def render_result_detail(result_row, key_row):
                 st.info("Question PDF is unavailable.")
 
     omr_photo_id = str(result_row.get("omr_photo_file_id", "") or "")
-    if omr_photo_id:
-        with st.expander("📷 View Submitted OMR Photo"):
-            try:
-                omr_bytes = sh.get_student_omr_image_bytes(omr_photo_id)
-                if omr_bytes:
-                    st.image(omr_bytes, caption="Original OMR photo submitted by you", use_container_width=True)
-                else:
-                    st.info("Submitted OMR photo is unavailable.")
-            except Exception:
-                st.info("Submitted OMR photo is unavailable.")
+    if not omr_photo_id:
+        st.markdown("#### Answer Analysis")
+        _render_result_digital_omr(issue_rows)
+        return
 
-    st.markdown("#### Wrong & Skipped Answers")
-    render_omr_review(rows)
+    try:
+        omr_bytes = sh.get_student_omr_image_bytes(omr_photo_id)
+    except Exception:
+        omr_bytes = None
 
+    if not omr_bytes:
+        st.markdown("#### Answer Analysis")
+        _render_result_digital_omr(issue_rows)
+        return
+
+    # Build coordinates saved with this exact submission. Legacy results that
+    # predate grid persistence still get the digital analysis below.
+    grid_points = _extract_question_option_points(saved_grid, total_q)
+    issue_qs = [r["q"] for r in issue_rows]
+    correct_map = {q: (answer_string[q - 1] if q <= len(answer_string) else None) for q in issue_qs}
+
+    try:
+        pil = Image.open(io.BytesIO(omr_bytes)).convert("RGB")
+        img_bgr = cv2.cvtColor(np.array(pil), cv2.COLOR_RGB2BGR)
+    except Exception:
+        img_bgr = None
+
+    st.markdown("#### 🔎 Answer Analysis")
+    view = st.radio(
+        "Analysis view",
+        ["📷 Original OMR", "🖥️ Digital OMR"],
+        horizontal=True,
+        key=f"result_omr_view_{result_row.get('key_id', '')}_{result_row.get('timestamp', '')}",
+    )
+
+    if view == "📷 Original OMR":
+        st.caption("Only wrong, skipped, and double-touch questions are marked. Green = correct answer · Red = your wrong/double-touch answer.")
+        if img_bgr is not None and grid_points:
+            overlay = _make_result_omr_overlay(
+                img_bgr,
+                grid_points,
+                final_answers,
+                correct_map,
+                issue_qs,
+            )
+            st.image(overlay, use_container_width=True)
+        elif img_bgr is not None:
+            st.image(img_bgr[:, :, ::-1], use_container_width=True)
+            st.info("This older submission does not contain saved bubble coordinates, so the original photo can be shown but answer markers cannot be placed on it.")
+        else:
+            st.info("Submitted OMR photo could not be opened.")
+    else:
+        _render_result_digital_omr(issue_rows)
 
 def _reset_submission_state():
     """Clear all transient state for one uploaded OMR photo."""
@@ -3189,19 +3362,41 @@ def _render_digital_omr(review_rows, filter_values=None):
 
 
 def _render_interactive_omr_review(img_bgr, grid_points, detected_answers, final_answers, double_qs, radius):
-    """Pre-submit review.  Never exposes answer-key/correctness information."""
+    """Pre-submit review with two views and direct one-click digital editing.
+
+    The digital view is the fast correction path: every question has its own
+    A/B/C/D/Skipped/Double Touch selector, so there is no question-number
+    dropdown to hunt through. Widget state is explicitly initialised once per
+    question, fixing the old 'first click does nothing, second click works'
+    behaviour caused by mixing dynamic widget indexes with session state.
+    """
     total_q = len(final_answers)
-    skipped_count = sum(1 for q in range(1, total_q + 1) if _normalise_answer_value(final_answers.get(q)) is None and q not in set(double_qs))
-    answered_count = total_q - skipped_count
-    double_count = len(set(double_qs))
+
+    # Double-touch is NOT immutable anymore. It represents the current final
+    # answer. If the scanner falsely says MULTI and the student selects C, the
+    # question immediately stops being double-touch and will be scored normally.
+    current_double = [
+        q for q in range(1, total_q + 1)
+        if _normalise_answer_value(final_answers.get(q)) == "MULTI"
+    ]
+    st.session_state["submit_double_touch"] = current_double
+
+    skipped_count = sum(
+        1 for q in range(1, total_q + 1)
+        if _normalise_answer_value(final_answers.get(q)) is None
+    )
+    answered_count = total_q - skipped_count - len(current_double)
 
     st.markdown("#### 🔍 OMR Scan Review")
     c1, c2, c3 = st.columns(3)
     c1.metric("Answered", answered_count)
     c2.metric("Skipped", skipped_count)
-    c3.metric("Double Touch", double_count)
+    c3.metric("Double Touch", len(current_double))
 
-    st.caption("Before submission you can see only what the scanner detected. Correct answers and score are hidden until the result is submitted.")
+    st.caption(
+        "Before submission you can only see/edit the scanner result. "
+        "Correct answers and score stay hidden until submission."
+    )
 
     view = st.radio(
         "Review view",
@@ -3210,48 +3405,78 @@ def _render_interactive_omr_review(img_bgr, grid_points, detected_answers, final
         key=f"omr_review_view_{st.session_state.get('submit_file_sig', '')}",
     )
 
-    review_rows = _build_review_state(final_answers, detected_answers, double_qs)
-
-    if view == "🖥️ Digital OMR":
-        filter_values = st.multiselect(
-            "Digital OMR filter",
-            ["Answered", "Skipped", "Double Touch"],
-            default=["Answered", "Skipped", "Double Touch"],
-            key=f"omr_digital_filter_{st.session_state.get('submit_file_sig', '')}",
-            help="Default shows all questions. You can show only answered, skipped, or double-touch questions.",
+    if view == "📷 Original OMR":
+        st.caption(
+            "Original uploaded photo. 🟢 scanner detection · 🔵 your current final answer · 🔴 double-touch. "
+            "For fastest correction, use Digital OMR."
         )
-        st.caption("Detected = scanner's first reading · Final = your current review selection. No answer key is shown before submission.")
-        _render_digital_omr(review_rows, filter_values)
-    else:
-        st.caption("Your original uploaded photo is shown here. 🟢 scanner detected · 🔵 your edited final answer · 🔴 double-touch. Tap a bubble to edit.")
-        overlay_rgb = _make_review_overlay(img_bgr, grid_points, final_answers, detected_answers, set(double_qs))
+        overlay_rgb = _make_review_overlay(
+            img_bgr,
+            grid_points,
+            final_answers,
+            detected_answers,
+            set(current_double),
+        )
         st.image(overlay_rgb, use_container_width=True)
 
-        # Native Streamlit controls replace streamlit_image_coordinates for REVIEW only.
-        # This avoids the custom-component 'Connecting...' failure on deployed phones.
         if grid_points:
-            q_choices = list(range(1, total_q + 1))
-            review_q = st.selectbox(
-                "Edit question",
-                q_choices,
-                format_func=lambda q: f"Q{q} — detected: {('Multiple' if detected_answers.get(q) == 'MULTI' else detected_answers.get(q) or 'Skipped')} · final: {final_answers.get(q) or 'Skipped'}",
-                key=f"omr_edit_q_{st.session_state.get('submit_file_sig', '')}",
-            )
-            current = _normalise_answer_value(final_answers.get(review_q))
-            selected = st.radio(
-                f"Q{review_q} — choose the final answer",
-                ["None", "A", "B", "C", "D"],
-                index=["None", "A", "B", "C", "D"].index(current if current in ("A", "B", "C", "D") else "None"),
-                horizontal=True,
-                key=f"omr_edit_answer_{st.session_state.get('submit_file_sig', '')}_{review_q}",
-            )
-            new_value = None if selected == "None" else selected
-            if new_value != current:
-                final_answers[review_q] = new_value
-                st.session_state["submit_final_answers"] = final_answers
-                st.rerun()
+            st.caption("Quick edit is available in Digital OMR so you don't have to search for question numbers.")
 
-    return review_rows
+    else:
+        st.caption(
+            "Tap the answer directly. Your first tap is applied immediately. "
+            "Green = scanner detection · blue outline = your current final answer."
+        )
+
+        # Two columns keep the editor compact on desktop while collapsing
+        # naturally on mobile.
+        left, right = st.columns(2)
+        questions = list(range(1, total_q + 1))
+
+        for col, q_list in ((left, questions[::2]), (right, questions[1::2])):
+            with col:
+                for q in q_list:
+                    current = _normalise_answer_value(final_answers.get(q))
+                    widget_key = f"omr_digital_edit_{st.session_state.get('submit_file_sig', '')}_{q}"
+                    options = ["Skipped", "A", "B", "C", "D", "Double Touch"]
+                    current_label = "Double Touch" if current == "MULTI" else (current or "Skipped")
+
+                    if widget_key not in st.session_state:
+                        st.session_state[widget_key] = current_label
+
+                    selected = st.radio(
+                        f"Q{q}",
+                        options,
+                        horizontal=True,
+                        key=widget_key,
+                        label_visibility="visible",
+                    )
+
+                    new_value = {
+                        "Skipped": None,
+                        "A": "A",
+                        "B": "B",
+                        "C": "C",
+                        "D": "D",
+                        "Double Touch": "MULTI",
+                    }[selected]
+
+                    if new_value != current:
+                        final_answers[q] = new_value
+                        st.session_state["submit_final_answers"] = dict(final_answers)
+                        if new_value == "MULTI":
+                            if q not in current_double:
+                                current_double.append(q)
+                        elif q in current_double:
+                            current_double.remove(q)
+                        st.session_state["submit_double_touch"] = sorted(current_double)
+                        st.rerun()
+
+    return _build_review_state(
+        final_answers,
+        detected_answers,
+        current_double,
+    )
 
 def page_tests_results():
     sid = st.session_state["student_id"]
@@ -3383,12 +3608,21 @@ def page_tests_results():
                         review_rows = _render_interactive_omr_review(
                             img_bgr, grid_points, detected, final_answers, double_qs, radius
                         )
+                        # Always read the current reviewed state after the editor,
+                        # because a scanner false-positive MULTI may have just been
+                        # changed to A/B/C/D with one click.
+                        final_answers = st.session_state.get("submit_final_answers", final_answers)
+                        double_qs = [
+                            q for q in range(1, total_q + 1)
+                            if _normalise_answer_value(final_answers.get(q)) == "MULTI"
+                        ]
+                        st.session_state["submit_double_touch"] = double_qs
 
                         st.divider()
                         st.markdown("#### ✅ Ready to Submit?")
                         if double_qs:
                             st.warning(
-                                f"⚠️ {len(double_qs)} double-touch question(s) were detected. They will keep their negative-marking penalty even if you edit the visible answer."
+                                f"⚠️ {len(double_qs)} double-touch question(s) are currently selected. You can correct any false detection above before submitting."
                             )
 
                         submitting_key = f"submitting_{file_sig}"
@@ -3413,11 +3647,14 @@ def page_tests_results():
                                     elif sh.has_submitted(sid, active_now["key_id"]):
                                         st.warning("You've already submitted this test.")
                                     else:
-                                        # Double-touch history is immutable. Feed MULTI into the
-                                        # scoring engine even if the student changed the visible final answer.
+                                        # The student's reviewed final answer is authoritative.
+                                        # A scanner false-positive MULTI can therefore be corrected
+                                        # before submission and will no longer receive a penalty.
                                         scoring_answers = dict(final_answers)
-                                        for q in double_qs:
-                                            scoring_answers[q] = "MULTI"
+                                        double_qs = [
+                                            q for q in range(1, total_q + 1)
+                                            if _normalise_answer_value(scoring_answers.get(q)) == "MULTI"
+                                        ]
                                         result = omr_scanner.score_answers(
                                             scoring_answers,
                                             active_now["answer_string"],
@@ -3430,6 +3667,8 @@ def page_tests_results():
                                         result["omr_original_answers"] = dict(detected)
                                         result["omr_final_answers"] = dict(final_answers)
                                         result["omr_double_touch"] = list(double_qs)
+                                        result["omr_grid"] = grid
+                                        result["omr_radius"] = radius
                                         neg_enabled = sh._to_bool(active_now.get("negative_marking", False))
                                         if neg_enabled:
                                             neg_per_wrong = max(0.0, float(active_now.get("negative_marks_value", 0.0) or 0.0))
@@ -3463,10 +3702,7 @@ def page_tests_results():
                                                     st.caption(
                                                         f"Negative marking: {result['wrong_count']} wrong × {float(result.get('negative_value', 0.0)):.2f} deducted · skipped = no deduction"
                                                     )
-                                            rows = omr_scanner.build_review_rows(scoring_answers, active_now["answer_string"])
-                                            review_rows = [r for r in rows if r["status"] in ("wrong", "skipped")]
-                                            st.markdown("#### Review")
-                                            render_omr_review(review_rows)
+                                            st.caption("Your result is saved. Open it from Test History → View to see the full Original OMR / Digital OMR analysis.")
                             except Exception as e:
                                 st.error("Something went wrong while saving your result and it was NOT recorded. Please try submitting again.")
                                 st.caption(f"Technical detail: {e}")
