@@ -432,10 +432,23 @@ def get_answer_key_by_id(key_id):
     if match.empty:
         return None
     row = match.iloc[0]
+
+    # Exam window is deliberately kept separate from the student's personal
+    # session timer.  Expose parsed start/end here so callers can validate the
+    # window without duplicating date parsing logic.
+    try:
+        start_dt = datetime.strptime(str(row.get("start_time", "")), "%Y-%m-%d %H:%M")
+        end_dt = datetime.strptime(str(row.get("end_time", "")), "%Y-%m-%d %H:%M")
+    except Exception:
+        start_dt = None
+        end_dt = None
+
     return {
         "key_id": row["key_id"],
         "exam_name": row.get("exam_name", ""),
         "date": row.get("date", ""),
+        "start_dt": start_dt,
+        "end_dt": end_dt,
         "answer_string": row["answer_string"],
         "total_questions": _to_int(row.get("total_questions"), len(str(row["answer_string"]))),
         "negative_marking": _to_bool(row.get("negative_marking", False)),
@@ -951,29 +964,85 @@ def get_exam_session(student_id, key_id):
     return None
 
 
+def get_student_exam_session(student_id, key_id):
+    """Return this student's persistent session for one exam, if any."""
+    return get_exam_session(student_id, key_id)
+
+
+def get_student_resume_session(student_id):
+    """
+    Find a student session that still needs to be resumed/submitted.
+
+    This intentionally does NOT check the mentor's exam window. A session
+    that was legitimately started inside the window must remain recoverable
+    after the window closes, including after a browser refresh.
+    """
+    ws = _cached_worksheet("ExamSessions")
+    records = _safe_get_all_records(ws)
+    now = now_bd()
+    best = None
+
+    for row in records:
+        if str(row.get("student_id", "")) != str(student_id):
+            continue
+        status = str(row.get("status", "")).strip().lower()
+        if status not in ("started", "completed", "expired"):
+            continue
+
+        key_id = str(row.get("key_id", "")).strip()
+        if not key_id:
+            continue
+
+        # Never steal the route from a result that was already submitted.
+        # The Results sheet is the authoritative submission record.
+        if has_submitted(student_id, key_id):
+            continue
+
+        expires = None
+        try:
+            expires = datetime.strptime(str(row.get("expires_at", "")), "%Y-%m-%d %H:%M:%S")
+        except Exception:
+            pass
+
+        # An expired session is still useful because the student must be able
+        # to reach the OMR page after the timer ends. For a live session, keep
+        # it as the preferred resume target.
+        priority = 0 if (status == "started" and expires and expires > now) else 1
+        candidate = (priority, row)
+        if best is None or candidate[0] < best[0]:
+            best = candidate
+
+    return dict(best[1]) if best else None
+
+
 def start_exam_session(student_id, key_id, duration_minutes):
     """
-    Starts the student's personal exam timer exactly once.
+    Start the student's personal timer exactly once.
 
     IMPORTANT:
-    - This timer is NOT the exam's global live window.
-    - duration_minutes is the student's allowed solving/viewing time.
-    - The exam's start/end window is stored separately in AnswerKeys.
-    - Refreshing/reopening the page never resets an existing session.
+    - The mentor-defined start/end is an EXAM WINDOW only.
+    - A student may start only while that window is open.
+    - Once started, the student's full duration is independent of the
+      exam-window end time and may continue past it.
+    - Refreshing/reopening never resets an existing session.
     """
     existing = get_exam_session(student_id, key_id)
     if existing:
         return existing
 
     duration_minutes = _to_int(duration_minutes, 0)
-
     if duration_minutes <= 0:
         raise ValueError("This exam has an invalid duration.")
 
+    exam = get_answer_key_by_id(key_id)
+    if not exam or not exam.get("start_dt") or not exam.get("end_dt"):
+        raise ValueError("This exam has an invalid exam window.")
+
     started = now_bd()
-    expires = started + __import__("datetime").timedelta(
-        minutes=duration_minutes
-    )
+    if not (exam["start_dt"] <= started <= exam["end_dt"]):
+        raise ValueError("This exam is not open right now.")
+
+    expires = started + __import__("datetime").timedelta(minutes=duration_minutes)
 
     ws = _cached_worksheet("ExamSessions")
 
@@ -1132,33 +1201,63 @@ def append_result_if_not_submitted(student_id, student_name, key_id, result):
     return True
 
 
-def update_result(student_id, key_id, new_marks=None, new_correct=None,
-                   new_wrong_count=None, new_wrong=None):
-    """Mentor edit/override for a single result row."""
+def update_result(student_id, key_id, new_correct=None, new_wrong_count=None,
+                   new_skipped=None, new_wrong=None):
+    """
+    Mentor result edit using Correct/Wrong/Skipped as the source of truth.
+
+    Marks are ALWAYS recalculated from those counts; there is intentionally no
+    manual marks override anymore. The per-question wrong/skipped JSON is
+    preserved unless a new question list is explicitly supplied, because
+    count-only editing cannot safely invent which individual questions changed.
+    """
     ws = _cached_worksheet("Results")
     values = _with_retry(ws.get_all_values)
+    if not values:
+        raise ValueError("Result not found.")
     header = values[0]
     row_idx = None
+    current = None
     for i, row in enumerate(values[1:], start=2):
         rec = dict(zip(header, row))
-        if rec.get("student_id") == student_id and rec.get("key_id") == key_id:
+        if str(rec.get("student_id", "")) == str(student_id) and str(rec.get("key_id", "")) == str(key_id):
             row_idx = i
+            current = rec
             break
     if not row_idx:
         raise ValueError("Result not found.")
 
-    updates = {}
-    if new_correct is not None:
-        updates["correct"] = new_correct
-    if new_wrong_count is not None:
-        updates["wrong_count"] = new_wrong_count
+    total = _to_int(current.get("total"), 0)
+    correct = _to_int(new_correct if new_correct is not None else current.get("correct"), 0)
+    wrong_count = _to_int(new_wrong_count if new_wrong_count is not None else current.get("wrong_count"), 0)
+    skipped = _to_int(new_skipped if new_skipped is not None else current.get("skipped"), 0)
+
+    if min(correct, wrong_count, skipped) < 0:
+        raise ValueError("Correct, Wrong and Skipped cannot be negative.")
+    if correct + wrong_count + skipped != total:
+        raise ValueError(f"Correct + Wrong + Skipped must equal {total}.")
+
+    negative_marking = _to_bool(current.get("negative_marking", False))
+    negative_value = _to_float(current.get("negative_value"), 0.0)
+    marks = round(correct - (wrong_count * negative_value if negative_marking else 0.0), 2)
+    answered = correct + wrong_count
+    accuracy = round((correct / answered) * 100, 2) if answered else 0.0
+
+    updates = {
+        "correct": correct,
+        "wrong_count": wrong_count,
+        "skipped": skipped,
+        "answered": answered,
+        "marks": marks,
+        "accuracy": accuracy,
+        "edited_by_mentor": True,
+    }
     if new_wrong is not None:
         updates["wrong"] = ",".join(str(q) for q in new_wrong)
-    if new_marks is not None:
-        updates["marks"] = new_marks
-    updates["edited_by_mentor"] = True
 
     for col, val in updates.items():
+        if col not in header:
+            continue
         col_idx = header.index(col) + 1
         col_letter = gspread.utils.rowcol_to_a1(1, col_idx).rstrip("1")
         _with_retry(ws.update, f"{col_letter}{row_idx}", [[val]], value_input_option=RAW)
