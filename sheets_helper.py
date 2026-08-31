@@ -141,6 +141,7 @@ RESULTS_HEADER = [
     # lightweight metadata so the result can reopen the exact submitted photo.
     "omr_photo_file_id", "omr_photo_name",
     "omr_original_answers_json", "omr_final_answers_json", "omr_double_touch_json",
+    "omr_grid_json", "omr_radius",
 ]
 
 CONFIG_HEADER = ["config_key", "config_value"]
@@ -1225,14 +1226,15 @@ def _result_row_values(student_id, student_name, key_id, result):
         skipped_qs = []
     skipped_json = json.dumps(skipped_qs, ensure_ascii=False)
 
-    # OMR review/audit metadata is intentionally lightweight JSON. The original
-    # uploaded image stays in Drive; these fields preserve what the scanner
-    # originally detected, what the student finally submitted, and which
-    # questions were originally double-touched. This makes visual editing safe
-    # without allowing a double-touch penalty to disappear.
+    # OMR review metadata is lightweight JSON. The original uploaded image
+    # stays in Drive; these fields preserve the scanner's first-pass reading,
+    # the student's final reviewed answers, confirmed final double-touch
+    # questions, and the exact per-photo bubble grid used for overlay review.
     original_answers_json = json.dumps(result.get("omr_original_answers", {}), ensure_ascii=False)
     final_answers_json = json.dumps(result.get("omr_final_answers", {}), ensure_ascii=False)
     double_touch_json = json.dumps(result.get("omr_double_touch", []), ensure_ascii=False)
+    grid_json = json.dumps(result.get("omr_grid", {}), ensure_ascii=False)
+    radius_value = result.get("omr_radius", "")
 
     return [
         timestamp, student_id, student_name, key_id,
@@ -1244,6 +1246,7 @@ def _result_row_values(student_id, student_name, key_id, result):
         str(result.get("omr_photo_file_id", "") or ""),
         str(result.get("omr_photo_name", "") or ""),
         original_answers_json, final_answers_json, double_touch_json,
+        grid_json, radius_value,
     ]
 
 
