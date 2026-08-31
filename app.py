@@ -21,6 +21,11 @@ import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 from PIL import Image, ImageOps
+
+# ================= FINAL OMR REVIEW BUILD =================
+# Original OMR photo + full Digital OMR + immutable double-touch audit +
+# compact mobile tables. Existing exam/OMR features are intentionally preserved.
+OMR_REVIEW_BUILD = "2026-08-31-final"
 from streamlit_image_coordinates import streamlit_image_coordinates
 
 import omr_scanner
@@ -1134,6 +1139,51 @@ def inject_global_css():
         }
         .double-touch-note b { color:#ef4444; }
 
+        .digital-omr-grid {
+            display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:5px; margin-top:8px;
+        }
+        .digital-omr-row {
+            display:grid; grid-template-columns:38px minmax(92px,1fr) auto; grid-template-rows:auto auto;
+            gap:4px 7px; align-items:center; padding:6px 8px; border:1px solid var(--mv-border);
+            border-radius:8px; background:rgba(255,255,255,.025); font-size:11.5px; min-width:0;
+        }
+        .digital-q { grid-row:1 / span 2; font-family:var(--mono); font-weight:800; color:var(--mv-ink); }
+        .digital-options { display:flex; gap:3px; min-width:0; }
+        .digital-bubble { width:21px; height:21px; border:1px solid rgba(148,163,184,.38); border-radius:50%;
+            display:inline-flex; align-items:center; justify-content:center; font:700 9px var(--mono); color:var(--mv-muted); }
+        .digital-bubble.detected { background:rgba(34,197,94,.18); border-color:rgba(34,197,94,.65); color:#86efac; }
+        .digital-bubble.detected-double { background:rgba(239,68,68,.18); border-color:rgba(239,68,68,.7); color:#fda4af; }
+        .digital-bubble.final { box-shadow:0 0 0 2px rgba(41,182,246,.8); color:var(--mv-ink); }
+        .digital-bubble.key { text-decoration:underline; text-underline-offset:2px; }
+        .digital-your, .digital-correct { color:var(--mv-muted); white-space:nowrap; }
+        .digital-your b, .digital-correct b { color:var(--mv-ink); }
+        .digital-correct { grid-column:2; }
+        .digital-status { grid-column:3; grid-row:1 / span 2; font-size:9px; font-weight:800; padding:3px 6px; border-radius:999px; white-space:nowrap; }
+        .digital-status.d-ok { background:rgba(34,197,94,.13); color:#4ade80; }
+        .digital-status.d-bad { background:rgba(239,68,68,.13); color:#f87171; }
+        .digital-status.d-skip { background:rgba(148,163,184,.13); color:#cbd5e1; }
+        .digital-status.d-double { background:rgba(239,68,68,.18); color:#fb7185; }
+        @media (max-width: 767px) {
+            .digital-omr-grid { grid-template-columns:1fr; gap:4px; }
+            .digital-omr-row { grid-template-columns:32px minmax(88px,1fr) auto; padding:5px 6px; font-size:10.5px; }
+            .digital-bubble { width:19px; height:19px; font-size:8px; }
+            .digital-status { font-size:8px; padding:2px 5px; }
+        }
+        @media (max-width: 767px) {
+            /* OMR review must remain readable on a phone without horizontal
+               scrolling. The question number, bubbles, final answer and status
+               are all kept inside one compact card. */
+            .digital-omr-row {
+                grid-template-columns:28px minmax(76px,1fr) auto !important;
+                gap:3px 5px !important;
+                padding:5px 5px !important;
+            }
+            .digital-options { gap:2px !important; }
+            .digital-bubble { width:18px !important; height:18px !important; font-size:7.5px !important; }
+            .digital-your, .digital-correct { font-size:9px !important; }
+            .digital-status { font-size:7.5px !important; padding:2px 4px !important; }
+        }
+
         .strength-bar { height:6px; border-radius:4px; background:rgba(128,128,128,0.2); overflow:hidden; margin-top:4px; }
         .strength-fill { height:100%; border-radius:4px; }
         .time-row-label { font-weight:600; padding-top:6px; font-size:14px; }
@@ -1507,6 +1557,19 @@ def inject_global_css():
                 text-align: center !important;
             }
 
+            /* Test history table: preserve the desktop columns semantically, but
+               tighten them enough to fit a phone without horizontal scrolling. */
+            .st-key-test_history_table div[data-testid="stHorizontalBlock"] {
+                /* Eight columns, but sized to the actual phone content width.
+                   Exam gets the flexible space; numeric columns stay compact. */
+                display:grid !important;
+                grid-template-columns:minmax(0,1fr) 48px 28px 34px 32px 38px 42px 38px !important;
+                gap:2px !important; width:100% !important; min-width:0 !important;
+            }
+            .st-key-test_history_table div[data-testid="column"] { min-width:0 !important; width:auto !important; overflow:hidden !important; }
+            .st-key-test_history_table p, .st-key-test_history_table button { font-size:9px !important; line-height:1.15 !important; }
+            .st-key-test_history_table .stButton > button { padding:3px 3px !important; min-height:28px !important; }
+
             /* Leaderboard: do NOT squeeze the desktop row into a tiny phone.
                Keep the same one-line proportions as desktop and let the user
                swipe horizontally. This is much easier to read than stacked
@@ -1578,83 +1641,27 @@ def inject_global_css():
         }
 
         /* ---- Analysis / exam-history rows on mobile -------------------
-           Keep the desktop row intact and make the card itself horizontally
-           scrollable. This avoids the cramped 5-column grid that makes Marks,
-           Correct, Wrong and View unreadable on narrow phones. */
+           No horizontal scroll: keep the same desktop information but pack it
+           into a two-line card that fits a narrow phone. */
         @media (max-width: 767px) {
             [class*="st-key-acard_"] {
-                width: 100% !important;
-                max-width: 100% !important;
-                box-sizing: border-box !important;
-                overflow-x: auto !important;
-                overflow-y: visible !important;
-                -webkit-overflow-scrolling: touch !important;
-                scrollbar-width: thin;
-                padding: 9px 10px 8px !important;
+                width: 100% !important; max-width: 100% !important; box-sizing: border-box !important;
+                padding: 7px 8px !important; overflow: hidden !important;
             }
             [class*="st-key-acard_"] div[data-testid="stHorizontalBlock"] {
-                display: flex !important;
-                flex-direction: row !important;
-                flex-wrap: nowrap !important;
-                width: 610px !important;
-                min-width: 610px !important;
-                max-width: none !important;
-                gap: 8px !important;
-                align-items: center !important;
+                display:grid !important; grid-template-columns:minmax(0,1fr) 50px 50px 50px 54px !important;
+                width:100% !important; min-width:0 !important; max-width:100% !important;
+                gap:4px !important; align-items:center !important;
             }
             [class*="st-key-acard_"] div[data-testid="column"] {
-                min-width: 0 !important;
-                max-width: none !important;
-                overflow: visible !important;
-                width: auto !important;
+                min-width:0 !important; max-width:100% !important; width:auto !important; overflow:hidden !important;
             }
-            [class*="st-key-acard_"] div[data-testid="column"]:nth-child(1) {
-                flex: 0 0 275px !important;
-                width: 275px !important;
-            }
-            [class*="st-key-acard_"] div[data-testid="column"]:nth-child(2),
-            [class*="st-key-acard_"] div[data-testid="column"]:nth-child(3),
-            [class*="st-key-acard_"] div[data-testid="column"]:nth-child(4) {
-                flex: 0 0 72px !important;
-                width: 72px !important;
-                text-align: center !important;
-            }
-            [class*="st-key-acard_"] div[data-testid="column"]:nth-child(5) {
-                flex: 0 0 78px !important;
-                width: 78px !important;
-            }
-            [class*="st-key-acard_"] [data-testid="stMetricValue"] {
-                font-size: 16px !important;
-                white-space: nowrap !important;
-                overflow: visible !important;
-                text-overflow: clip !important;
-            }
-            [class*="st-key-acard_"] [data-testid="stMetricLabel"] p {
-                font-size: 10px !important;
-                white-space: nowrap !important;
-                overflow: visible !important;
-                text-overflow: clip !important;
-            }
-            [class*="st-key-acard_"] div[data-testid="column"]:nth-child(1) .analysis-title {
-                font-size: 14px !important;
-                white-space: nowrap !important;
-                overflow: hidden !important;
-                text-overflow: ellipsis !important;
-            }
-            [class*="st-key-acard_"] div[data-testid="column"]:nth-child(1) .analysis-subtle {
-                font-size: 11px !important;
-                white-space: nowrap !important;
-                overflow: hidden !important;
-                text-overflow: ellipsis !important;
-            }
-            [class*="st-key-acard_"] .stButton > button {
-                min-width: 72px !important;
-                padding: 5px 8px !important;
-                font-size: 12px !important;
-            }
-            [class*="st-key-acard_"] > div[data-testid="stVerticalBlock"] {
-                min-width: 610px !important;
-            }
+            [class*="st-key-acard_"] [data-testid="stMetricValue"] { font-size:13px !important; line-height:1.05 !important; white-space:nowrap !important; }
+            [class*="st-key-acard_"] [data-testid="stMetricLabel"] p { font-size:8px !important; line-height:1.1 !important; white-space:nowrap !important; }
+            [class*="st-key-acard_"] .analysis-title { font-size:12px !important; white-space:nowrap !important; overflow:hidden !important; text-overflow:ellipsis !important; }
+            [class*="st-key-acard_"] .analysis-subtle { font-size:9px !important; white-space:nowrap !important; overflow:hidden !important; text-overflow:ellipsis !important; }
+            [class*="st-key-acard_"] .stButton > button { min-width:0 !important; width:100% !important; padding:4px 4px !important; font-size:10px !important; }
+            [class*="st-key-acard_"] > div[data-testid="stVerticalBlock"] { min-width:0 !important; width:100% !important; }
         }
 
         /* ---- Themed spinner (recolors Streamlit's built-in spinner to
@@ -2899,18 +2906,383 @@ def render_result_detail(result_row, key_row):
             except Exception:
                 st.info("Question PDF is unavailable.")
 
+    omr_photo_id = str(result_row.get("omr_photo_file_id", "") or "")
+    if omr_photo_id:
+        with st.expander("📷 View Submitted OMR Photo"):
+            try:
+                omr_bytes = sh.get_student_omr_image_bytes(omr_photo_id)
+                if omr_bytes:
+                    st.image(omr_bytes, caption="Original OMR photo submitted by you", use_container_width=True)
+                else:
+                    st.info("Submitted OMR photo is unavailable.")
+            except Exception:
+                st.info("Submitted OMR photo is unavailable.")
+
     st.markdown("#### Wrong & Skipped Answers")
     render_omr_review(rows)
 
 
 def _reset_submission_state():
-    """Clears every piece of session_state used by the per-submission photo
-    calibration flow below - called once a submission is saved (or when a
-    new photo is uploaded) so leftover state from a previous photo never
-    leaks into the next one."""
-    for k in ("submit_file_sig", "submit_prepared_image", "submit_validation", "submit_calib_points"):
+    """Clear all transient state for one uploaded OMR photo."""
+    for k in (
+        "submit_file_sig", "submit_prepared_image", "submit_original_bytes",
+        "submit_validation", "submit_calib_points", "submit_grid",
+        "submit_detected_answers", "submit_final_answers", "submit_double_touch",
+        "submit_review_ready", "submit_review_photo",
+    ):
         st.session_state.pop(k, None)
 
+
+def _normalise_answer_value(value):
+    """Normalize scanner/edit values to None, A/B/C/D or MULTI."""
+    if value is None:
+        return None
+    text = str(value).strip().upper()
+    if text in ("", "NONE", "SKIP", "SKIPPED", "NULL"):
+        return None
+    if text in ("MULTI", "DOUBLE", "DOUBLE_TOUCH", "MULTIPLE"):
+        return "MULTI"
+    if text in ("A", "B", "C", "D"):
+        return text
+    return None
+
+
+def _normalise_answers(raw, total_q):
+    """Return a stable {question_number: answer} dict from scanner output."""
+    out = {}
+    if isinstance(raw, dict):
+        for q in range(1, total_q + 1):
+            value = raw.get(q, raw.get(str(q)))
+            out[q] = _normalise_answer_value(value)
+    elif isinstance(raw, (list, tuple)):
+        for q in range(1, total_q + 1):
+            value = raw[q - 1] if q - 1 < len(raw) else None
+            out[q] = _normalise_answer_value(value)
+    else:
+        for q in range(1, total_q + 1):
+            out[q] = None
+    return out
+
+
+def _coord_pair(value):
+    """Best-effort extraction of an (x,y) point from common grid formats."""
+    if isinstance(value, dict):
+        for xk, yk in (("x", "y"), ("cx", "cy"), ("center_x", "center_y")):
+            if xk in value and yk in value:
+                try:
+                    return float(value[xk]), float(value[yk])
+                except Exception:
+                    pass
+        for key in ("center", "point", "coord", "coords", "xy"):
+            if key in value:
+                pt = _coord_pair(value[key])
+                if pt:
+                    return pt
+        return None
+    if isinstance(value, np.ndarray):
+        value = value.tolist()
+    if isinstance(value, (list, tuple)) and len(value) == 2:
+        try:
+            if not isinstance(value[0], (list, tuple, dict)) and not isinstance(value[1], (list, tuple, dict)):
+                return float(value[0]), float(value[1])
+        except Exception:
+            return None
+    return None
+
+
+def _extract_question_option_points(grid, total_q):
+    """Extract Q1..Qn -> A/B/C/D centers without depending on one exact grid shape.
+
+    The scanner module has evolved over time, so this intentionally accepts the
+    common dict/list/tuple representations used by build_grid(). If a future
+    scanner representation is different, the review still works in digital mode
+    rather than guessing bubble locations.
+    """
+    labels = ["A", "B", "C", "D"]
+    found = {}
+
+    def walk(obj, q_hint=None):
+        if isinstance(obj, dict):
+            # Direct question keyed dictionaries: {1: {A: (x,y), ...}}
+            for key, val in obj.items():
+                q = None
+                try:
+                    if isinstance(key, int) or str(key).isdigit():
+                        q = int(key)
+                except Exception:
+                    pass
+                if q and 1 <= q <= total_q and isinstance(val, dict):
+                    opts = {}
+                    for opt in labels:
+                        if opt in val:
+                            pt = _coord_pair(val[opt])
+                            if pt:
+                                opts[opt] = pt
+                    if len(opts) == 4:
+                        found[q] = opts
+                walk(val, q or q_hint)
+            return
+
+        if isinstance(obj, np.ndarray):
+            obj = obj.tolist()
+        if isinstance(obj, (list, tuple)):
+            # A question entry represented as four coordinates.
+            if len(obj) == 4:
+                pts = [_coord_pair(v) for v in obj]
+                if all(pts):
+                    q = q_hint
+                    if q and 1 <= q <= total_q:
+                        found[q] = dict(zip(labels, pts))
+            for idx, val in enumerate(obj):
+                child_q = q_hint
+                # If this is a top-level sequence of Q entries, its index is Q.
+                if q_hint is None and idx < total_q:
+                    child_q = idx + 1
+                walk(val, child_q)
+
+    walk(grid)
+
+    # Last-resort flattening: if the grid is simply 4*n coordinate pairs,
+    # preserve their natural question/option order.
+    if len(found) < total_q:
+        flat = []
+        def flatten(obj):
+            pt = _coord_pair(obj)
+            if pt:
+                flat.append(pt)
+                return
+            if isinstance(obj, np.ndarray):
+                obj = obj.tolist()
+            if isinstance(obj, dict):
+                for v in obj.values():
+                    flatten(v)
+            elif isinstance(obj, (list, tuple)):
+                for v in obj:
+                    flatten(v)
+        flatten(grid)
+        if len(flat) >= total_q * 4:
+            candidate = {}
+            for q in range(1, total_q + 1):
+                start = (q - 1) * 4
+                candidate[q] = dict(zip(labels, flat[start:start + 4]))
+            # Only use the flattened interpretation if it gives every question.
+            if len(candidate) == total_q:
+                found = candidate
+
+    return found
+
+
+def _review_status(answer, correct, was_double=False):
+    if was_double or answer == "MULTI":
+        return "double"
+    if answer is None:
+        return "skipped"
+    return "correct" if answer == correct else "incorrect"
+
+
+def _build_review_state(final_answers, key_string, original_answers):
+    correct_map = {
+        q: (key_string[q - 1].upper() if q - 1 < len(key_string) else "")
+        for q in range(1, len(final_answers) + 1)
+    }
+    double_qs = set(st.session_state.get("submit_double_touch", []))
+    rows = []
+    for q in range(1, len(final_answers) + 1):
+        answer = _normalise_answer_value(final_answers.get(q))
+        original = _normalise_answer_value(original_answers.get(q))
+        rows.append({
+            "q": q,
+            "given": answer,
+            "original_given": original,
+            "correct": correct_map.get(q, ""),
+            "status": _review_status(answer, correct_map.get(q, ""), q in double_qs),
+        })
+    return rows
+
+
+def _make_review_overlay(image_bgr, grid_points, final_answers, original_answers, key_string, double_qs):
+    """Draw subtle detection/final-answer overlays on the student's own photo."""
+    canvas = image_bgr.copy()
+    if not grid_points:
+        return cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
+
+    overlay = canvas.copy()
+    for q, opts in grid_points.items():
+        if q not in final_answers:
+            continue
+        original = _normalise_answer_value(original_answers.get(q))
+        final = _normalise_answer_value(final_answers.get(q))
+        correct = key_string[q - 1].upper() if q - 1 < len(key_string) else ""
+        for opt, pt in opts.items():
+            x, y = int(round(pt[0])), int(round(pt[1]))
+            radius = 16
+            # Original scanner detection: intentionally light and translucent.
+            if original == "MULTI" or (q in double_qs and opt in ("A", "B", "C", "D")):
+                cv2.circle(overlay, (x, y), radius, (70, 70, 235), -1)
+                cv2.circle(overlay, (x, y), radius + 2, (70, 70, 235), 2)
+            elif original == opt:
+                cv2.circle(overlay, (x, y), radius, (55, 190, 135), -1)
+                cv2.circle(overlay, (x, y), radius + 2, (55, 190, 135), 2)
+
+            # Final student-reviewed answer gets a crisp outline, so edits are visible.
+            if final == opt and final != "MULTI":
+                outline = (30, 190, 245) if final == correct else (70, 170, 245)
+                cv2.circle(canvas, (x, y), radius + 4, outline, 3)
+
+    return cv2.cvtColor(cv2.addWeighted(overlay, 0.28, canvas, 0.72, 0), cv2.COLOR_BGR2RGB)
+
+
+def _render_digital_omr(review_rows, filter_values=None):
+    """Render the complete digital OMR in a compact, filterable layout.
+
+    Every question is always represented when its status is selected. Each row
+    shows the student's final answer, the correct answer, and the four OMR
+    options so a 40- or 100-question paper remains easy to audit without
+    needing a second image.
+    """
+    all_filters = ["Correct", "Incorrect", "Skipped", "Double Touch"]
+    selected = set(filter_values or all_filters)
+
+    def status_label(status):
+        return {
+            "correct": "Correct",
+            "incorrect": "Incorrect",
+            "skipped": "Skipped",
+            "double": "Double Touch",
+        }.get(status, "Skipped")
+
+    html = ["<div class='digital-omr-grid'>"]
+    for row in review_rows:
+        label = status_label(row.get("status"))
+        # Double-touch is an incorrect scoring outcome, but remains independently
+        # filterable. Selecting Incorrect includes it; selecting only Correct or
+        # Skipped does not.
+        visible = label in selected or (label == "Double Touch" and "Incorrect" in selected)
+        if not visible:
+            continue
+
+        given = row.get("given") or "—"
+        correct = row.get("correct") or "—"
+        original = row.get("original_given")
+        opts = []
+        for opt in ("A", "B", "C", "D"):
+            classes = ["digital-bubble"]
+            if original == "MULTI":
+                classes.append("detected-double")
+            elif original == opt:
+                classes.append("detected")
+            if given == opt:
+                classes.append("final")
+            if correct == opt:
+                classes.append("key")
+            opts.append(f"<span class='{' '.join(classes)}'>{opt}</span>")
+
+        tag_class = {
+            "Correct": "d-ok",
+            "Incorrect": "d-bad",
+            "Skipped": "d-skip",
+            "Double Touch": "d-double",
+        }[label]
+        html.append(
+            f"<div class='digital-omr-row'>"
+            f"<span class='digital-q'>Q{row['q']}</span>"
+            f"<span class='digital-options'>{''.join(opts)}</span>"
+            f"<span class='digital-your'>Your: <b>{given}</b></span>"
+            f"<span class='digital-correct'>Key: <b>{correct}</b></span>"
+            f"<span class='digital-status {tag_class}'>{label}</span>"
+            f"</div>"
+        )
+    html.append("</div>")
+    st.markdown("".join(html), unsafe_allow_html=True)
+
+
+def _render_interactive_omr_review(img_bgr, grid_points, detected_answers, final_answers, key_string, double_qs, radius):
+    """Review the scan on the student's original photo, or inspect the full digital OMR.
+
+    Original detection is immutable. `final_answers` is only the student's editable
+    visible answer; `double_qs` always comes from the first scanner pass and is kept
+    separately so editing cannot erase a negative-marking double-touch.
+    """
+    total_q = len(final_answers)
+    correct_count = 0
+    skipped_count = 0
+    incorrect_count = 0
+    double_count = len(double_qs)
+    for q in range(1, total_q + 1):
+        a = _normalise_answer_value(final_answers.get(q))
+        if q in double_qs:
+            incorrect_count += 1
+        elif a is None:
+            skipped_count += 1
+        elif q <= len(key_string) and a == key_string[q - 1].upper():
+            correct_count += 1
+        else:
+            incorrect_count += 1
+
+    st.markdown("#### 🔍 OMR Scan Review")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Answered", total_q - skipped_count)
+    c2.metric("Skipped", skipped_count)
+    c3.metric("Correct", correct_count)
+    c4.metric("Double Touch", double_count)
+
+    view = st.radio(
+        "Review view",
+        ["📷 Original OMR", "🖥️ Digital OMR"],
+        horizontal=True,
+        key=f"omr_review_view_{st.session_state.get('submit_file_sig', '')}",
+    )
+
+    review_rows = _build_review_state(final_answers, key_string, detected_answers)
+    filter_values = ["Correct", "Incorrect", "Skipped", "Double Touch"]
+    if view == "🖥️ Digital OMR":
+        st.caption("Your = final answer · Key = correct answer · * = original double-touch detected")
+        filter_values = st.multiselect(
+            "Digital OMR filter",
+            ["Correct", "Incorrect", "Skipped", "Double Touch"],
+            default=["Correct", "Incorrect", "Skipped", "Double Touch"],
+            key=f"omr_digital_filter_{st.session_state.get('submit_file_sig', '')}",
+            help="Leave all selected to show the complete digital OMR. Select any one or more categories to narrow it.",
+        )
+
+    if view == "📷 Original OMR":
+        st.caption(
+            "Your original uploaded photo is shown here. 🟢 detected answer · 🔵 final answer · 🔴 double-touch. "
+            "Tap a bubble to correct a wrong detection."
+        )
+        overlay_rgb = _make_review_overlay(
+            img_bgr, grid_points, final_answers, detected_answers, key_string, set(double_qs)
+        )
+        review_pil = Image.fromarray(overlay_rgb)
+        coords = streamlit_image_coordinates(
+            review_pil,
+            key=f"omr_review_img_{st.session_state.get('submit_file_sig','')}"
+        )
+        if coords is not None and grid_points:
+            x, y = float(coords["x"]), float(coords["y"])
+            best = None
+            best_dist = None
+            click_radius = max(18.0, float(radius or 16) * 1.7)
+            for q, opts in grid_points.items():
+                for opt, pt in opts.items():
+                    dist = ((x - pt[0]) ** 2 + (y - pt[1]) ** 2) ** 0.5
+                    if dist <= click_radius and (best_dist is None or dist < best_dist):
+                        best = (q, opt)
+                        best_dist = dist
+            if best:
+                q, opt = best
+                current = _normalise_answer_value(final_answers.get(q))
+                # The original double-touch flag is never cleared by editing.
+                final_answers[q] = None if current == opt else opt
+                st.session_state["submit_final_answers"] = final_answers
+                st.rerun()
+
+        st.markdown("**Tap directly on a bubble to edit the final answer.**")
+    else:
+        st.caption("Full digital OMR — all questions, your final answer, the answer key and scan status.")
+        _render_digital_omr(review_rows, filter_values)
+
+    return review_rows
 
 def page_tests_results():
     sid = st.session_state["student_id"]
@@ -2937,14 +3309,9 @@ def page_tests_results():
     if requested_submit_key:
         requested_key = sh.get_answer_key_by_id(requested_submit_key)
         if requested_key:
-            # Build the same shape the existing submission UI expects. The
-            # global exam window may already be closed; a student who started
-            # the exam is still allowed to submit the OMR afterward.
             active = requested_key
             try:
-                active["start_dt"] = datetime.strptime(
-                    f"{active['date']} 00:00", "%Y-%m-%d %H:%M"
-                )
+                active["start_dt"] = datetime.strptime(f"{active['date']} 00:00", "%Y-%m-%d %H:%M")
                 active["end_dt"] = active["start_dt"]
             except Exception:
                 pass
@@ -2961,50 +3328,37 @@ def page_tests_results():
             st.success("✅ You've already submitted this test. Duplicate submissions aren't allowed.")
         else:
             total_q = active["total_questions"]
-            st.caption(f"Active test: **{active['exam_name'] or active['key_id']}** · "
-                       f"{total_q} questions")
+            st.caption(f"Active test: **{active['exam_name'] or active['key_id']}** · {total_q} questions")
             uploaded = st.file_uploader(
-                "Upload a clear, straight photo of your FULL filled OMR sheet (camera or gallery). "
-                "Make sure all 4 corners of the sheet are visible in the frame.",
+                "Upload a clear, straight photo of your FULL filled OMR sheet (camera or gallery). Make sure all 4 corners of the sheet are visible in the frame.",
                 type=["png", "jpg", "jpeg"], key="omr_upload",
             )
 
             if uploaded is None:
                 _reset_submission_state()
             else:
-                # A stable signature for "is this the same photo as last rerun?" -
-                # if the student swaps the photo, every bit of calibration/
-                # validation state for the OLD photo must be thrown away.
                 file_sig = f"{uploaded.name}_{uploaded.size}"
                 if st.session_state.get("submit_file_sig") != file_sig:
                     _reset_submission_state()
                     st.session_state["submit_file_sig"] = file_sig
 
-                # ---- Step 0: prepare the photo once per upload (orient + validate) ----
                 if "submit_prepared_image" not in st.session_state:
-                    pil_img = Image.open(uploaded).convert("RGB")
-                    # Fixes photos that come out sideways/upside-down because of
-                    # phone camera EXIF orientation - keeps the sheet upright and
-                    # fully visible, which the calibration clicks below depend on.
-                    pil_img = ImageOps.exif_transpose(pil_img)
+                    pil_img = ImageOps.exif_transpose(Image.open(uploaded).convert("RGB"))
+                    original_bytes = uploaded.getvalue()
                     orig_bgr = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
-
-                    # Quality checks ALWAYS run on the original, full-resolution
-                    # photo - resizing happens only after, for display/calibration.
                     ok, errors, warnings_ = omr_scanner.validate_omr_image(orig_bgr)
                     proc_bgr = omr_scanner.resize_max_dim(orig_bgr) if ok else orig_bgr
-
                     st.session_state["submit_prepared_image"] = proc_bgr
+                    st.session_state["submit_original_bytes"] = original_bytes
                     st.session_state["submit_validation"] = (ok, errors, warnings_)
 
                 img_bgr = st.session_state["submit_prepared_image"]
                 ok, errors, warnings_ = st.session_state["submit_validation"]
-
                 display_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
                 display_pil = Image.fromarray(display_rgb)
-                st.image(display_rgb, caption="Your uploaded sheet - full photo", use_container_width=True)
 
                 if not ok:
+                    st.image(display_rgb, caption="Your uploaded sheet - full photo", use_container_width=True)
                     for e in errors:
                         st.error(e)
                 else:
@@ -3015,68 +3369,74 @@ def page_tests_results():
                     calib_points = st.session_state.get("submit_calib_points", [])
                     total_points = len(points_info)
 
-                    st.markdown("#### 🎯 Calibrate Your Sheet")
-                    st.caption(
-                        f"Tap the exact CENTER of these {total_points} bubbles on YOUR photo above, "
-                        "in order (a top AND bottom point for every question block, so the reading "
-                        "stays accurate even if the sheet is a little curved, folded, or tilted in "
-                        "the photo)."
-                    )
-
-                    if len(calib_points) < total_points:
-                        step = points_info[len(calib_points)]
-                        st.markdown(
-                            f"<span class='calib-step-badge'>Step {len(calib_points) + 1} of {total_points}</span> "
-                            f"&nbsp; Now tap: **{step['full']}**",
-                            unsafe_allow_html=True,
+                    if not st.session_state.get("submit_review_ready"):
+                        st.markdown("#### 🎯 Calibrate Your Sheet")
+                        st.caption(
+                            f"Tap the exact CENTER of these {total_points} bubbles on YOUR photo above, in order (a top AND bottom point for every question block, so the reading stays accurate even if the sheet is a little curved, folded, or tilted in the photo)."
                         )
-                        coords = streamlit_image_coordinates(display_pil, key=f"submit_calib_img_{file_sig}")
-                        if coords is not None:
-                            pt = (coords["x"], coords["y"])
-                            if not calib_points or calib_points[-1] != pt:
-                                calib_points.append(pt)
-                                st.session_state["submit_calib_points"] = calib_points
-                                st.rerun()
+                        if len(calib_points) < total_points:
+                            step = points_info[len(calib_points)]
+                            st.markdown(
+                                f"<span class='calib-step-badge'>Step {len(calib_points) + 1} of {total_points}</span> &nbsp; Now tap: **{step['full']}**",
+                                unsafe_allow_html=True,
+                            )
+                            coords = streamlit_image_coordinates(display_pil, key=f"submit_calib_img_{file_sig}")
+                            if coords is not None:
+                                pt = (coords["x"], coords["y"])
+                                if not calib_points or calib_points[-1] != pt:
+                                    calib_points.append(pt)
+                                    st.session_state["submit_calib_points"] = calib_points
+                                    st.rerun()
+                        else:
+                            st.success(f"✅ All {total_points} points marked!")
+                            calibration = {info["key"]: pt for info, pt in zip(points_info, calib_points)}
+                            grid = omr_scanner.build_grid(calibration, total_questions=total_q)
+                            radius = omr_scanner.compute_bubble_radius(img_bgr)
+                            detected = _normalise_answers(omr_scanner.read_answers(img_bgr, grid, radius=radius), total_q)
+                            double_qs = [q for q, a in detected.items() if a == "MULTI"]
+                            # Keep the raw grid in state; it is used only for the interactive overlay.
+                            st.session_state["submit_grid"] = grid
+                            st.session_state["submit_detected_answers"] = detected
+                            st.session_state["submit_final_answers"] = dict(detected)
+                            st.session_state["submit_double_touch"] = double_qs
+                            st.session_state["submit_review_ready"] = True
+                            st.rerun()
                     else:
-                        st.success(f"✅ All {total_points} points marked!")
-                        chip_html = "".join(
-                            f"<span class='calib-point-chip'>{info['short']}: {pt}</span>"
-                            for info, pt in zip(points_info, calib_points)
-                        )
-                        st.markdown(chip_html, unsafe_allow_html=True)
+                        grid = st.session_state.get("submit_grid")
+                        detected = st.session_state.get("submit_detected_answers", {})
+                        final_answers = st.session_state.get("submit_final_answers", dict(detected))
+                        double_qs = st.session_state.get("submit_double_touch", [])
+                        grid_points = _extract_question_option_points(grid, total_q)
+                        radius = omr_scanner.compute_bubble_radius(img_bgr)
 
-                        # Guards against duplicate submissions caused by a
-                        # user double-clicking Submit or having two tabs
-                        # open: while a submission for THIS photo is being
-                        # processed, the button below is disabled so a
-                        # second click can't even fire a second request.
-                        # This is on top of (not instead of) the atomic
-                        # server-side check in
-                        # sh.append_result_if_not_submitted() below - the
-                        # button-disable stops the common case (an
-                        # impatient extra click) instantly with no network
-                        # round trip, while the server-side check is what
-                        # actually protects against two different tabs/
-                        # devices racing each other.
+                        if not grid_points:
+                            st.warning("The detected bubble coordinates could not be mapped for direct photo editing. The full digital OMR is still available below.")
+                        review_rows = _render_interactive_omr_review(
+                            img_bgr, grid_points, detected, final_answers, active["answer_string"], double_qs, radius
+                        )
+
+                        st.divider()
+                        st.markdown("#### ✅ Ready to Submit?")
+                        if double_qs:
+                            st.warning(
+                                f"⚠️ {len(double_qs)} double-touch question(s) were detected. They will keep their negative-marking penalty even if you edit the visible answer."
+                            )
+
                         submitting_key = f"submitting_{file_sig}"
                         is_submitting = st.session_state.get(submitting_key, False)
-
                         cb1, cb2 = st.columns(2)
                         with cb1:
-                            if st.button("🔄 Redo Calibration Points", use_container_width=True,
-                                         disabled=is_submitting):
-                                st.session_state["submit_calib_points"] = []
+                            if st.button("🔄 Redo Calibration Points", use_container_width=True, disabled=is_submitting):
+                                _reset_submission_state()
+                                st.session_state["submit_file_sig"] = file_sig
                                 st.rerun()
                         with cb2:
-                            submit_clicked = st.button(
-                                "📤 Submit & See Score", type="primary", use_container_width=True,
-                                disabled=is_submitting,
-                            )
+                            submit_clicked = st.button("📤 Confirm & Submit", type="primary", use_container_width=True, disabled=is_submitting)
 
                         if submit_clicked and not is_submitting:
                             st.session_state[submitting_key] = True
                             try:
-                                with st.spinner("Reading your answers..."):
+                                with st.spinner("Scoring your final answers and saving your OMR..."):
                                     submit_key_id = active["key_id"]
                                     active_now = sh.get_answer_key_by_id(submit_key_id)
                                     if not active_now:
@@ -3084,55 +3444,39 @@ def page_tests_results():
                                     elif sh.has_submitted(sid, active_now["key_id"]):
                                         st.warning("You've already submitted this test.")
                                     else:
-                                        calibration = {
-                                            info["key"]: pt
-                                            for info, pt in zip(points_info, calib_points)
-                                        }
-                                        grid = omr_scanner.build_grid(calibration, total_questions=active_now["total_questions"])
-                                        radius = omr_scanner.compute_bubble_radius(img_bgr)
-                                        student_answers = omr_scanner.read_answers(img_bgr, grid, radius=radius)
-                                        key_string = active_now["answer_string"]
-                                        submit_key_id = active_now["key_id"]
-
+                                        # Double-touch history is immutable. Feed MULTI into the
+                                        # scoring engine even if the student changed the visible final answer.
+                                        scoring_answers = dict(final_answers)
+                                        for q in double_qs:
+                                            scoring_answers[q] = "MULTI"
                                         result = omr_scanner.score_answers(
-                                            student_answers, key_string,
+                                            scoring_answers,
+                                            active_now["answer_string"],
                                             negative_marking=active_now.get("negative_marking", False),
                                             negative_value=active_now.get("negative_marks_value", 0.0),
                                         )
-
-                                        # Enforce the app's scoring contract here as a
-                                        # final guard. A correct answer is +1 mark;
-                                        # each wrong answer loses the configured
-                                        # negative value; skipped answers lose 0.
-                                        # This is intentionally applied only when
-                                        # negative marking is enabled, so normal
-                                        # exams keep the scanner's original marks.
-                                        neg_enabled = sh._to_bool(
-                                            active_now.get("negative_marking", False)
-                                        )
+                                        # Preserve the scanner's first-pass detection separately
+                                        # from the student's editable final answer. This is the audit
+                                        # trail that keeps double-touch negative marking enforceable.
+                                        result["omr_original_answers"] = dict(detected)
+                                        result["omr_final_answers"] = dict(final_answers)
+                                        result["omr_double_touch"] = list(double_qs)
+                                        neg_enabled = sh._to_bool(active_now.get("negative_marking", False))
                                         if neg_enabled:
-                                            neg_per_wrong = max(
-                                                0.0,
-                                                float(active_now.get("negative_marks_value", 0.0) or 0.0),
-                                            )
-                                            result["marks"] = round(
-                                                float(result.get("correct", 0))
-                                                - float(result.get("wrong_count", 0)) * neg_per_wrong,
-                                                4,
-                                            )
+                                            neg_per_wrong = max(0.0, float(active_now.get("negative_marks_value", 0.0) or 0.0))
+                                            result["marks"] = round(float(result.get("correct", 0)) - float(result.get("wrong_count", 0)) * neg_per_wrong, 4)
                                             result["negative_marking"] = True
                                             result["negative_value"] = neg_per_wrong
-                                        # Atomic check-and-write: re-verifies against a FRESH
-                                        # (uncached) read of the Results sheet right before
-                                        # writing, so a near-simultaneous duplicate request
-                                        # (double-click that slipped past the disabled button,
-                                        # a second open tab, or another device) is caught here
-                                        # even if the has_submitted() check above was stale.
+
                                         saved = sh.append_result_if_not_submitted(
-                                            sid, st.session_state["student_name"], submit_key_id, result
+                                            sid,
+                                            st.session_state["student_name"],
+                                            submit_key_id,
+                                            result,
+                                            omr_photo_bytes=st.session_state.get("submit_original_bytes"),
+                                            omr_photo_name=uploaded.name,
                                         )
                                         clear_all_caches()
-
                                         if not saved:
                                             st.warning("You've already submitted this test (from another tab or device).")
                                         else:
@@ -3140,7 +3484,6 @@ def page_tests_results():
                                             st.session_state.pop("submit_key_id", None)
                                             _reset_submission_state()
                                             st.success("✅ Result saved!")
-
                                             with st.container(key="card_submit_result"):
                                                 r1, r2, r3, r4 = st.columns(4)
                                                 r1.metric("Correct ✅", result["correct"])
@@ -3149,56 +3492,30 @@ def page_tests_results():
                                                 r4.metric("🏆 Marks", result["marks"])
                                                 if sh._to_bool(result.get("negative_marking", False)):
                                                     st.caption(
-                                                        f"Negative marking: {result['wrong_count']} wrong × "
-                                                        f"{float(result.get('negative_value', 0.0)):.2f} "
-                                                        f"deducted · skipped = no deduction"
+                                                        f"Negative marking: {result['wrong_count']} wrong × {float(result.get('negative_value', 0.0)):.2f} deducted · skipped = no deduction"
                                                     )
-
-                                            rows = omr_scanner.build_review_rows(student_answers, key_string)
+                                            rows = omr_scanner.build_review_rows(scoring_answers, active_now["answer_string"])
                                             review_rows = [r for r in rows if r["status"] in ("wrong", "skipped")]
                                             st.markdown("#### Review")
                                             render_omr_review(review_rows)
                             except Exception as e:
-                                # Anything unexpected (network hiccup, Sheets API error,
-                                # a bug in the scoring/reading code, etc.) lands here.
-                                # Without this except+finally, an exception thrown
-                                # anywhere above would skip straight past every
-                                # "st.session_state[submitting_key] = False" line that
-                                # used to be sprinkled through the branches, leaving the
-                                # Submit button disabled FOREVER for this photo - the
-                                # student would be stuck with no way to retry short of
-                                # re-uploading a new photo. Catching here guarantees the
-                                # button always becomes clickable again, and tells the
-                                # student plainly that nothing was saved so they know a
-                                # retry is safe (not a silent double-submit risk).
-                                st.error(
-                                    "Something went wrong while saving your result and it was "
-                                    "NOT recorded. Please try submitting again."
-                                )
+                                st.error("Something went wrong while saving your result and it was NOT recorded. Please try submitting again.")
                                 st.caption(f"Technical detail: {e}")
                             finally:
-                                # Runs no matter what happened above (success, a
-                                # handled error/warning, or the exception path) - this
-                                # is the single place that re-enables the Submit
-                                # button, so there's exactly one thing to check when
-                                # confirming the button can never get stuck.
                                 st.session_state[submitting_key] = False
 
     st.markdown("#### 📋 Test History")
     results = cached_results()
     keys_df = cached_answer_keys()
     my_results = results[results["student_id"] == sid] if not results.empty else results
-
     if my_results.empty:
         st.caption("No tests submitted yet.")
         return
-
     my_results = my_results.sort_values("timestamp", ascending=False)
     with st.container(key="test_history_table"):
         header_cols = st.columns([2.4, 1.3, 0.9, 0.9, 0.9, 0.9, 0.9, 0.8])
         for c, label in zip(header_cols, ["Exam", "Date", "Total", "Correct", "Wrong", "Skipped", "Marks", ""]):
             c.markdown(f"**{label}**")
-
         for _, row in my_results.iterrows():
             key_match = keys_df[keys_df["key_id"] == row["key_id"]]
             exam_name = key_match.iloc[0]["exam_name"] if not key_match.empty and key_match.iloc[0]["exam_name"] else row["key_id"]
