@@ -77,6 +77,18 @@ page (see update_student_extra_profile() below). Phone number is NEVER
 editable anywhere in this app, by design - it's the student's login
 identity - so there is deliberately no function/parameter anywhere that
 lets it be changed except by direct database/support access.
+
+IMPORTANT - Question PDF storage on Google Drive (service accounts):
+A service account has NO Drive storage quota of its own - if you upload
+a file without a `parents` folder, Drive tries to store it in the
+service account's own (nonexistent) storage and the upload fails. Every
+question PDF is therefore uploaded into ONE specific folder that a real
+Google account owns and has explicitly shared with the service account
+(Editor access) - that folder's ID is read from
+st.secrets["QUESTION_PDF_FOLDER_ID"]. `supportsAllDrives=True` is passed
+on both the upload and the download call as a belt-and-suspenders
+measure in case that folder ever lives inside a Shared Drive instead of
+a personal "My Drive" folder.
 """
 
 import hashlib
@@ -865,7 +877,19 @@ def _drive_service():
 
 
 def upload_question_pdf(file_bytes, filename):
-    """Upload one mentor-provided PDF to Drive and return (file_id, name)."""
+    """Upload one mentor-provided PDF to Drive and return (file_id, name).
+
+    IMPORTANT: a service account has no Drive storage quota of its own -
+    without a `parents` folder, Drive tries to store the file in the
+    service account's own (nonexistent) storage and the upload fails with
+    a "Service Accounts do not have storage quota" error. The upload is
+    therefore always targeted at st.secrets["QUESTION_PDF_FOLDER_ID"], a
+    folder owned by a real Google account that has shared Editor access
+    with the service account's email (see the [gcp_service_account]
+    client_email in secrets.toml). `supportsAllDrives=True` is passed as
+    a belt-and-suspenders measure in case that folder is ever moved into
+    a Shared Drive instead of a personal "My Drive" folder.
+    """
     from googleapiclient.http import MediaIoBaseUpload
 
     if not file_bytes:
@@ -881,18 +905,31 @@ def upload_question_pdf(file_bytes, filename):
         resumable=False,
     )
     metadata = {"name": name, "mimeType": "application/pdf"}
+
+    folder_id = st.secrets.get("QUESTION_PDF_FOLDER_ID", "")
+    if folder_id:
+        metadata["parents"] = [folder_id]
+
     created = service.files().create(
-        body=metadata, media_body=media, fields="id,name,mimeType"
+        body=metadata, media_body=media, fields="id,name,mimeType",
+        supportsAllDrives=True,
     ).execute()
     return created["id"], created["name"]
 
 
 def get_question_pdf_bytes(file_id):
-    """Fetch a stored question PDF through the backend."""
+    """Fetch a stored question PDF through the backend.
+
+    `supportsAllDrives=True` mirrors the same flag used in
+    upload_question_pdf() - needed if QUESTION_PDF_FOLDER_ID ever points
+    into a Shared Drive rather than a personal "My Drive" folder.
+    """
     if not file_id:
         return None
     service = _drive_service()
-    response = service.files().get_media(fileId=str(file_id)).execute()
+    response = service.files().get_media(
+        fileId=str(file_id), supportsAllDrives=True
+    ).execute()
     return bytes(response)
 
 
