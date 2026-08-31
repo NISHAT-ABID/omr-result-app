@@ -131,6 +131,10 @@ RESULTS_HEADER = [
     "correct", "wrong_count", "wrong", "marks", "accuracy",
     "negative_marking", "negative_value", "edited_by_mentor",
     "wrong_details_json", "skipped_json",
+    # Original student OMR is stored in Google Drive; Sheets keeps only
+    # lightweight metadata so the result can reopen the exact submitted photo.
+    "omr_photo_file_id", "omr_photo_name",
+    "omr_original_answers_json", "omr_final_answers_json", "omr_double_touch_json",
 ]
 
 CONFIG_HEADER = ["config_key", "config_value"]
@@ -957,6 +961,69 @@ def get_question_pdf_bytes(file_id):
     return bytes(response)
 
 
+# ================= Student OMR photo storage =================
+
+def upload_student_omr_image(file_bytes, filename):
+    """Store a student's original uploaded OMR photo in Google Drive.
+
+    The binary image never goes into Google Sheets. Sheets stores only the
+    Drive file id/name on the result row. A dedicated OMR_SUBMISSION_FOLDER_ID
+    secret can be used to keep student photos in one folder; if it is absent,
+    the image is stored in the connected Drive account's root.
+    """
+    if not file_bytes:
+        return "", ""
+
+    from googleapiclient.http import MediaIoBaseUpload
+
+    name = str(filename or "omr_submission.jpg")
+    lower = name.lower()
+    if not lower.endswith((".png", ".jpg", ".jpeg")):
+        name += ".jpg"
+        lower = name.lower()
+
+    # Keep every submission in one existing folder. Prefer the explicit OMR
+    # folder when configured; otherwise reuse the existing Question PDF folder
+    # so no per-exam folders have to be created. Add a short unique suffix so
+    # two students/cameras can never overwrite or visually collide by name.
+    stem = name.rsplit(".", 1)[0]
+    ext = "." + name.rsplit(".", 1)[1].lower()
+    safe_stem = re.sub(r"[^A-Za-z0-9._-]+", "_", stem).strip("._-") or "omr_submission"
+    name = f"OMR_{safe_stem}_{now_bd().strftime('%Y%m%d_%H%M%S')}_{secrets.token_hex(3)}{ext}"
+    lower = name.lower()
+
+    if lower.endswith(".png"):
+        mime = "image/png"
+    elif lower.endswith(".jpeg"):
+        mime = "image/jpeg"
+    else:
+        mime = "image/jpeg"
+
+    service = _drive_service()
+    media = MediaIoBaseUpload(io.BytesIO(file_bytes), mimetype=mime, resumable=False)
+    metadata = {"name": name, "mimeType": mime}
+    folder_id = st.secrets.get("OMR_SUBMISSION_FOLDER_ID", "") or st.secrets.get("QUESTION_PDF_FOLDER_ID", "")
+    if folder_id:
+        metadata["parents"] = [folder_id]
+
+    created = service.files().create(
+        body=metadata, media_body=media, fields="id,name,mimeType",
+        supportsAllDrives=True,
+    ).execute()
+    return created["id"], created["name"]
+
+
+def get_student_omr_image_bytes(file_id):
+    """Fetch a stored student's original OMR image from Drive."""
+    if not file_id:
+        return None
+    service = _drive_service()
+    response = service.files().get_media(
+        fileId=str(file_id), supportsAllDrives=True
+    ).execute()
+    return bytes(response)
+
+
 # ================= Exam Sessions =================
 
 @st.cache_data(ttl=10, show_spinner=False)
@@ -1127,11 +1194,21 @@ def has_submitted(student_id, key_id):
 def _result_row_values(student_id, student_name, key_id, result):
     timestamp = now_bd().strftime("%Y-%m-%d %H:%M:%S")
     wrong_str = ",".join(str(q) for q in result.get("wrong", []))
-    wrong_details_json = json.dumps(result.get("wrong_details", {}))
+    wrong_details_json = json.dumps(result.get("wrong_details", {}), ensure_ascii=False)
     skipped_qs = result.get("skipped_questions")
     if skipped_qs is None:
         skipped_qs = []
-    skipped_json = json.dumps(skipped_qs)
+    skipped_json = json.dumps(skipped_qs, ensure_ascii=False)
+
+    # OMR review/audit metadata is intentionally lightweight JSON. The original
+    # uploaded image stays in Drive; these fields preserve what the scanner
+    # originally detected, what the student finally submitted, and which
+    # questions were originally double-touched. This makes visual editing safe
+    # without allowing a double-touch penalty to disappear.
+    original_answers_json = json.dumps(result.get("omr_original_answers", {}), ensure_ascii=False)
+    final_answers_json = json.dumps(result.get("omr_final_answers", {}), ensure_ascii=False)
+    double_touch_json = json.dumps(result.get("omr_double_touch", []), ensure_ascii=False)
+
     return [
         timestamp, student_id, student_name, key_id,
         result.get("total", 0), result.get("answered", 0), result.get("skipped", 0),
@@ -1139,6 +1216,9 @@ def _result_row_values(student_id, student_name, key_id, result):
         result.get("marks", 0), result.get("accuracy", 0),
         result.get("negative_marking", False), result.get("negative_value", 0.0),
         False, wrong_details_json, skipped_json,
+        str(result.get("omr_photo_file_id", "") or ""),
+        str(result.get("omr_photo_name", "") or ""),
+        original_answers_json, final_answers_json, double_touch_json,
     ]
 
 
@@ -1161,7 +1241,8 @@ def append_result(student_id, student_name, key_id, result):
     clear_data_caches()
 
 
-def append_result_if_not_submitted(student_id, student_name, key_id, result):
+def append_result_if_not_submitted(student_id, student_name, key_id, result, omr_photo_bytes=None, omr_photo_name=""):
+
     """
     Duplicate-submission guard + write, collapsed into one call.
 
@@ -1199,6 +1280,14 @@ def append_result_if_not_submitted(student_id, student_name, key_id, result):
                     and row[key_idx] == key_id
                 ):
                     return False
+
+    # Store the original photo only after the fresh duplicate check. This keeps
+    # duplicate submissions from creating orphaned Drive files.
+    if omr_photo_bytes:
+        photo_id, photo_name = upload_student_omr_image(omr_photo_bytes, omr_photo_name)
+        result = dict(result)
+        result["omr_photo_file_id"] = photo_id
+        result["omr_photo_name"] = photo_name
 
     row = _result_row_values(student_id, student_name, key_id, result)
     _with_retry(ws.append_row, row, value_input_option=RAW)
