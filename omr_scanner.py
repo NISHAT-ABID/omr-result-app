@@ -1,4 +1,4 @@
-"""OMR scanner for 40/100-question sheets.
+"""OMR scanner for 40/50/100-question sheets.
 
 Student calibration is performed on the exact uploaded photo. Reading uses
 local bubble-center contrast + ink density instead of a single whole-patch
@@ -30,7 +30,7 @@ MIN_HEIGHT = 700
 BLUR_VARIANCE_THRESHOLD = 60.0
 DARK_MEAN_THRESHOLD = 40.0
 BRIGHT_MEAN_THRESHOLD = 240.0
-LAYOUT_PRESETS = {100: (25, 4), 40: (20, 2)}
+LAYOUT_PRESETS = {100: (25, 4), 50: (25, 2), 40: (25, 2)}
 
 
 # Detection tuning.
@@ -52,21 +52,40 @@ DARK_PIXEL_THRESHOLD = 150
 
 
 def get_layout(total_questions):
-    if total_questions in LAYOUT_PRESETS:
-        return LAYOUT_PRESETS[total_questions]
-    blocks = 2
-    per_block = -(-total_questions // blocks)
+    """Return the physical OMR geometry for an exam.
+
+    40-question and 50-question exams intentionally share the same physical
+    50-question sheet: two blocks of 25.  A 40-question exam simply reads
+    Q1-Q40 and silently ignores the unused Q41-Q50 area.
+    """
+    total_questions = int(total_questions)
+    if total_questions in (40, 50):
+        return 25, 2
+    if total_questions == 100:
+        return 25, 4
+    if total_questions > 50:
+        blocks = 4
+        per_block = 25
+    else:
+        blocks = 2
+        per_block = 25
     return per_block, blocks
 
 
 def calibration_points_info(total_questions):
-    per_block, blocks = get_layout(total_questions)
-    points = []
+    """Return calibration points for the physical sheet geometry.
 
+    The 40/50 layout is the same printed sheet, so both use Q1/Q25/Q26/Q50
+    reference points.  This keeps mentor and student calibration consistent
+    and avoids maintaining two almost-identical sheet geometries.
+    """
+    total_questions = int(total_questions)
+    physical_total = 50 if total_questions in (40, 50) else total_questions
+    per_block, blocks = get_layout(physical_total)
+    points = []
     for b in range(blocks):
         start = b * per_block + 1
-        end = min(start + per_block - 1, total_questions)
-
+        end = min(start + per_block - 1, physical_total)
         points.append({
             "key": f"p{len(points)+1}",
             "short": f"Q{start}-A",
@@ -74,7 +93,6 @@ def calibration_points_info(total_questions):
             "block": b,
             "role": "top",
         })
-
         if b == 0:
             points.append({
                 "key": f"p{len(points)+1}",
@@ -83,7 +101,6 @@ def calibration_points_info(total_questions):
                 "block": b,
                 "role": "optd",
             })
-
         points.append({
             "key": f"p{len(points)+1}",
             "short": f"Q{end}-A",
@@ -91,7 +108,6 @@ def calibration_points_info(total_questions):
             "block": b,
             "role": "bottom",
         })
-
     return points
 
 
@@ -225,54 +241,42 @@ def detect_and_warp(image_bgr):
 
 
 def build_grid(calibration, total_questions=TOTAL_QUESTIONS):
-    per_block, blocks = get_layout(total_questions)
-    info = calibration_points_info(total_questions)
-
+    """Build bubble centers from calibration and return only requested Qs."""
+    requested = int(total_questions)
+    physical_total = 50 if requested in (40, 50) else requested
+    per_block, blocks = get_layout(physical_total)
+    info = calibration_points_info(requested)
     q1_a = q1_d = None
     tops, bottoms = {}, {}
 
     for item in info:
+        if item["key"] not in calibration:
+            raise ValueError(f"Calibration is missing point {item['key']} ({item['short']}).")
         pt = np.asarray(calibration[item["key"]], dtype=float)
         b = item["block"]
-
         if item["role"] == "top":
             tops[b] = pt
             if b == 0:
                 q1_a = pt
-
         elif item["role"] == "bottom":
             bottoms[b] = pt
-
         else:
             q1_d = pt
 
     if q1_a is None or q1_d is None:
-        raise ValueError(
-            "Calibration is missing the Q1 A/D spacing points."
-        )
+        raise ValueError("Calibration is missing the Q1 A/D spacing points.")
 
     option_step = (q1_d - q1_a) / 3.0
-
     grid, q_no = {}, 1
-
     for b in range(blocks):
         if b not in tops or b not in bottoms:
-            continue
-
-        rows = min(
-            per_block,
-            total_questions - b * per_block,
-        )
-
-        row_step = (
-            (bottoms[b] - tops[b]) / (rows - 1)
-            if rows > 1
-            else np.array([0.0, 0.0])
-        )
-
+            raise ValueError(f"Calibration is missing block {b + 1} top/bottom points.")
+        rows = per_block
+        row_step = (bottoms[b] - tops[b]) / (rows - 1) if rows > 1 else np.array([0.0, 0.0])
         for r in range(rows):
+            if q_no > requested:
+                break
             origin = tops[b] + r * row_step
-
             grid[q_no] = {
                 opt: (
                     int(round((origin + i * option_step)[0])),
@@ -280,9 +284,7 @@ def build_grid(calibration, total_questions=TOTAL_QUESTIONS):
                 )
                 for i, opt in enumerate(OPTIONS)
             }
-
             q_no += 1
-
     return grid
 
 
@@ -451,117 +453,53 @@ def read_answers(
     min_gap=15,
     radius=None,
 ):
-    """Read OMR bubbles.
+    """Read one answer per question with conservative double-touch detection.
 
-    Return values are kept compatible with the rest of the app:
-        None    -> blank / skipped
-        "A"-"D" -> one detected answer
-        "MULTI" -> two or more independently strong marks
-
-    `dark_threshold` and `min_gap` remain in the public function signature
-    for compatibility with existing app code. The actual bubble darkness
-    detection uses DARK_PIXEL_THRESHOLD and local scoring above.
+    The public signature is kept compatible with the app.  The scanner uses
+    colour-aware black-ink evidence, local background contrast, and within-row
+    comparison.  A second option is called MULTI only when both marks have
+    strong independent evidence; weak printed artefacts are not enough.
     """
-
-    radius = (
-        BUBBLE_SAMPLE_RADIUS
-        if radius is None
-        else int(radius)
-    )
-
-    # Blur in COLOR so max(R,G,B) still has access to the original
-    # color information. Do not convert this image to grayscale.
-    smoothed = cv2.GaussianBlur(
-        warped_bgr,
-        (3, 3),
-        0,
-    )
-
+    radius = BUBBLE_SAMPLE_RADIUS if radius is None else int(radius)
+    # Small colour blur removes camera noise without destroying ink strokes.
+    smoothed = cv2.GaussianBlur(warped_bgr, (3, 3), 0)
     answers = {}
 
     for q_no, options in grid.items():
-        metrics = {
-            opt: _bubble_metrics(
-                smoothed,
-                center,
-                radius,
-            )
-            for opt, center in options.items()
-        }
-
-        scores = {
-            opt: metrics[opt][0]
-            for opt in OPTIONS
-        }
-
-        inks = {
-            opt: metrics[opt][1]
-            for opt in OPTIONS
-        }
-
-        ordered = sorted(
-            OPTIONS,
-            key=lambda o: scores[o],
-            reverse=True,
-        )
-
+        metrics = {opt: _bubble_metrics(smoothed, center, radius) for opt, center in options.items()}
+        scores = {opt: metrics[opt][0] for opt in OPTIONS}
+        inks = {opt: metrics[opt][1] for opt in OPTIONS}
+        ordered = sorted(OPTIONS, key=lambda o: scores[o], reverse=True)
         best, second = ordered[0], ordered[1]
+        best_score, second_score = scores[best], scores[second]
 
-        best_score = scores[best]
-        second_score = scores[second]
-
-        # A candidate needs both:
-        # 1) meaningful center-vs-ring contrast
-        # 2) a meaningful amount of genuinely dark RGB pixels
-        #
-        # This prevents the printed pink A/B/C/D graphics from becoming
-        # answer candidates.
+        # Candidate = enough dark neutral ink AND measurable local contrast.
         candidates = [
-            o
-            for o in OPTIONS
-            if (
-                scores[o] >= FILL_SCORE_THRESHOLD
-                and inks[o] >= MIN_STRONG_INK_FRACTION
-            )
+            o for o in OPTIONS
+            if scores[o] >= FILL_SCORE_THRESHOLD and inks[o] >= MIN_STRONG_INK_FRACTION
         ]
 
         if not candidates:
-            # No bubble has enough evidence.
             answers[q_no] = None
+            continue
 
-        elif len(candidates) >= 2:
-            # A second real mark must also be reasonably strong.
-            # If several bubbles are only weakly similar, don't call it MULTI.
-            strong = [
-                o
-                for o in candidates
-                if scores[o] >= MULTI_SECOND_SCORE
-            ]
+        # Genuine double touch requires TWO independently strong marks.
+        # Requiring both score and ink density is intentionally conservative.
+        strong = [
+            o for o in candidates
+            if scores[o] >= MULTI_SECOND_SCORE and inks[o] >= MULTI_MIN_INK_FRACTION
+        ]
+        if len(strong) >= 2 and best_score >= STRONG_FILL_SCORE:
+            answers[q_no] = "MULTI"
+            continue
 
-            if (
-                len(strong) >= 2
-                and best_score >= STRONG_FILL_SCORE
-            ):
-                answers[q_no] = "MULTI"
-            else:
-                answers[q_no] = best
-
+        # Single answer: use a clear winner.  If the winner is only marginally
+        # stronger, leave it blank/reviewable instead of guessing.
+        margin = best_score - second_score
+        if best_score >= STRONG_FILL_SCORE or (best_score >= FILL_SCORE_THRESHOLD and margin >= max(7.0, min_gap * 0.45)):
+            answers[q_no] = best
         else:
-            # Only one candidate exists.
-            # Require either strong evidence or a clear margin over
-            # the next-best bubble.
-            margin = best_score - second_score
-
-            if (
-                best_score >= STRONG_FILL_SCORE
-                or (
-                    best_score >= FILL_SCORE_THRESHOLD
-                    and margin >= 7.0
-                )
-            ):
-                answers[q_no] = best
-            else:
-                answers[q_no] = None
+            answers[q_no] = None
 
     return answers
 
