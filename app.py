@@ -3145,61 +3145,8 @@ def _make_review_overlay(image_bgr, grid_points, final_answers, original_answers
     return cv2.cvtColor(cv2.addWeighted(overlay, 0.28, canvas, 0.72, 0), cv2.COLOR_BGR2RGB)
 
 
-def _build_clickable_digital_omr(grid, total_q, detected_answers, final_answers, double_qs):
-    """Build the lightweight, clickable digital OMR image used for review.
-
-    The image is generated once from the calibrated grid.  Students edit by
-    tapping an actual A/B/C/D bubble; there are no 100-question dropdowns or
-    hundreds of Streamlit radio widgets.
-    """
-    from PIL import ImageDraw
-
-    img = omr_scanner.render_sheet_image(
-        grid,
-        total_questions=total_q,
-        answers=final_answers,
-    )
-    draw = ImageDraw.Draw(img)
-    double_set = set(double_qs or [])
-
-    for q in range(1, total_q + 1):
-        opts = grid.get(q) or {}
-        original = _normalise_answer_value(detected_answers.get(q))
-        final = _normalise_answer_value(final_answers.get(q))
-
-        for opt in ("A", "B", "C", "D"):
-            if opt not in opts:
-                continue
-            x, y = [int(round(v)) for v in opts[opt]]
-            # Keep the rings outside the actual bubble so the letter/selection
-            # remains visible and the image stays clean on mobile.
-            base_r = getattr(omr_scanner, "BUBBLE_SAMPLE_RADIUS", 12) + 7
-
-            if q in double_set or original == "MULTI":
-                draw.ellipse(
-                    [x - base_r - 3, y - base_r - 3, x + base_r + 3, y + base_r + 3],
-                    outline=(220, 55, 55),
-                    width=4,
-                )
-            elif original == opt:
-                draw.ellipse(
-                    [x - base_r - 2, y - base_r - 2, x + base_r + 2, y + base_r + 2],
-                    outline=(35, 175, 105),
-                    width=4,
-                )
-
-            if final == opt and final != "MULTI":
-                draw.ellipse(
-                    [x - base_r - 6, y - base_r - 6, x + base_r + 6, y + base_r + 6],
-                    outline=(35, 150, 225),
-                    width=4,
-                )
-
-    return img
-
-
 def _render_digital_omr(review_rows, filter_values=None):
-    """Legacy compact summary kept for compatibility with old result UI."""
+    """Render a complete PRE-SUBMISSION digital OMR without answer-key leaks."""
     all_filters = ["Answered", "Skipped", "Double Touch"]
     selected = set(filter_values or all_filters)
     html = ["<div class='digital-omr-grid'>"]
@@ -3208,9 +3155,14 @@ def _render_digital_omr(review_rows, filter_values=None):
         label = {"answered": "Answered", "skipped": "Skipped", "double": "Double Touch"}.get(status, "Skipped")
         if label not in selected:
             continue
+
         given = row.get("given") or "—"
         original = row.get("original_given")
-        detected_text = "Multiple" if original == "MULTI" else (original or "—")
+        if original == "MULTI":
+            detected_text = "Multiple"
+        else:
+            detected_text = original or "—"
+
         opts = []
         for opt in ("A", "B", "C", "D"):
             classes = ["digital-bubble"]
@@ -3220,7 +3172,8 @@ def _render_digital_omr(review_rows, filter_values=None):
                 classes.append("detected")
             if given == opt:
                 classes.append("final")
-            opts.append(f"<span class='{' '.join(classes)}'>{opt}</span>")
+            opts.append(f"<span class='{ ' '.join(classes) }'>{opt}</span>")
+
         tag_class = {"Answered": "d-ok", "Skipped": "d-skip", "Double Touch": "d-double"}[label]
         edited = " · edited" if row.get("was_edited") else ""
         html.append(
@@ -3236,7 +3189,13 @@ def _render_digital_omr(review_rows, filter_values=None):
 
 
 def _render_interactive_omr_review(img_bgr, grid_points, detected_answers, final_answers, double_qs, radius):
-    """Pre-submit review with visual detection + direct digital OMR tapping."""
+    """Pre-submit review: original photo is view-only; Digital OMR is editable.
+
+    No answer-key/correctness information is exposed before submission. The
+    scanner's first-pass result remains immutable in session state, while the
+    student edits only ``submit_final_answers`` through the lightweight
+    Digital OMR controls below.
+    """
     total_q = len(final_answers)
     double_set = set(double_qs or [])
     skipped_count = sum(
@@ -3251,8 +3210,8 @@ def _render_interactive_omr_review(img_bgr, grid_points, detected_answers, final
     c2.metric("Skipped", skipped_count)
     c3.metric("Double Touch", len(double_set))
     st.caption(
-        "🟢 Scanner detected · 🔴 Double touch · 🔵 Your final selection. "
-        "Correct answers and score remain hidden until submission."
+        "Before submission you can see only the scanner detection and your final selection. "
+        "Correct answers, correctness and score stay hidden until submission."
     )
 
     view = st.radio(
@@ -3265,58 +3224,76 @@ def _render_interactive_omr_review(img_bgr, grid_points, detected_answers, final
 
     if view == "📷 Original OMR":
         st.caption(
-            "Your original photo is view-only. The overlay shows exactly what the scanner detected; "
-            "blue shows a selection you changed."
+            "Your original uploaded photo is view-only. 🟢 scanner detection · "
+            "🔴 double-touch detected. Use Digital OMR to change an answer."
         )
-        overlay_rgb = _make_review_overlay(
-            img_bgr,
-            grid_points,
-            final_answers,
-            detected_answers,
-            double_qs,
-        )
-        st.image(overlay_rgb, use_container_width=True)
+        # Display the already-prepared image. Do not add an interactive image
+        # component here; this keeps mobile loading fast and avoids the old
+        # component's 'Connecting...' failure.
+        st.image(img_bgr, use_container_width=True)
         return review_rows
+
+    # -----------------------------
+    # Lightweight editable Digital OMR
+    # -----------------------------
+    filter_values = st.multiselect(
+        "Digital OMR filter",
+        ["Answered", "Skipped", "Double Touch"],
+        default=["Answered", "Skipped", "Double Touch"],
+        key=f"omr_digital_filter_{st.session_state.get('submit_file_sig', '')}",
+        help="Filter the sheet while reviewing. Editing always changes the final answer only.",
+    )
 
     st.caption(
-        "Tap an A/B/C/D bubble directly on the digital OMR. Tap the selected bubble again to clear it. "
-        "No dropdown or question-by-question selector needed."
+        "Tap/select the bubble you actually marked. If the scanner was wrong, your selection becomes the final answer."
     )
 
-    grid = st.session_state.get("submit_grid")
-    if not grid:
-        st.error("Digital OMR grid is unavailable. Please redo calibration.")
+    # One question selector + one answer selector = very small Streamlit UI,
+    # even for a 100-question exam. We intentionally avoid 400 individual
+    # widgets and avoid re-processing the uploaded image after every click.
+    visible_qs = []
+    selected_set = set(filter_values)
+    for row in review_rows:
+        label = {"answered": "Answered", "skipped": "Skipped", "double": "Double Touch"}.get(row["status"], "Skipped")
+        if label in selected_set:
+            visible_qs.append(row["q"])
+
+    if not visible_qs:
+        st.info("No questions match the selected filter.")
         return review_rows
 
-    digital_img = _build_clickable_digital_omr(
-        grid,
-        total_q,
-        detected_answers,
-        final_answers,
-        double_qs,
-    )
+    def _q_label(q):
+        original = _normalise_answer_value(detected_answers.get(q))
+        final = _normalise_answer_value(final_answers.get(q))
+        detected_text = "Multiple" if original == "MULTI" else (original or "Skipped")
+        final_text = final or "Skipped"
+        edited = " · edited" if final != original else ""
+        return f"Q{q}  ·  Detected: {detected_text}  ·  Final: {final_text}{edited}"
 
-    click_key = f"digital_omr_click_{st.session_state.get('submit_file_sig', '')}"
-    coords = streamlit_image_coordinates(digital_img, key=click_key)
-    if coords is not None:
-        clicked = omr_scanner.find_clicked_bubble(
-            grid,
-            total_q,
-            float(coords.get("x", -999)),
-            float(coords.get("y", -999)),
-            radius=max(18, int(getattr(omr_scanner, "BUBBLE_SAMPLE_RADIUS", 12)) + 12),
-        )
-        if clicked:
-            q, opt = clicked
-            current = _normalise_answer_value(final_answers.get(q))
-            final_answers[q] = None if current == opt else opt
-            st.session_state["submit_final_answers"] = dict(final_answers)
-            st.rerun()
-
-    st.markdown(
-        "**Legend:** 🟢 scanner detected &nbsp; 🔵 your final answer &nbsp; 🔴 double touch",
-        unsafe_allow_html=True,
+    edit_q = st.selectbox(
+        "Edit question",
+        visible_qs,
+        format_func=_q_label,
+        key=f"omr_edit_q_{st.session_state.get('submit_file_sig', '')}",
     )
+    current = _normalise_answer_value(final_answers.get(edit_q))
+    current_ui = current if current in ("A", "B", "C", "D") else "None"
+    selected = st.radio(
+        f"Q{edit_q} — choose your final answer",
+        ["None", "A", "B", "C", "D"],
+        index=["None", "A", "B", "C", "D"].index(current_ui),
+        horizontal=True,
+        key=f"omr_edit_answer_{st.session_state.get('submit_file_sig', '')}_{edit_q}",
+    )
+    new_value = None if selected == "None" else selected
+    if new_value != current:
+        final_answers[edit_q] = new_value
+        st.session_state["submit_final_answers"] = dict(final_answers)
+        st.rerun()
+
+    # Render a compact, proper OMR-like sheet. It is display-only; the two
+    # widgets above are the actual editing controls, so this stays lightweight.
+    _render_digital_omr(review_rows, filter_values)
     return review_rows
 
 def page_tests_results():
