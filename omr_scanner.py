@@ -40,6 +40,7 @@ FILL_SCORE_THRESHOLD = 20.0
 STRONG_FILL_SCORE = 30.0
 MULTI_SECOND_SCORE = 17.0
 MIN_STRONG_INK_FRACTION = 0.10
+MULTI_MIN_INK_FRACTION = 0.16
 
 # This threshold is applied to the max(R,G,B) value channel, NOT grayscale.
 # Printed pink/magenta graphics normally retain a high max channel value,
