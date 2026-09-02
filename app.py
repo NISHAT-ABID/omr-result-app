@@ -1139,20 +1139,6 @@ def inject_global_css():
         }
         .double-touch-note b { color:#ef4444; }
 
-        .digital-omr-sheet-head { display:flex; justify-content:space-between; gap:8px; align-items:center; padding:9px 11px; margin:8px 0; border:1px solid var(--mv-border); border-radius:11px; background:rgba(255,255,255,.035); }
-        .digital-omr-sheet-head span { color:var(--mv-muted); font-size:10px; font-weight:500; }
-        .digital-omr-column { border:1px solid var(--mv-border); border-radius:11px; padding:6px; background:rgba(255,255,255,.018); }
-        .digital-omr-column-title { font:700 8px var(--mono); color:var(--mv-muted); padding:3px 4px 6px; border-bottom:1px solid var(--mv-border); }
-        .digital-omr-qhead { display:flex; align-items:center; gap:4px; padding:5px 4px 1px; min-width:0; }
-        .digital-omr-qhead b { font:800 10px var(--mono); min-width:25px; }
-        .digital-detected { color:var(--mv-muted); font-size:8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-        .digital-status-pill { margin-left:auto; font-size:6.5px; font-weight:800; padding:2px 4px; border-radius:999px; white-space:nowrap; }
-        .digital-answered { background:rgba(34,197,94,.12); color:#4ade80; } .digital-skipped { background:rgba(148,163,184,.12); color:#cbd5e1; } .digital-double { background:rgba(239,68,68,.15); color:#fb7185; }
-        .digital-omr-column [data-testid="stRadio"] { margin:0 !important; } .digital-omr-column [data-testid="stRadio"] > div { gap:2px !important; }
-        .digital-omr-column [data-testid="stRadio"] label { border:1px solid rgba(148,163,184,.30); border-radius:50%; min-width:25px; height:25px; justify-content:center; padding:0 !important; margin:0 !important; }
-        .digital-omr-column [data-testid="stRadio"] label > div:first-child { margin-right:0 !important; } .digital-omr-column [data-testid="stRadio"] label > div:first-child > div { display:none !important; }
-        .digital-omr-column .stCaption { margin:0 4px !important; font-size:8px !important; }
-        @media (max-width:767px) { .digital-omr-column { padding:4px; } .digital-omr-column [data-testid="stRadio"] label { min-width:22px; height:22px; font-size:8px; } .digital-detected { font-size:7px; } .digital-status-pill { font-size:6px; } }
         .digital-omr-grid {
             display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:5px; margin-top:8px;
         }
@@ -3094,115 +3080,221 @@ def _review_status(answer, correct, was_double=False):
     return "correct" if answer == correct else "incorrect"
 
 
-def _build_review_state(final_answers, key_string, original_answers):
-    correct_map = {
-        q: (key_string[q - 1].upper() if q - 1 < len(key_string) else "")
-        for q in range(1, len(final_answers) + 1)
-    }
-    double_qs = set(st.session_state.get("submit_double_touch", []))
+def _build_review_state(final_answers, original_answers, double_qs=None):
+    """Build PRE-SUBMISSION review rows without exposing the answer key.
+
+    Important privacy rule: before submission the student must never see the
+    correct answer, correct count, wrong count, accuracy, marks, or any
+    correct/incorrect classification.  The review therefore contains only
+    what the scanner detected and what the student has edited.
+    """
+    double_set = set(double_qs or st.session_state.get("submit_double_touch", []))
     rows = []
-    for q in range(1, len(final_answers) + 1):
+    total_q = len(final_answers)
+    for q in range(1, total_q + 1):
         answer = _normalise_answer_value(final_answers.get(q))
         original = _normalise_answer_value(original_answers.get(q))
+        if q in double_set or original == "MULTI":
+            status = "double"
+        elif answer is None:
+            status = "skipped"
+        else:
+            status = "answered"
         rows.append({
             "q": q,
             "given": answer,
             "original_given": original,
-            "correct": correct_map.get(q, ""),
-            "status": _review_status(answer, correct_map.get(q, ""), q in double_qs),
+            "status": status,
+            "was_edited": answer != original and not (original == "MULTI" and answer == "MULTI"),
         })
     return rows
 
 
-def _make_review_overlay(image_bgr, grid_points, final_answers, original_answers, key_string, double_qs):
-    """Draw subtle detection/final-answer overlays on the student's own photo."""
+def _make_review_overlay(image_bgr, grid_points, final_answers, original_answers, double_qs):
+    """Overlay scanner/final-answer information on the student's ORIGINAL photo.
+
+    No answer-key information is used here.  Colors mean only:
+      green = original scanner detection
+      blue  = student-edited final selection
+      red   = double-touch detected by the scanner
+    """
     canvas = image_bgr.copy()
     if not grid_points:
         return cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
 
     overlay = canvas.copy()
+    double_set = set(double_qs or [])
     for q, opts in grid_points.items():
-        if q not in final_answers:
-            continue
         original = _normalise_answer_value(original_answers.get(q))
         final = _normalise_answer_value(final_answers.get(q))
-        correct = key_string[q - 1].upper() if q - 1 < len(key_string) else ""
+
         for opt, pt in opts.items():
             x, y = int(round(pt[0])), int(round(pt[1]))
             radius = 16
-            # Original scanner detection: intentionally light and translucent.
-            if original == "MULTI" or (q in double_qs and opt in ("A", "B", "C", "D")):
+            if q in double_set or original == "MULTI":
+                # Mark the whole question's detected bubbles as ambiguous.
                 cv2.circle(overlay, (x, y), radius, (70, 70, 235), -1)
                 cv2.circle(overlay, (x, y), radius + 2, (70, 70, 235), 2)
             elif original == opt:
                 cv2.circle(overlay, (x, y), radius, (55, 190, 135), -1)
                 cv2.circle(overlay, (x, y), radius + 2, (55, 190, 135), 2)
 
-            # Final student-reviewed answer gets a crisp outline, so edits are visible.
             if final == opt and final != "MULTI":
-                outline = (30, 190, 245) if final == correct else (70, 170, 245)
-                cv2.circle(canvas, (x, y), radius + 4, outline, 3)
+                cv2.circle(canvas, (x, y), radius + 4, (30, 190, 245), 3)
 
     return cv2.cvtColor(cv2.addWeighted(overlay, 0.28, canvas, 0.72, 0), cv2.COLOR_BGR2RGB)
 
 
-def _render_digital_omr(review_rows, final_answers, detected_answers, double_qs, key_prefix="omr_edit"):
-    """Editable Digital OMR. Physical photo remains view-only."""
-    total_q = len(final_answers)
-    double_set = set(double_qs or [])
-    st.markdown("<div class='digital-omr-sheet-head'><b>📝 Digital OMR</b><span>Tap A / B / C / D to correct the scanner reading</span></div>", unsafe_allow_html=True)
-    cols = st.columns(4)
-    per_col = (total_q + 3) // 4
-    for col_idx, col in enumerate(cols):
-        first = col_idx * per_col + 1
-        last = min(total_q, first + per_col - 1)
-        with col:
-            if first > total_q:
-                continue
-            st.markdown("<div class='digital-omr-column'><div class='digital-omr-column-title'>Q &nbsp; A &nbsp; B &nbsp; C &nbsp; D</div>", unsafe_allow_html=True)
-            for q in range(first, last + 1):
-                current = _normalise_answer_value(final_answers.get(q))
-                if current == "MULTI":
-                    current = None
-                detected = _normalise_answer_value(detected_answers.get(q))
-                detected_label = "Multiple" if detected == "MULTI" else (detected or "Skipped")
-                status = "double" if q in double_set else ("skipped" if current is None else "answered")
-                status_label = "Double Touch" if status == "double" else ("Skipped" if status == "skipped" else "Answered")
-                edited = detected != current and not (detected == "MULTI" and current is None)
-                st.markdown(f"<div class='digital-omr-qhead'><b>Q{q}</b><span class='digital-detected'>Detected: {detected_label}</span><span class='digital-status-pill digital-{status}'>{status_label}</span></div>", unsafe_allow_html=True)
-                options = ["—", "A", "B", "C", "D"]
-                idx = options.index(current) if current in options else 0
-                selected = st.radio(f"Q{q}", options, index=idx, horizontal=True, label_visibility="collapsed", key=f"{key_prefix}_{q}")
-                new_value = None if selected == "—" else selected
-                if new_value != _normalise_answer_value(final_answers.get(q)):
-                    final_answers[q] = new_value
-                    st.session_state["submit_final_answers"] = dict(final_answers)
-                    st.rerun()
-                if edited:
-                    st.caption("✎ corrected")
-            st.markdown("</div>", unsafe_allow_html=True)
+def _render_digital_omr(review_rows, filter_values=None):
+    """Render a complete PRE-SUBMISSION digital OMR without answer-key leaks."""
+    all_filters = ["Answered", "Skipped", "Double Touch"]
+    selected = set(filter_values or all_filters)
+    html = ["<div class='digital-omr-grid'>"]
+    for row in review_rows:
+        status = row.get("status", "skipped")
+        label = {"answered": "Answered", "skipped": "Skipped", "double": "Double Touch"}.get(status, "Skipped")
+        if label not in selected:
+            continue
+
+        given = row.get("given") or "—"
+        original = row.get("original_given")
+        if original == "MULTI":
+            detected_text = "Multiple"
+        else:
+            detected_text = original or "—"
+
+        opts = []
+        for opt in ("A", "B", "C", "D"):
+            classes = ["digital-bubble"]
+            if original == "MULTI":
+                classes.append("detected-double")
+            elif original == opt:
+                classes.append("detected")
+            if given == opt:
+                classes.append("final")
+            opts.append(f"<span class='{ ' '.join(classes) }'>{opt}</span>")
+
+        tag_class = {"Answered": "d-ok", "Skipped": "d-skip", "Double Touch": "d-double"}[label]
+        edited = " · edited" if row.get("was_edited") else ""
+        html.append(
+            f"<div class='digital-omr-row'>"
+            f"<span class='digital-q'>Q{row['q']}</span>"
+            f"<span class='digital-options'>{''.join(opts)}</span>"
+            f"<span class='digital-your'>Detected: <b>{detected_text}</b> · Final: <b>{given}</b>{edited}</span>"
+            f"<span class='digital-status {tag_class}'>{label}</span>"
+            f"</div>"
+        )
+    html.append("</div>")
+    st.markdown("".join(html), unsafe_allow_html=True)
 
 
-def _render_interactive_omr_review(img_bgr, detected_answers, final_answers, double_qs):
-    """Pre-submit review; only Digital OMR can edit answers."""
+def _render_interactive_omr_review(img_bgr, grid_points, detected_answers, final_answers, double_qs, radius):
+    """Pre-submit review: original photo is view-only; Digital OMR is editable.
+
+    No answer-key/correctness information is exposed before submission. The
+    scanner's first-pass result remains immutable in session state, while the
+    student edits only ``submit_final_answers`` through the lightweight
+    Digital OMR controls below.
+    """
     total_q = len(final_answers)
     double_set = set(double_qs or [])
-    skipped_count = sum(1 for q in range(1, total_q + 1) if _normalise_answer_value(final_answers.get(q)) is None and q not in double_set)
+    skipped_count = sum(
+        1 for q in range(1, total_q + 1)
+        if _normalise_answer_value(final_answers.get(q)) is None and q not in double_set
+    )
     answered_count = total_q - skipped_count
+
     st.markdown("#### 🔍 OMR Scan Review")
     c1, c2, c3 = st.columns(3)
     c1.metric("Answered", answered_count)
     c2.metric("Skipped", skipped_count)
     c3.metric("Double Touch", len(double_set))
-    st.caption("Correct answers, correctness, score and marks remain hidden until submission. Scanner mistakes can be corrected in Digital OMR.")
-    view = st.radio("Review view", ["🖥️ Digital OMR", "📷 Original OMR"], horizontal=True, key=f"omr_review_view_{st.session_state.get('submit_file_sig', '')}")
-    rows = _build_review_state(final_answers, detected_answers, double_qs)
+    st.caption(
+        "Before submission you can see only the scanner detection and your final selection. "
+        "Correct answers, correctness and score stay hidden until submission."
+    )
+
+    view = st.radio(
+        "Review view",
+        ["📷 Original OMR", "🖥️ Digital OMR"],
+        horizontal=True,
+        key=f"omr_review_view_{st.session_state.get('submit_file_sig', '')}",
+    )
+    review_rows = _build_review_state(final_answers, detected_answers, double_qs)
+
     if view == "📷 Original OMR":
-        st.caption("Original uploaded OMR photo — view only. Edit answers from Digital OMR.")
-        st.image(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB), caption="Original OMR photo", use_container_width=True)
-        return rows
-    _render_digital_omr(rows, final_answers, detected_answers, double_qs, key_prefix=f"omr_edit_{st.session_state.get('submit_file_sig', '')}")
-    return rows
+        st.caption(
+            "Your original uploaded photo is view-only. 🟢 scanner detection · "
+            "🔴 double-touch detected. Use Digital OMR to change an answer."
+        )
+        # Display the already-prepared image. Do not add an interactive image
+        # component here; this keeps mobile loading fast and avoids the old
+        # component's 'Connecting...' failure.
+        st.image(img_bgr, use_container_width=True)
+        return review_rows
+
+    # -----------------------------
+    # Lightweight editable Digital OMR
+    # -----------------------------
+    filter_values = st.multiselect(
+        "Digital OMR filter",
+        ["Answered", "Skipped", "Double Touch"],
+        default=["Answered", "Skipped", "Double Touch"],
+        key=f"omr_digital_filter_{st.session_state.get('submit_file_sig', '')}",
+        help="Filter the sheet while reviewing. Editing always changes the final answer only.",
+    )
+
+    st.caption(
+        "Tap/select the bubble you actually marked. If the scanner was wrong, your selection becomes the final answer."
+    )
+
+    # One question selector + one answer selector = very small Streamlit UI,
+    # even for a 100-question exam. We intentionally avoid 400 individual
+    # widgets and avoid re-processing the uploaded image after every click.
+    visible_qs = []
+    selected_set = set(filter_values)
+    for row in review_rows:
+        label = {"answered": "Answered", "skipped": "Skipped", "double": "Double Touch"}.get(row["status"], "Skipped")
+        if label in selected_set:
+            visible_qs.append(row["q"])
+
+    if not visible_qs:
+        st.info("No questions match the selected filter.")
+        return review_rows
+
+    def _q_label(q):
+        original = _normalise_answer_value(detected_answers.get(q))
+        final = _normalise_answer_value(final_answers.get(q))
+        detected_text = "Multiple" if original == "MULTI" else (original or "Skipped")
+        final_text = final or "Skipped"
+        edited = " · edited" if final != original else ""
+        return f"Q{q}  ·  Detected: {detected_text}  ·  Final: {final_text}{edited}"
+
+    edit_q = st.selectbox(
+        "Edit question",
+        visible_qs,
+        format_func=_q_label,
+        key=f"omr_edit_q_{st.session_state.get('submit_file_sig', '')}",
+    )
+    current = _normalise_answer_value(final_answers.get(edit_q))
+    current_ui = current if current in ("A", "B", "C", "D") else "None"
+    selected = st.radio(
+        f"Q{edit_q} — choose your final answer",
+        ["None", "A", "B", "C", "D"],
+        index=["None", "A", "B", "C", "D"].index(current_ui),
+        horizontal=True,
+        key=f"omr_edit_answer_{st.session_state.get('submit_file_sig', '')}_{edit_q}",
+    )
+    new_value = None if selected == "None" else selected
+    if new_value != current:
+        final_answers[edit_q] = new_value
+        st.session_state["submit_final_answers"] = dict(final_answers)
+        st.rerun()
+
+    # Render a compact, proper OMR-like sheet. It is display-only; the two
+    # widgets above are the actual editing controls, so this stays lightweight.
+    _render_digital_omr(review_rows, filter_values)
+    return review_rows
 
 def page_tests_results():
     sid = st.session_state["student_id"]
@@ -3326,8 +3418,11 @@ def page_tests_results():
                         detected = st.session_state.get("submit_detected_answers", {})
                         final_answers = st.session_state.get("submit_final_answers", dict(detected))
                         double_qs = st.session_state.get("submit_double_touch", [])
+                        grid_points = _extract_question_option_points(grid, total_q)
+                        radius = omr_scanner.compute_bubble_radius(img_bgr)
+
                         review_rows = _render_interactive_omr_review(
-                            img_bgr, detected, final_answers, double_qs
+                            img_bgr, grid_points, detected, final_answers, double_qs, radius
                         )
 
                         st.divider()
@@ -4461,24 +4556,35 @@ def render_answer_key_tab():
 
     st.markdown("#### ① How many MCQs? (Exam Style)")
     exam_style = st.radio(
-        "Exam Style", ["📄 100 Questions (Q1-100)", "📄 40 Questions (Q1-40)"],
+        "Exam Style", [
+            "📄 40 Questions (Q1-40)",
+            "📄 50 Questions (Q1-50)",
+            "📄 100 Questions (Q1-100)",
+        ],
         horizontal=True, label_visibility="collapsed", key="mentor_exam_style_choice",
     )
-    total_q = 100 if "100" in exam_style else 40
+    if "100" in exam_style:
+        total_q = 100
+    elif "50" in exam_style:
+        total_q = 50
+    else:
+        total_q = 40
 
     if total_q == 100:
-        st.markdown(
-            "<div class='mv-mobile-hide-instruction'>ℹ️ Questions 1-50 are shown first "
-            "(in two columns of 25). Scroll down and click <b>Next: 51-100</b> to enter "
-            "the second half. Your Q1-50 answers stay saved while you fill in 51-100.</div>",
-            unsafe_allow_html=True,
+        instruction = (
+            "Questions 1-50 are shown first (in two columns of 25). Scroll down and "
+            "click <b>Next: 51-100</b> to enter the second half. Your Q1-50 answers "
+            "stay saved while you fill in 51-100."
         )
     else:
-        st.markdown(
-            "<div class='mv-mobile-hide-instruction'>ℹ️ Questions are shown in two "
-            "columns: 1-20 and 21-40, on the same page.</div>",
-            unsafe_allow_html=True,
+        instruction = (
+            "This exam uses the same physical <b>50 / 40 OMR</b> sheet. "
+            f"Enter the answer key for Q1-{total_q}; no separate OMR design is needed for 40 and 50 questions."
         )
+    st.markdown(
+        f"<div class='mv-mobile-hide-instruction'>ℹ️ {instruction}</div>",
+        unsafe_allow_html=True,
+    )
 
     if st.session_state.get("mentor_answer_total_q") != total_q:
         st.session_state["mentor_answers"] = {}
@@ -4884,17 +4990,18 @@ def page_mentor_results():
 
 
 # =========================================================================
-# Mentor: OMR Sheet Setup (calibration) - now supports both the 100Q and
-# 40Q layouts, saved independently under the same "calibration" config
-# entry (a dict keyed by "100" / "40"). This is now mainly a REFERENCE
+# Mentor: OMR Sheet Setup - exactly two physical sheet geometries:
+# 50 / 40 OMR and 100 OMR.  A 40-question exam uses Q1-Q40 on the same
+# physical 50-question sheet; Q41-Q50 are silently ignored. This is mainly a
+# REFERENCE setup step; each student still calibrates their own photo.
 # setup step; the grid actually used to read each student's photo is
 # always built from that student's own click-calibration (see
 # page_tests_results), which is far more tolerant of camera angle/skew.
 # =========================================================================
 
 CALIB_LAYOUT_OPTIONS = [
-    (100, "📄 100 Questions"),
-    (40, "📄 40 Questions"),
+    (50, "📄 50 / 40 OMR"),
+    (100, "📄 100 OMR"),
 ]
 
 
