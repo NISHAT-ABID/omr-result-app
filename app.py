@@ -4743,13 +4743,26 @@ def render_answer_key_tab():
             st.button("← Back: 1-50", use_container_width=True,
                       on_click=_go_answer_page, args=(1,))
     else:
-        st.caption("Showing questions **1-40** (two columns of 20)")
-        with st.container(key="answer_bubble_grid"):
-            col1, col2 = st.columns(2)
-            with col1:
-                _render_bubble_block(1, 20)
-            with col2:
-                _render_bubble_block(21, 40)
+        # 40 and 50 exams share the same physical 50 / 40 OMR sheet,
+        # but the mentor answer-key input must still show the correct
+        # number of questions.  In particular, a 50-MCQ key must expose
+        # Q1-Q50 (25 + 25), not stop at Q40.
+        if total_q == 50:
+            st.caption("Showing questions **1-50** (two columns of 25)")
+            with st.container(key="answer_bubble_grid"):
+                col1, col2 = st.columns(2)
+                with col1:
+                    _render_bubble_block(1, 25)
+                with col2:
+                    _render_bubble_block(26, 50)
+        else:
+            st.caption("Showing questions **1-40** (two columns of 20)")
+            with st.container(key="answer_bubble_grid"):
+                col1, col2 = st.columns(2)
+                with col1:
+                    _render_bubble_block(1, 20)
+                with col2:
+                    _render_bubble_block(21, 40)
 
     st.divider()
 
