@@ -36,17 +36,21 @@ LAYOUT_PRESETS = {100: (25, 4), 50: (25, 2), 40: (25, 2)}
 # Detection tuning.
 # The algorithm combines center darkness and local center-vs-ring contrast,
 # then validates candidates against the other bubbles in the same question.
-FILL_SCORE_THRESHOLD = 16.0
-STRONG_FILL_SCORE = 24.0
-MULTI_SECOND_SCORE = 19.0
-MIN_STRONG_INK_FRACTION = 0.055
-MULTI_MIN_INK_FRACTION = 0.105
+FILL_SCORE_THRESHOLD = 20.0
+STRONG_FILL_SCORE = 30.0
+MULTI_SECOND_SCORE = 17.0
+MIN_STRONG_INK_FRACTION = 0.085
+MULTI_MIN_INK_FRACTION = 0.135
 
-# Value-channel threshold used after the printed pink/red ink is removed.
-# It is intentionally moderate; the decision is also based on local contrast,
-# ink coverage and the gap between the best and second-best option.
-DARK_PIXEL_THRESHOLD = 155
-
+# This threshold is applied to the max(R,G,B) value channel, NOT grayscale.
+# Printed pink/magenta graphics normally retain a high max channel value,
+# while black/dark pen or pencil marks have a low value in all channels.
+# IMPORTANT: This threshold is for the max(R,G,B) / HSV Value channel.
+# The previous 175 value was still too high for this particular OMR print:
+# anti-aliased pink letters/outlines can fall below 175 in a phone photo.
+# Real dark pen marks in the supplied sheet are substantially darker.
+DARK_PIXEL_THRESHOLD = 150
+ADAPTIVE_INK_RATIO = 0.72
 
 
 def get_layout(total_questions):
@@ -286,188 +290,216 @@ def build_grid(calibration, total_questions=TOTAL_QUESTIONS):
     return grid
 
 
-def _bubble_metrics(bgr, center, radius, dark_threshold=DARK_PIXEL_THRESHOLD):
-    """Return robust evidence for one bubble.
+def _bubble_metrics(bgr, center, radius):
+    """Measure actual student ink while ignoring the sheet's pink print.
 
-    The sheet print is pink/red while student marks are normally neutral black,
-    grey, blue or dark pencil.  We therefore suppress red-dominant print first,
-    then inspect the bubble core rather than the whole circle.  The returned
-    score deliberately combines several independent signals so one bad pixel
-    threshold cannot turn a real mark into a skip.
+    The printed OMR outlines and A/B/C/D letters are pink/red. Grayscale
+    luminance can make those printed pixels look dark. We therefore identify
+    red/pink printed pixels from their colour dominance and exclude them
+    before calculating ink density.
+
+    Black/grey pencil and pen remain detectable, and dark blue ink is kept
+    because only red/pink dominance is suppressed.
     """
+
     x, y = center
     h, w = bgr.shape[:2]
-    r = max(6, int(radius))
+    r = max(5, int(radius))
 
     yy, xx = np.ogrid[-r:r + 1, -r:r + 1]
     d2 = xx * xx + yy * yy
 
-    # The centre is where student ink is most useful.  The wider ring is a
-    # local paper reference and is kept away from the printed bubble outline.
-    core_mask = d2 <= (r * 0.52) ** 2
-    inner_mask = d2 <= (r * 0.64) ** 2
-    ring_mask = (d2 >= (r * 0.78) ** 2) & (d2 <= r * r)
+    # Sample the center, away from most of the printed bubble outline.
+    inner_mask = d2 <= (r * 0.58) ** 2
 
-    x0, x1 = max(0, x - r), min(w, x + r + 1)
-    y0, y1 = max(0, y - r), min(h, y + r + 1)
+    # Sample the surrounding paper as a local reference.
+    ring_mask = (
+        (d2 >= (r * 0.72) ** 2)
+        & (d2 <= r * r)
+    )
+
+    x0 = max(0, x - r)
+    x1 = min(w, x + r + 1)
+    y0 = max(0, y - r)
+    y1 = min(h, y + r + 1)
+
     patch = bgr[y0:y1, x0:x1]
+
     if patch.size == 0:
         return 0.0, 0.0, 255.0, 255.0
 
     mh, mw = patch.shape[:2]
-    core = core_mask[:mh, :mw]
-    inner = inner_mask[:mh, :mw]
-    ring = ring_mask[:mh, :mw]
+    im = inner_mask[:mh, :mw]
+    rm = ring_mask[:mh, :mw]
+
+    # ---------------------------------------------------------
+    # Detect the sheet's printed pink/red colour.
+    #
+    # OpenCV image order is BGR. Printed pink has R noticeably above
+    # both B and G. Black/grey ink has little channel separation.
+    # Blue ink has B dominant, so it is intentionally NOT suppressed.
+    # ---------------------------------------------------------
 
     b_chan = patch[:, :, 0].astype(np.int16)
     g_chan = patch[:, :, 1].astype(np.int16)
     r_chan = patch[:, :, 2].astype(np.int16)
-    max_rgb = np.maximum(np.maximum(b_chan, g_chan), r_chan)
-    min_rgb = np.minimum(np.minimum(b_chan, g_chan), r_chan)
-    red_dominance = r_chan - np.maximum(b_chan, g_chan)
+
+    max_rgb = np.maximum(
+        np.maximum(b_chan, g_chan),
+        r_chan,
+    )
+    min_rgb = np.minimum(
+        np.minimum(b_chan, g_chan),
+        r_chan,
+    )
+
+    red_dominance = (
+        r_chan - np.maximum(b_chan, g_chan)
+    )
+
     chroma = max_rgb - min_rgb
 
     printed_red = (
-        (red_dominance >= 16) &
-        (chroma >= 20) &
-        (r_chan >= 75)
+        (red_dominance >= 18)
+        & (chroma >= 24)
+        & (r_chan >= 105)
+        & (max_rgb >= 105)
     )
+
+    # Protect genuinely dark neutral pen/pencil pixels from being classified
+    # as printed just because the photograph has a warm/red cast.
     very_dark_neutral = (
-        (max_rgb <= 100) &
-        (np.abs(r_chan - g_chan) <= 30) &
-        (np.abs(g_chan - b_chan) <= 30)
+        (max_rgb <= 95)
+        & (np.abs(r_chan - g_chan) <= 28)
+        & (np.abs(g_chan - b_chan) <= 28)
     )
+
     printed_red &= ~very_dark_neutral
+
+    # ---------------------------------------------------------
+    # Value channel = max(B,G,R).
+    #
+    # This is deliberately used instead of grayscale luminance.
+    # ---------------------------------------------------------
 
     value = max_rgb.astype(np.float32)
 
-    # Use the centre core for ink coverage.  A lower threshold is paired with
-    # colour suppression and relative comparison, so faint real marks survive.
-    dark = (value < float(dark_threshold)) & (~printed_red)
-    core_value = value[core]
-    core_dark = dark[core]
-    inner_value = value[inner]
-    inner_dark = dark[inner]
+    inner_value = value[im]
+    inner_printed = printed_red[im]
 
-    if core_value.size == 0:
+    if inner_value.size == 0:
         return 0.0, 0.0, 255.0, 255.0
 
-    clean_core = core_value[~printed_red[core]]
-    if clean_core.size:
-        center_mean = float(np.median(clean_core))
+    # Ignore printed red/pink when estimating center brightness.
+    clean_inner = inner_value[~inner_printed]
+
+    if clean_inner.size:
+        center_mean = float(np.mean(clean_inner))
     else:
-        center_mean = float(np.median(core_value))
+        center_mean = float(np.mean(inner_value))
 
-    # Dark coverage is more stable than a raw mean when a pen stroke covers
-    # only part of the bubble.  Include a softer darkness percentile as a
-    # second signal for very light pencil marks.
-    ink_fraction = float(np.mean(core_dark))
-    inner_ink_fraction = float(np.mean(inner_dark)) if inner_dark.size else ink_fraction
+    # ---------------------------------------------------------
+    # Actual student-ink mask.
+    #
+    # The colour filter removes printed pink first; the Value threshold
+    # then separates dark ink from the bright paper.
+    # ---------------------------------------------------------
 
-    darkness = np.clip(255.0 - core_value.astype(np.float32), 0.0, 255.0)
-    if clean_core.size:
-        clean_darkness = np.clip(255.0 - clean_core.astype(np.float32), 0.0, 255.0)
-        p65_dark = float(np.percentile(clean_darkness, 65))
+    # ---------------------------------------------------------
+    # Local background ring.
+    # ---------------------------------------------------------
+
+    ring_value = value[rm]
+    ring_printed = printed_red[rm]
+
+    clean_ring = ring_value[~ring_printed]
+
+    if clean_ring.size:
+        ring_mean = float(np.median(clean_ring))
+    elif ring_value.size:
+        ring_mean = float(np.median(ring_value))
     else:
-        p65_dark = float(np.percentile(darkness, 65))
+        ring_mean = 255.0
 
-    ring_value = value[ring]
-    ring_red = printed_red[ring]
-    clean_ring = ring_value[~ring_red]
-    ring_mean = float(np.median(clean_ring)) if clean_ring.size else 255.0
+    adaptive_threshold = min(
+        float(DARK_PIXEL_THRESHOLD),
+        max(92.0, ring_mean * ADAPTIVE_INK_RATIO),
+    )
+    dark_pixels = (value < adaptive_threshold) & (~printed_red)
+    ink_fraction = float(np.mean(dark_pixels[im]))
 
-    contrast = max(0.0, ring_mean - center_mean)
-    # Saturate the darkness contribution so one tiny black artifact cannot
-    # dominate the decision.
-    darkness_signal = min(45.0, p65_dark)
-
-    score = (
-        0.50 * contrast
-        + 42.0 * ink_fraction
-        + 0.18 * darkness_signal
-        + 14.0 * inner_ink_fraction
+    contrast = max(
+        0.0,
+        ring_mean - center_mean,
     )
 
-    return score, ink_fraction, center_mean, ring_mean
+    # Keep the same scoring model expected by the rest of the app.
+    score = (
+        0.72 * contrast
+        + 28.0 * ink_fraction
+    )
+
+    return (
+        score,
+        ink_fraction,
+        center_mean,
+        ring_mean,
+    )
 
 
 def read_answers(
     warped_bgr,
     grid,
-    dark_threshold=DARK_PIXEL_THRESHOLD,
+    dark_threshold=150,
     min_gap=15,
     radius=None,
 ):
-    """Read answers using adaptive, within-question evidence.
+    """Read one answer per question with conservative double-touch detection.
 
-    40-question exams use the first 40 positions of the physical 50-question
-    sheet because the supplied grid already contains only the requested Qs.
+    The public signature is kept compatible with the app.  The scanner uses
+    colour-aware black-ink evidence, local background contrast, and within-row
+    comparison.  A second option is called MULTI only when both marks have
+    strong independent evidence; weak printed artefacts are not enough.
     """
     radius = BUBBLE_SAMPLE_RADIUS if radius is None else int(radius)
+    # Small colour blur removes camera noise without destroying ink strokes.
     smoothed = cv2.GaussianBlur(warped_bgr, (3, 3), 0)
     answers = {}
 
     for q_no, options in grid.items():
-        metrics = {
-            opt: _bubble_metrics(smoothed, center, radius, dark_threshold=dark_threshold)
-            for opt, center in options.items()
-        }
+        metrics = {opt: _bubble_metrics(smoothed, center, radius) for opt, center in options.items()}
         scores = {opt: metrics[opt][0] for opt in OPTIONS}
         inks = {opt: metrics[opt][1] for opt in OPTIONS}
         ordered = sorted(OPTIONS, key=lambda o: scores[o], reverse=True)
         best, second = ordered[0], ordered[1]
         best_score, second_score = scores[best], scores[second]
-        margin = best_score - second_score
 
-        # Adaptive baseline: compare the best bubble with the other three.
-        # This is much more stable across bright/dark phone photos than one
-        # global score cutoff.
-        other_scores = [scores[o] for o in OPTIONS if o != best]
-        baseline = float(np.median(other_scores))
-        relative_gain = best_score - baseline
-
+        # Candidate = enough dark neutral ink AND measurable local contrast.
         candidates = [
             o for o in OPTIONS
             if scores[o] >= FILL_SCORE_THRESHOLD and inks[o] >= MIN_STRONG_INK_FRACTION
         ]
 
-        # Double touch: two bubbles must each have real centre ink.  Merely
-        # having similar scores is not enough; both need independent evidence.
-        strong = [
-            o for o in OPTIONS
-            if scores[o] >= MULTI_SECOND_SCORE and inks[o] >= MULTI_MIN_INK_FRACTION
-        ]
-        if len(strong) >= 2:
-            # Require the two strongest marks to be reasonably close.  This
-            # prevents a single genuine fill plus a printed/noisy artefact from
-            # becoming MULTI.
-            second_strong = ordered[1]
-            if (
-                best_score >= STRONG_FILL_SCORE
-                and second_strong in strong
-                and second_score >= best_score * 0.62
-            ):
-                answers[q_no] = "MULTI"
-                continue
-
         if not candidates:
             answers[q_no] = None
             continue
 
-        # Strong winner -> answer.  Medium winner -> answer only when it has a
-        # meaningful advantage over the other three bubbles.  Otherwise leave
-        # it reviewable instead of confidently guessing.
-        if best_score >= STRONG_FILL_SCORE:
-            answers[q_no] = best
-        elif (
-            best_score >= FILL_SCORE_THRESHOLD
-            and relative_gain >= max(6.0, float(min_gap) * 0.38)
-            and margin >= max(4.5, float(min_gap) * 0.28)
-        ):
+        # Genuine double touch requires TWO independently strong marks.
+        # Requiring both score and ink density is intentionally conservative.
+        strong = [
+            o for o in candidates
+            if scores[o] >= MULTI_SECOND_SCORE and inks[o] >= MULTI_MIN_INK_FRACTION
+        ]
+        if len(strong) >= 2 and best_score >= STRONG_FILL_SCORE:
+            answers[q_no] = "MULTI"
+            continue
+
+        # Single answer: use a clear winner.  If the winner is only marginally
+        # stronger, leave it blank/reviewable instead of guessing.
+        margin = best_score - second_score
+        if best_score >= STRONG_FILL_SCORE or (best_score >= FILL_SCORE_THRESHOLD and margin >= max(7.0, min_gap * 0.45)):
             answers[q_no] = best
         else:
-            # If there is measurable ink but the evidence is ambiguous, keep
-            # it as MULTI only when two options really qualify; otherwise blank.
             answers[q_no] = None
 
     return answers
