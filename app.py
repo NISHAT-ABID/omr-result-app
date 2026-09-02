@@ -13,6 +13,7 @@ Run with: streamlit run app.py
 """
 
 import random
+import io
 from datetime import datetime, date, time as dtime, timedelta
 
 import cv2
@@ -551,6 +552,114 @@ def inject_global_css():
         .stFormSubmitButton > button:not([kind="primary"]):hover,
         .stDownloadButton > button:hover {
             background: var(--mv-primary-soft) !important;
+        }
+
+        /* ---- Digital OMR: proper bubble-sheet look ---- */
+        .digital-omr-shell {
+            background: linear-gradient(180deg, #0d2020 0%, #0a1818 100%);
+            border: 1px solid rgba(38,171,140,.28);
+            border-radius: 18px;
+            padding: 14px;
+            box-shadow: 0 12px 34px rgba(0,0,0,.18);
+        }
+        .digital-omr-title {
+            display:flex;
+            align-items:center;
+            justify-content:space-between;
+            gap:10px;
+            margin: 0 0 10px 0;
+        }
+        .digital-omr-title-main {
+            font-family: var(--serif);
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--mv-ink);
+        }
+        .digital-omr-sub {
+            font-size: 11px;
+            color: var(--mv-muted);
+            margin-top: 2px;
+        }
+        .digital-omr-block {
+            background: rgba(6,17,18,.78);
+            border: 1px solid rgba(255,255,255,.07);
+            border-radius: 13px;
+            padding: 8px 7px 4px;
+            margin-bottom: 10px;
+        }
+        .digital-omr-block-title {
+            color: var(--mv-primary);
+            font-size: 11px;
+            font-weight: 800;
+            letter-spacing: .07em;
+            text-transform: uppercase;
+            padding: 2px 7px 8px;
+        }
+        /* Streamlit buttons inside a keyed question container become the
+           editable OMR bubbles. */
+        [class*="st-key-digital_omr_q_"] button {
+            min-height: 31px !important;
+            height: 31px !important;
+            padding: 0 !important;
+            border-radius: 999px !important;
+            border: 1.5px solid rgba(125,154,145,.62) !important;
+            background: rgba(255,255,255,.025) !important;
+            color: #b9c9c3 !important;
+            font-family: var(--mono) !important;
+            font-size: 12px !important;
+            font-weight: 700 !important;
+            box-shadow: none !important;
+        }
+        [class*="st-key-digital_omr_q_"] button:hover {
+            border-color: var(--mv-primary) !important;
+            color: var(--mv-primary) !important;
+            background: var(--mv-primary-soft) !important;
+            transform: translateY(-1px);
+        }
+        [class*="st-key-digital_omr_q_"] button[kind="primary"] {
+            border: 2px solid var(--mv-primary) !important;
+            background: rgba(38,171,140,.18) !important;
+            color: #dffff4 !important;
+            box-shadow: 0 0 0 3px rgba(38,171,140,.08) !important;
+        }
+        [class*="st-key-digital_omr_q_"] button p {
+            margin: 0 !important;
+            line-height: 1 !important;
+        }
+        [class*="st-key-digital_omr_q_"] [data-testid="stMarkdownContainer"] p {
+            margin: 5px 0 0 !important;
+            font-family: var(--mono) !important;
+            font-size: 11px !important;
+            font-weight: 800 !important;
+            color: var(--mv-ink) !important;
+        }
+        .digital-q-issue {
+            border-left: 3px solid #f5b83d;
+            background: rgba(245,184,61,.07);
+            border-radius: 8px;
+            padding: 3px 5px;
+        }
+        .digital-q-edited {
+            border-left: 3px solid var(--mv-primary);
+            background: rgba(38,171,140,.06);
+            border-radius: 8px;
+            padding: 3px 5px;
+        }
+        .omr-photo-card {
+            background: #0d2020;
+            border: 1px solid rgba(255,255,255,.08);
+            border-radius: 18px;
+            padding: 12px;
+            position: sticky;
+            top: 12px;
+        }
+        .omr-photo-label {
+            font-size: 11px;
+            font-weight: 800;
+            letter-spacing: .07em;
+            text-transform: uppercase;
+            color: var(--mv-muted);
+            margin-bottom: 8px;
         }
 
         /* ---- Tabs: pill tab-bar like the web app's .tabbar/.tabbtn ---- */
@@ -3120,37 +3229,42 @@ def _digital_omr_pick_answer(q, opt, total_q):
 
 
 def _render_digital_question_row(q, answer, original, status, total_q, compact=False):
-    """Render one real Streamlit OMR question with four clickable bubbles."""
-    cols = st.columns([0.72, 1, 1, 1, 1], gap="small")
+    """Render one editable OMR row with real circular A/B/C/D controls."""
+    wrapper_class = "digital-q-issue" if status in ("skipped", "double") else ("digital-q-edited" if original != answer else "")
+    with st.container(key=f"digital_omr_q_{q}"):
+        cols = st.columns([0.72, 1, 1, 1, 1], gap="small")
+        with cols[0]:
+            badge = ""
+            if status == "skipped":
+                badge = " ⏭"
+            elif status == "double":
+                badge = " ⚠"
+            label = f"Q{q}{badge}"
+            if wrapper_class:
+                st.markdown(f"<div class='{wrapper_class}'><span style='font-family:var(--mono);font-size:11px;font-weight:800;'>{label}</span></div>", unsafe_allow_html=True)
+            else:
+                st.markdown(f"**Q{q}**")
 
-    with cols[0]:
-        badge = ""
-        if status == "skipped":
-            badge = " ⏭"
-        elif status == "double":
-            badge = " ⚠️"
-        st.markdown(f"**Q{q}**{badge}")
+        for idx, opt in enumerate(("A", "B", "C", "D"), start=1):
+            selected = answer == opt
+            with cols[idx]:
+                st.button(
+                    opt,
+                    key=f"digital_omr_q{q}_{opt}",
+                    type="primary" if selected else "secondary",
+                    use_container_width=True,
+                    on_click=_digital_omr_pick_answer,
+                    args=(q, opt, total_q),
+                    help=f"Select {opt} for Question {q}" if not selected else f"Question {q}: {opt} selected. Click again to clear.",
+                )
 
-    for idx, opt in enumerate(("A", "B", "C", "D"), start=1):
-        selected = answer == opt
-        with cols[idx]:
-            st.button(
-                f"● {opt}" if selected else f"○ {opt}",
-                key=f"digital_omr_q{q}_{opt}",
-                type="primary" if selected else "secondary",
-                use_container_width=True,
-                on_click=_digital_omr_pick_answer,
-                args=(q, opt, total_q),
-            )
-
-    if not compact:
-        if status == "skipped":
-            st.caption("⏭ Skipped — choose A, B, C or D to resolve this issue.")
-        elif status == "double":
-            st.caption("⚠️ Double Touch — choose the one final answer you want to submit.")
-        elif original != answer:
+        if not compact and status == "skipped":
+            st.caption("⏭ Scanner found no reliable fill — choose the correct bubble above.")
+        elif not compact and status == "double":
+            st.caption("⚠ Scanner detected more than one filled option — select the single final answer above.")
+        elif not compact and original != answer:
             detected = "Multiple" if original == "MULTI" else (original or "Skipped")
-            st.caption(f"Scanner detected: {detected} · Your final answer: {answer}")
+            st.caption(f"Scanner detected: **{detected}** · Final answer: **{answer}**")
 
 
 def _issue_rows_from_review(review_rows):
@@ -3158,19 +3272,23 @@ def _issue_rows_from_review(review_rows):
 
 
 def _render_normal_omr_view(review_rows, total_q):
-    """Default all-question Digital OMR, split into 25-question sections."""
-    sections = []
-    for start in range(1, total_q + 1, 25):
-        end = min(start + 24, total_q)
-        sections.append((start, end))
-
-    labels = [f"{a}–{b}" for a, b in sections]
-    tabs = st.tabs(labels) if len(labels) > 1 else [st.container()]
+    """Render the editable Digital OMR in the same block pattern as the paper."""
     row_by_q = {r["q"]: r for r in review_rows}
+    physical_total = 50 if total_q in (40, 50) else 100
+    block_starts = list(range(1, physical_total + 1, 25))
+    # For a 40-question exam, Q41-50 are physically present on the paper but
+    # are intentionally not rendered because they are outside the exam.
+    block_starts = [s for s in block_starts if s <= total_q]
 
-    for tab, (start, end) in zip(tabs, sections):
-        with tab:
-            for q in range(start, end + 1):
+    block_cols = st.columns(len(block_starts), gap="small")
+    for col, start_q in zip(block_cols, block_starts):
+        end_q = min(start_q + 24, total_q)
+        with col:
+            st.markdown(
+                f"<div class='digital-omr-block'><div class='digital-omr-block-title'>Questions {start_q}–{end_q}</div>",
+                unsafe_allow_html=True,
+            )
+            for q in range(start_q, end_q + 1):
                 row = row_by_q[q]
                 _render_digital_question_row(
                     q=q,
@@ -3180,8 +3298,7 @@ def _render_normal_omr_view(review_rows, total_q):
                     total_q=total_q,
                     compact=True,
                 )
-                if q != end:
-                    st.divider()
+            st.markdown("</div>", unsafe_allow_html=True)
 
 
 def _render_review_issues_view(review_rows, total_q):
@@ -3266,12 +3383,7 @@ def _render_review_issues_view(review_rows, total_q):
 
 
 def _render_interactive_omr_review(img_bgr, grid_points, detected_answers, final_answers, double_qs, radius):
-    """Real Streamlit Digital OMR.
-
-    The image-based clickable OMR has been removed from the editing workflow.
-    Scanner/calibration still provide the initial answers, but all corrections
-    happen on real A/B/C/D Streamlit bubbles.
-    """
+    """Show the student's original OMR beside an editable Digital OMR."""
     total_q = len(final_answers)
     review_rows = _build_review_state(final_answers, detected_answers)
 
@@ -3280,29 +3392,57 @@ def _render_interactive_omr_review(img_bgr, grid_points, detected_answers, final
     answered_count = total_q - skipped_count - double_count
     issue_count = skipped_count + double_count
 
-    st.markdown("#### 🖥️ Digital OMR")
+    st.markdown("""
+        <div class='digital-omr-title'>
+            <div>
+                <div class='digital-omr-title-main'>🖥️ OMR Review</div>
+                <div class='digital-omr-sub'>Your scanned sheet on the left · editable Digital OMR on the right</div>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Answered", answered_count)
     c2.metric("Skipped", skipped_count)
     c3.metric("Double Touch", double_count)
-    c4.metric("Review Issues", issue_count)
-
-    st.caption(
-        "Click any A/B/C/D bubble to change the answer. Click the selected bubble again to clear it. "
-        "Correct answers and score remain hidden until submission."
-    )
+    c4.metric("Needs Review", issue_count)
 
     view = st.radio(
         "Digital OMR view",
         ["🖥️ All Questions", "🔎 Review Issues"],
         horizontal=True,
         key="submit_omr_view",
+        label_visibility="collapsed",
     )
 
-    if view == "🖥️ All Questions":
-        _render_normal_omr_view(review_rows, total_q)
-    else:
-        _render_review_issues_view(review_rows, total_q)
+    left, right = st.columns([0.92, 1.55], gap="medium")
+    with left:
+        st.markdown("<div class='omr-photo-card'><div class='omr-photo-label'>📷 Original OMR</div>", unsafe_allow_html=True)
+        original_bytes = st.session_state.get("submit_original_bytes")
+        if original_bytes:
+            try:
+                original_img = ImageOps.exif_transpose(Image.open(io.BytesIO(original_bytes)).convert("RGB"))
+                st.image(original_img, use_container_width=True)
+            except Exception:
+                st.image(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB), use_container_width=True)
+        else:
+            st.image(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB), use_container_width=True)
+        st.caption("This is the exact photo you submitted. The Digital OMR is what will be submitted after your corrections.")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with right:
+        st.markdown("<div class='digital-omr-shell'>", unsafe_allow_html=True)
+        st.markdown(
+            "<div style='font-size:12px;color:var(--mv-muted);margin-bottom:10px;'>"
+            "Tap a bubble to edit. A selected bubble is the final answer."
+            "</div>",
+            unsafe_allow_html=True,
+        )
+        if view == "🖥️ All Questions":
+            _render_normal_omr_view(review_rows, total_q)
+        else:
+            _render_review_issues_view(review_rows, total_q)
+        st.markdown("</div>", unsafe_allow_html=True)
 
     return review_rows
 
