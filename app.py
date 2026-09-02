@@ -3285,7 +3285,7 @@ def _render_interactive_omr_review(img_bgr, grid_points, detected_answers, final
             unsafe_allow_html=True,
         )
         cols = st.columns(4)
-        for opt, col in zip(OPTIONS, cols):
+        for opt, col in zip(("A", "B", "C", "D"), cols):
             with col:
                 label = f"{'●' if current == opt else '○'}  {opt}"
                 if st.button(
