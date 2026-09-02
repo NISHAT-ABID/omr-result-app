@@ -113,12 +113,6 @@ SCOPES = [
 
 RAW = "RAW"  # value_input_option used for every write - see module docstring
 
-# OMR storage policy: keep every original student OMR in ONE existing Drive
-# folder. If OMR_SUBMISSION_FOLDER_ID is not configured, the same Questions
-# folder used for question PDFs is reused. No exam-specific folders are made.
-OMR_STORAGE_FOLDER_SECRET = "OMR_SUBMISSION_FOLDER_ID"
-QUESTION_STORAGE_FOLDER_SECRET = "QUESTION_PDF_FOLDER_ID"
-
 ANSWERKEYS_HEADER = [
     "key_id", "exam_name", "date", "start_time", "end_time",
     "total_questions", "answer_string", "negative_marking", "negative_marks_value",
@@ -141,7 +135,6 @@ RESULTS_HEADER = [
     # lightweight metadata so the result can reopen the exact submitted photo.
     "omr_photo_file_id", "omr_photo_name",
     "omr_original_answers_json", "omr_final_answers_json", "omr_double_touch_json",
-    "omr_grid_json", "omr_radius",
 ]
 
 CONFIG_HEADER = ["config_key", "config_value"]
@@ -970,20 +963,6 @@ def get_question_pdf_bytes(file_id):
 
 # ================= Student OMR photo storage =================
 
-def _get_omr_storage_folder_id():
-    """Return the single Drive folder used for original student OMR images.
-
-    Priority: explicit OMR_SUBMISSION_FOLDER_ID, then the existing
-    QUESTION_PDF_FOLDER_ID. Returning an empty string is allowed for legacy
-    setups, although a shared folder is strongly recommended because service
-    accounts do not have normal personal Drive storage quota.
-    """
-    return (
-        str(st.secrets.get(OMR_STORAGE_FOLDER_SECRET, "") or "").strip()
-        or str(st.secrets.get(QUESTION_STORAGE_FOLDER_SECRET, "") or "").strip()
-    )
-
-
 def upload_student_omr_image(file_bytes, filename):
     """Store a student's original uploaded OMR photo in Google Drive.
 
@@ -1023,7 +1002,7 @@ def upload_student_omr_image(file_bytes, filename):
     service = _drive_service()
     media = MediaIoBaseUpload(io.BytesIO(file_bytes), mimetype=mime, resumable=False)
     metadata = {"name": name, "mimeType": mime}
-    folder_id = _get_omr_storage_folder_id()
+    folder_id = st.secrets.get("OMR_SUBMISSION_FOLDER_ID", "") or st.secrets.get("QUESTION_PDF_FOLDER_ID", "")
     if folder_id:
         metadata["parents"] = [folder_id]
 
@@ -1043,11 +1022,6 @@ def get_student_omr_image_bytes(file_id):
         fileId=str(file_id), supportsAllDrives=True
     ).execute()
     return bytes(response)
-
-
-def get_omr_storage_folder_id():
-    """Public helper for diagnostics/UI: returns the configured OMR folder ID."""
-    return _get_omr_storage_folder_id()
 
 
 # ================= Exam Sessions =================
@@ -1234,8 +1208,6 @@ def _result_row_values(student_id, student_name, key_id, result):
     original_answers_json = json.dumps(result.get("omr_original_answers", {}), ensure_ascii=False)
     final_answers_json = json.dumps(result.get("omr_final_answers", {}), ensure_ascii=False)
     double_touch_json = json.dumps(result.get("omr_double_touch", []), ensure_ascii=False)
-    omr_grid_json = json.dumps(result.get("omr_grid", {}), ensure_ascii=False)
-    omr_radius = result.get("omr_radius", "")
 
     return [
         timestamp, student_id, student_name, key_id,
@@ -1247,7 +1219,6 @@ def _result_row_values(student_id, student_name, key_id, result):
         str(result.get("omr_photo_file_id", "") or ""),
         str(result.get("omr_photo_name", "") or ""),
         original_answers_json, final_answers_json, double_touch_json,
-        omr_grid_json, omr_radius,
     ]
 
 
