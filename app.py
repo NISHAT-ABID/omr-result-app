@@ -613,8 +613,25 @@ def inject_global_css():
                 box-sizing: border-box !important;
             }
 
-            /* Phone row = one full-width field. */
+            /* Phone row = one full-width field.
+               NOTE: only the INNER stVerticalBlock is forced into a flex
+               row here (matching the base, non-mobile "_phone_row" rule
+               further down this stylesheet) - the outer "_phone_row"
+               container itself is left alone. Flexing BOTH the outer
+               container and the inner block at once was what squeezed
+               the whole selectbox+input pair into a single ~150px-wide
+               "first-child" box on phones, leaving the digits input
+               almost invisible. Only the inner block - the one that
+               actually holds the two real child widgets - is flexed
+               now, so :first-child/:last-child below correctly target
+               the country-code select and the digits input. */
             [class*="st-key-auth_card_login"] div[class*="_phone_row"] {
+                width: 100% !important;
+                max-width: 100% !important;
+                box-sizing: border-box !important;
+            }
+
+            [class*="st-key-auth_card_login"] div[class*="_phone_row"] div[data-testid="stVerticalBlock"] {
                 display: flex !important;
                 flex-direction: row !important;
                 width: 100% !important;
@@ -623,14 +640,14 @@ def inject_global_css():
                 box-sizing: border-box !important;
             }
 
-            [class*="st-key-auth_card_login"] div[class*="_phone_row"] > div:first-child {
-                flex: 0 0 150px !important;
-                width: 150px !important;
-                min-width: 150px !important;
-                max-width: 150px !important;
+            [class*="st-key-auth_card_login"] div[class*="_phone_row"] div[data-testid="stVerticalBlock"] > div:first-child {
+                flex: 0 0 130px !important;
+                width: 130px !important;
+                min-width: 130px !important;
+                max-width: 130px !important;
             }
 
-            [class*="st-key-auth_card_login"] div[class*="_phone_row"] > div:last-child {
+            [class*="st-key-auth_card_login"] div[class*="_phone_row"] div[data-testid="stVerticalBlock"] > div:last-child {
                 flex: 1 1 auto !important;
                 width: auto !important;
                 min-width: 0 !important;
