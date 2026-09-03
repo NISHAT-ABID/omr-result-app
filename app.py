@@ -5046,6 +5046,10 @@ def render_answer_key_tab():
     .mentor-exam-row .meta {font-size:11px; color:var(--mv-muted); margin-top:3px;
         white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
     .mentor-exam-divider {border-bottom:1px solid var(--mv-border); margin:0 0 2px;}
+    .mentor-exam-search-note {font-size:11px; color:var(--mv-muted); margin:2px 0 8px;}
+    @media(max-width:640px){
+        div[data-testid="stHorizontalBlock"] .mentor-exam-row {padding-right:0;}
+    }
     .mentor-edit-head {
         border:1px solid var(--mv-border); border-radius:16px; padding:16px 18px;
         background:var(--mv-card-bg); margin-bottom:15px;
@@ -5119,8 +5123,50 @@ def render_answer_key_tab():
         st.info("No exams have been created yet.")
         return
 
-    keys_df = keys_df.iloc[::-1].reset_index(drop=True)
-    for idx, (_, row) in enumerate(keys_df.iterrows()):
+    # Scalable exam browser: search + 10 exams/page.
+    search_col, sort_col = st.columns([4.2, 1.35], gap="small")
+    with search_col:
+        exam_search = st.text_input(
+            "Search exams",
+            key="mentor_exam_search",
+            placeholder="🔍  Search by exam name…",
+            label_visibility="collapsed",
+        ).strip().lower()
+    with sort_col:
+        sort_newest = st.selectbox(
+            "Sort", ["Newest", "Oldest"],
+            key="mentor_exam_sort",
+            label_visibility="collapsed",
+        )
+
+    work_df = keys_df.copy()
+    if exam_search:
+        mask = work_df["exam_name"].fillna("").astype(str).str.lower().str.contains(exam_search, regex=False)
+        work_df = work_df[mask]
+
+    # Newest first by default; preserve existing row order as fallback.
+    if "date" in work_df.columns:
+        work_df["_sort_date"] = pd.to_datetime(work_df["date"], errors="coerce")
+        work_df = work_df.sort_values("_sort_date", ascending=(sort_newest == "Oldest"), na_position="last")
+    else:
+        work_df = work_df.iloc[::-1] if sort_newest == "Newest" else work_df
+    work_df = work_df.reset_index(drop=True)
+
+    page_size = 10
+    total_pages = max(1, (len(work_df) + page_size - 1) // page_size)
+    current_page = int(st.session_state.get("mentor_exam_list_page", 0))
+    current_page = min(max(current_page, 0), total_pages - 1)
+    st.session_state["mentor_exam_list_page"] = current_page
+
+    if not len(work_df):
+        st.info("No exams match your search.")
+        return
+
+    start = current_page * page_size
+    page_df = work_df.iloc[start:start + page_size]
+    st.caption(f"Showing {start + 1}–{start + len(page_df)} of {len(work_df)} exam(s)")
+
+    for idx, (_, row) in enumerate(page_df.iterrows()):
         key_id = str(row.get("key_id", ""))
         name = str(row.get("exam_name") or key_id)
         exam_date = str(row.get("date", ""))
@@ -5142,6 +5188,27 @@ def render_answer_key_tab():
                     st.session_state["edit_exam_show_pdf"] = False
                     st.rerun()
             st.markdown("<div class='mentor-exam-divider'></div>", unsafe_allow_html=True)
+
+    if total_pages > 1:
+        p1, p2, p3, p4, p5 = st.columns([1.0, 1.0, 2.2, 1.0, 1.0], gap="small")
+        with p1:
+            if st.button("‹", disabled=current_page == 0, use_container_width=True, key="mentor_exam_prev_page"):
+                st.session_state["mentor_exam_list_page"] = current_page - 1
+                st.rerun()
+        with p2:
+            if st.button("1", disabled=total_pages == 1, use_container_width=True, key="mentor_exam_first_page"):
+                st.session_state["mentor_exam_list_page"] = 0
+                st.rerun()
+        with p3:
+            st.markdown(f"<div style='text-align:center;padding:8px 0;font-size:12px;color:var(--mv-muted);'>Page <b>{current_page + 1}</b> of <b>{total_pages}</b></div>", unsafe_allow_html=True)
+        with p4:
+            if st.button(str(total_pages), disabled=total_pages == 1, use_container_width=True, key="mentor_exam_last_page"):
+                st.session_state["mentor_exam_list_page"] = total_pages - 1
+                st.rerun()
+        with p5:
+            if st.button("›", disabled=current_page >= total_pages - 1, use_container_width=True, key="mentor_exam_next_page"):
+                st.session_state["mentor_exam_list_page"] = current_page + 1
+                st.rerun()
 
 
 def _render_create_exam_form():
