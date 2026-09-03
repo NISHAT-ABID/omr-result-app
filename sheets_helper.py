@@ -117,6 +117,7 @@ ANSWERKEYS_HEADER = [
     "key_id", "exam_name", "date", "start_time", "end_time",
     "total_questions", "answer_string", "negative_marking", "negative_marks_value",
     "duration_minutes", "question_pdf_file_id", "question_pdf_name",
+    "answer_rules_json", "question_notes_json", "answer_key_history_json",
 ]
 
 # One persistent session row per student/exam. This lets the PDF timer survive
@@ -135,6 +136,7 @@ RESULTS_HEADER = [
     # lightweight metadata so the result can reopen the exact submitted photo.
     "omr_photo_file_id", "omr_photo_name",
     "omr_original_answers_json", "omr_final_answers_json", "omr_double_touch_json",
+    "review_status", "review_note", "reviewed_at",
 ]
 
 CONFIG_HEADER = ["config_key", "config_value"]
@@ -389,6 +391,15 @@ def clear_data_caches():
         st.session_state.pop(key, None)
 
 
+def _json_loads_safe(value, default):
+    try:
+        if value is None or str(value).strip() == "":
+            return default
+        return json.loads(value)
+    except Exception:
+        return default
+
+
 # ================= Answer Keys =================
 
 def add_answer_key(exam_name, date_str, start_time_str, end_time_str,
@@ -414,12 +425,154 @@ def add_answer_key(exam_name, date_str, start_time_str, end_time_str,
             ws.append_row,
             [key_id, exam_name, date_str, start_time_str, end_time_str,
              total_questions, answer_string, negative_marking, negative_marks_value,
-             duration_minutes, question_pdf_file_id, question_pdf_name],
+             duration_minutes, question_pdf_file_id, question_pdf_name,
+             json.dumps({}, ensure_ascii=False), json.dumps({}, ensure_ascii=False), json.dumps([], ensure_ascii=False)],
             value_input_option=RAW,
         )
         clear_data_caches()
         return key_id
     raise ValueError("Could not save the answer key right now (too many concurrent saves). Please try again.")
+
+
+def update_answer_key_rules(key_id, answer_rules, question_notes=None, explanation=""):
+    """Persist per-question key rules/notes and keep an audit history."""
+    ws = _cached_worksheet("AnswerKeys")
+    values = _with_retry(ws.get_all_values)
+    if not values:
+        raise ValueError("Answer key not found.")
+    header = values[0]
+    row_idx = None
+    current = None
+    for i, row in enumerate(values[1:], start=2):
+        rec = dict(zip(header, row + [""] * max(0, len(header)-len(row))))
+        if str(rec.get("key_id", "")) == str(key_id):
+            row_idx, current = i, rec
+            break
+    if not row_idx:
+        raise ValueError("Answer key not found.")
+
+    old_rules = _json_loads_safe(current.get("answer_rules_json"), {})
+    old_notes = _json_loads_safe(current.get("question_notes_json"), {})
+    history = _json_loads_safe(current.get("answer_key_history_json"), [])
+    history.append({
+        "saved_at": now_bd().strftime("%Y-%m-%d %H:%M:%S"),
+        "previous_answer_string": current.get("answer_string", ""),
+        "previous_rules": old_rules,
+        "previous_notes": old_notes,
+        "explanation": explanation or "",
+    })
+
+    total = _to_int(current.get("total_questions"), len(str(current.get("answer_string", ""))))
+    chars = []
+    for q in range(1, total + 1):
+        rule = answer_rules.get(str(q), answer_rules.get(q, {})) or {}
+        accepted = [str(x).upper() for x in rule.get("accepted", []) if str(x).upper() in "ABCD"]
+        rtype = str(rule.get("type", "normal")).lower()
+        if rtype == "bonus":
+            chars.append("?")
+        else:
+            chars.append(accepted[0] if accepted else "?")
+    answer_string = "".join(chars)
+
+    updates = {
+        "answer_string": answer_string,
+        "answer_rules_json": json.dumps({str(k): v for k, v in answer_rules.items()}, ensure_ascii=False),
+        "question_notes_json": json.dumps({str(k): v for k, v in (question_notes or {}).items() if str(v).strip()}, ensure_ascii=False),
+        "answer_key_history_json": json.dumps(history, ensure_ascii=False),
+    }
+    for col, val in updates.items():
+        if col in header:
+            idx = header.index(col) + 1
+            letter = gspread.utils.rowcol_to_a1(1, idx).rstrip("1")
+            _with_retry(ws.update, f"{letter}{row_idx}", [[val]], value_input_option=RAW)
+    clear_data_caches()
+    return True
+
+
+def recalculate_results_for_exam(key_id, answer_rules=None):
+    """Re-score every submitted result for one exam from each student's FINAL answers."""
+    key = get_answer_key_by_id(key_id)
+    if not key:
+        raise ValueError("Exam not found.")
+    rules = answer_rules if answer_rules is not None else key.get("answer_rules", {})
+    ws = _cached_worksheet("Results")
+    values = _with_retry(ws.get_all_values)
+    if not values:
+        return 0
+    header = values[0]
+    updates = []
+    changed = 0
+    total = _to_int(key.get("total_questions"), len(str(key.get("answer_string", ""))))
+    neg = _to_bool(key.get("negative_marking", False))
+    neg_value = _to_float(key.get("negative_marks_value"), 0.0)
+
+    for idx, row in enumerate(values[1:], start=2):
+        rec = dict(zip(header, row + [""] * max(0, len(header)-len(row))))
+        if str(rec.get("key_id", "")) != str(key_id):
+            continue
+        final = _json_loads_safe(rec.get("omr_final_answers_json"), {})
+        if not final:
+            final = _json_loads_safe(rec.get("omr_original_answers_json"), {})
+        correct = wrong = skipped = bonus = 0
+        wrong_qs, skipped_qs, wrong_details = [], [], {}
+        for q in range(1, total + 1):
+            rule = rules.get(str(q), rules.get(q, {})) or {}
+            rtype = str(rule.get("type", "normal")).lower()
+            accepted = [str(x).upper() for x in rule.get("accepted", []) if str(x).upper() in "ABCD"]
+            if not accepted and rtype != "bonus":
+                ca = str(key.get("answer_string", ""))[q-1:q].upper()
+                accepted = [ca] if ca in "ABCD" else []
+            given = final.get(q, final.get(str(q)))
+            if rtype == "bonus" or rtype == "invalid":
+                bonus += 1
+                correct += 1
+                continue
+            if given in (None, "", "MULTI"):
+                if given == "MULTI":
+                    wrong += 1; wrong_qs.append(q); wrong_details[q] = {"given":"Multiple", "correct":", ".join(accepted)}
+                else:
+                    skipped += 1; skipped_qs.append(q)
+            elif str(given).upper() in accepted:
+                correct += 1
+            else:
+                wrong += 1; wrong_qs.append(q); wrong_details[q] = {"given":given, "correct":", ".join(accepted)}
+        answered = correct + wrong - bonus
+        marks = round(correct - (wrong * neg_value if neg else 0.0), 2)
+        valid_total = max(0, total - bonus)
+        accuracy = round((max(0, correct - bonus) / answered) * 100, 2) if answered else 0.0
+        vals = {"total": total, "answered": answered, "skipped": skipped, "correct": correct, "wrong_count": wrong,
+                "wrong": ",".join(map(str, wrong_qs)), "marks": marks, "accuracy": accuracy,
+                "negative_marking": neg, "negative_value": neg_value,
+                "wrong_details_json": json.dumps(wrong_details, ensure_ascii=False),
+                "skipped_json": json.dumps(skipped_qs, ensure_ascii=False), "edited_by_mentor": True}
+        for col, val in vals.items():
+            if col in header:
+                c = header.index(col) + 1
+                letter = gspread.utils.rowcol_to_a1(1, c).rstrip("1")
+                updates.append({"range": f"{letter}{idx}", "values": [[val]]})
+        changed += 1
+    if updates:
+        _with_retry(ws.batch_update, updates, value_input_option=RAW)
+    clear_data_caches()
+    return changed
+
+
+def set_result_review(student_id, key_id, status, note=""):
+    ws = _cached_worksheet("Results")
+    values = _with_retry(ws.get_all_values)
+    if not values:
+        raise ValueError("Result not found.")
+    header = values[0]
+    for idx, row in enumerate(values[1:], start=2):
+        rec = dict(zip(header, row + [""] * max(0, len(header)-len(row))))
+        if str(rec.get("student_id", "")) == str(student_id) and str(rec.get("key_id", "")) == str(key_id):
+            stamp = now_bd().strftime("%Y-%m-%d %H:%M:%S")
+            for col, val in {"review_status":status, "review_note":note, "reviewed_at":stamp}.items():
+                if col in header:
+                    c=header.index(col)+1; letter=gspread.utils.rowcol_to_a1(1,c).rstrip("1")
+                    _with_retry(ws.update, f"{letter}{idx}", [[val]], value_input_option=RAW)
+            clear_data_caches(); return True
+    raise ValueError("Result not found.")
 
 
 def get_all_answer_keys():
@@ -460,6 +613,9 @@ def get_answer_key_by_id(key_id):
         "duration_minutes": _to_int(row.get("duration_minutes"), 0),
         "question_pdf_file_id": str(row.get("question_pdf_file_id", "") or ""),
         "question_pdf_name": str(row.get("question_pdf_name", "") or ""),
+        "answer_rules": _json_loads_safe(row.get("answer_rules_json"), {}),
+        "question_notes": _json_loads_safe(row.get("question_notes_json"), {}),
+        "answer_key_history": _json_loads_safe(row.get("answer_key_history_json"), []),
     }
 
 
@@ -1219,6 +1375,7 @@ def _result_row_values(student_id, student_name, key_id, result):
         str(result.get("omr_photo_file_id", "") or ""),
         str(result.get("omr_photo_name", "") or ""),
         original_answers_json, final_answers_json, double_touch_json,
+        result.get("review_status", ""), result.get("review_note", ""), result.get("reviewed_at", ""),
     ]
 
 
