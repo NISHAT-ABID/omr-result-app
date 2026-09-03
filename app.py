@@ -1021,6 +1021,10 @@ def inject_global_css():
         }
         .analysis-subtle { opacity: .68; font-size: 12px; }
         .analysis-title { font-weight: 700; font-size: 15px; }
+        .history-value { text-align:center; min-width:0; white-space:nowrap; overflow:hidden; }
+        .history-value span { display:block; font-size:9px; opacity:.68; line-height:1.1; }
+        .history-value b { display:block; font-size:14px; line-height:1.2; white-space:nowrap; }
+
 
         /* ---- Analysis / Test History cards on mobile: keeps the same
            "Exam name | Marks | Correct | Wrong | View" ROW layout used on
@@ -1771,6 +1775,16 @@ def inject_global_css():
             [class*="st-key-acard_"] .analysis-subtle { font-size:9px !important; white-space:nowrap !important; overflow:hidden !important; text-overflow:ellipsis !important; }
             [class*="st-key-acard_"] .stButton > button { min-width:0 !important; width:100% !important; padding:4px 4px !important; font-size:10px !important; }
             [class*="st-key-acard_"] > div[data-testid="stVerticalBlock"] { min-width:0 !important; width:100% !important; }
+        }
+
+        /* Final mobile fix for Analysis/Test History: never allow a score
+           such as 40 to wrap into "4" + "0". */
+        @media (max-width: 767px) {
+            [class*="st-key-acard_"] .history-value { white-space:nowrap !important; overflow:hidden !important; text-align:center !important; }
+            [class*="st-key-acard_"] .history-value span { font-size:8px !important; line-height:1 !important; }
+            [class*="st-key-acard_"] .history-value b { font-size:14px !important; line-height:1.15 !important; white-space:nowrap !important; }
+            [class*="st-key-acard_"] div[data-testid="stHorizontalBlock"] { grid-template-columns:minmax(0,1fr) 48px 48px 48px 52px !important; }
+            [class*="st-key-acard_"] div[data-testid="column"] { min-width:0 !important; overflow:hidden !important; }
         }
 
         /* ---- Themed spinner (recolors Streamlit's built-in spinner to
@@ -3886,9 +3900,12 @@ def render_student_analysis(sid, name, *, mentor_mode=False):
             c1, c2, c3, c4, c5 = st.columns([2.8, 1.0, 1.0, 1.0, 0.9])
             with c1:
                 st.markdown(f"<div class='analysis-title'>{exam_name}</div><div class='analysis-subtle'>{date_text} · {pct}%</div>", unsafe_allow_html=True)
-            c2.metric("Marks", marks)
-            c3.metric("Correct", correct)
-            c4.metric("Wrong", wrong)
+            with c2:
+                st.markdown(f"<div class='history-value'><span>Marks</span><b>{marks}</b></div>", unsafe_allow_html=True)
+            with c3:
+                st.markdown(f"<div class='history-value'><span>Correct</span><b>{correct}</b></div>", unsafe_allow_html=True)
+            with c4:
+                st.markdown(f"<div class='history-value'><span>Wrong</span><b>{wrong}</b></div>", unsafe_allow_html=True)
             with c5:
                 if st.button("View", key=f"analysis_view_{'m' if mentor_mode else 's'}_{sid}_{key_id}_{idx}", use_container_width=True):
                     if mentor_mode:
@@ -4822,11 +4839,14 @@ def _render_answer_key_readonly(key):
 
 
 def _render_answer_key_editor(key):
+    """Edit an exam-wide answer key with direct OMR-style bubble clicks."""
     total = int(key.get("total_questions", 0) or 0)
     rules = _answer_rule_defaults(key)
     notes = {str(k): str(v) for k, v in (key.get("question_notes") or {}).items()}
-    st.markdown(f"### ✏️ Edit Answer Key")
-    st.caption(f"{key.get('exam_name') or key.get('key_id')} · {total} questions")
+    key_id = str(key.get("key_id"))
+
+    st.markdown("### ✏️ Edit Answer Key")
+    st.caption(f"{key.get('exam_name') or key_id} · {total} questions")
     st.warning("⚠️ Saving changes will recalculate every submitted student's result for this exam.")
 
     show_pdf = st.session_state.get("edit_exam_show_pdf", False)
@@ -4839,7 +4859,7 @@ def _render_answer_key_editor(key):
             try:
                 pdf_bytes = sh.get_question_pdf_bytes(pdf_id)
                 if pdf_bytes:
-                    _render_question_pdf(pdf_bytes, None, key["key_id"])
+                    _render_question_pdf(pdf_bytes, None, key_id)
                 else:
                     st.info("Question PDF is unavailable.")
             except Exception:
@@ -4848,41 +4868,78 @@ def _render_answer_key_editor(key):
             st.info("No question PDF is attached to this exam.")
 
     st.markdown("#### 📝 Digital OMR Answer Editor")
-    st.caption("Update the exam's answer key here. This changes the key for the whole exam — never an individual student's answer.")
+    st.caption("Just click the correct bubbles. One bubble = Normal, multiple bubbles = Multiple Correct, ⭐ Bonus = everyone gets the mark.")
+
     page_size = 25 if total > 40 else total
     pages = list(range(1, total + 1, page_size))
     page = st.session_state.get("edit_exam_key_page", 0)
-    page = min(page, len(pages)-1)
+    page = min(max(page, 0), max(len(pages) - 1, 0))
     start = pages[page]
     end = min(start + page_size - 1, total)
     st.progress(end / total if total else 0)
     st.caption(f"Questions {start}–{end} of {total}")
 
     for q in range(start, end + 1):
-        r = rules.get(str(q), {}) or {}
-        typ = str(r.get("type", "normal")).lower()
+        k = str(q)
+        r = rules.get(k, {}) or {}
+        existing_type = str(r.get("type", "normal")).lower()
+        existing = [x for x in (r.get("accepted") or []) if x in "ABCD"]
+        state_key = f"edit_key_bubbles_{key_id}_{q}"
+        bonus_key = f"edit_key_bonus_{key_id}_{q}"
+
+        # Initialise once from the saved answer-key rule.
+        if state_key not in st.session_state:
+            st.session_state[state_key] = [] if existing_type == "bonus" else list(existing)
+        if bonus_key not in st.session_state:
+            st.session_state[bonus_key] = existing_type == "bonus"
+
         with st.container(key=f"mentor_edit_key_q_{q}"):
-            head, type_col = st.columns([1.2, 2.8], gap="small")
-            with head:
+            top = st.columns([0.8, 4.2, 1.3], gap="small")
+            with top[0]:
                 st.markdown(f"**Q{q:02d}**")
-            with type_col:
-                type_options = ["normal", "multiple", "bonus"]
-                type_label = {"normal":"Normal", "multiple":"Multiple Correct", "bonus":"Bonus / Invalid"}
-                chosen_type = st.radio(
-                    f"Q{q} type", type_options,
-                    index=type_options.index(typ) if typ in type_options else 0,
-                    format_func=lambda x: type_label[x], horizontal=True,
-                    key=f"edit_key_type_{key['key_id']}_{q}", label_visibility="collapsed",
-                )
-            if chosen_type == "normal":
-                accepted = r.get("accepted", [])
-                current = accepted[0] if accepted else None
-                st.radio("Answer", ["A", "B", "C", "D"], index=(['A','B','C','D'].index(current) if current in ['A','B','C','D'] else None), horizontal=True, key=f"edit_key_ans_{key['key_id']}_{q}", label_visibility="collapsed")
-            elif chosen_type == "multiple":
-                st.multiselect("Accepted answers", ["A","B","C","D"], default=[x for x in r.get("accepted", []) if x in "ABCD"], key=f"edit_key_multi_{key['key_id']}_{q}", label_visibility="collapsed")
+            with top[1]:
+                selected = list(st.session_state.get(state_key, []))
+                bubble_cols = st.columns(4, gap="small")
+                for col, letter in zip(bubble_cols, "ABCD"):
+                    with col:
+                        active = letter in selected and not st.session_state.get(bonus_key, False)
+                        label = f"🔘 **{letter}**" if active else f"⭕ **{letter}**"
+                        if st.button(label, key=f"edit_key_bubble_{key_id}_{q}_{letter}", use_container_width=True):
+                            current = list(st.session_state.get(state_key, []))
+                            if st.session_state.get(bonus_key, False):
+                                st.session_state[bonus_key] = False
+                                current = [letter]
+                            elif letter in current:
+                                current.remove(letter)
+                            else:
+                                current.append(letter)
+                            st.session_state[state_key] = current
+                            st.rerun()
+            with top[2]:
+                bonus_label = "⭐ Bonus ✓" if st.session_state.get(bonus_key, False) else "⭐ Bonus"
+                if st.button(bonus_label, key=f"edit_key_bonus_btn_{key_id}_{q}", use_container_width=True):
+                    st.session_state[bonus_key] = not st.session_state.get(bonus_key, False)
+                    if st.session_state[bonus_key]:
+                        st.session_state[state_key] = []
+                    st.rerun()
+
+            selected_now = list(st.session_state.get(state_key, []))
+            if st.session_state.get(bonus_key, False):
+                st.caption("⭐ Bonus / Invalid — everyone receives the question mark.")
+            elif len(selected_now) > 1:
+                st.caption(f"Multiple Correct · Accepted: {', '.join(selected_now)}")
+            elif len(selected_now) == 1:
+                st.caption(f"Normal · Correct answer: {selected_now[0]}")
             else:
-                st.success("⭐ Everyone receives +1 mark for this question.")
-            st.text_input("Note / explanation for students", value=notes.get(str(q), ""), key=f"edit_key_note_{key['key_id']}_{q}", placeholder="Optional explanation…", label_visibility="collapsed")
+                st.caption("⚪ No answer selected")
+
+            st.text_input(
+                "Note / explanation for students",
+                value=notes.get(k, ""),
+                key=f"edit_key_note_{key_id}_{q}",
+                placeholder="Optional explanation…",
+                label_visibility="collapsed",
+            )
             st.divider()
 
     nav1, nav2 = st.columns(2)
@@ -4900,25 +4957,28 @@ def _render_answer_key_editor(key):
         final_notes = {}
         for q in range(1, total + 1):
             k = str(q)
-            chosen_type = st.session_state.get(f"edit_key_type_{key['key_id']}_{q}", "normal")
-            if chosen_type == "multiple":
-                accepted = st.session_state.get(f"edit_key_multi_{key['key_id']}_{q}", [])
-            elif chosen_type == "bonus":
+            selected = [x for x in st.session_state.get(f"edit_key_bubbles_{key_id}_{q}", []) if x in "ABCD"]
+            is_bonus = bool(st.session_state.get(f"edit_key_bonus_{key_id}_{q}", False))
+            if is_bonus:
+                rule_type = "bonus"
                 accepted = []
+            elif len(selected) > 1:
+                rule_type = "multiple"
+                accepted = selected
+            elif len(selected) == 1:
+                rule_type = "normal"
+                accepted = selected
             else:
-                a = st.session_state.get(f"edit_key_ans_{key['key_id']}_{q}")
-                accepted = [a] if a in "ABCD" else []
-            final_rules[k] = {"type": chosen_type, "accepted": accepted}
-            note = st.session_state.get(f"edit_key_note_{key['key_id']}_{q}", "").strip()
+                st.error(f"Q{q}: please select an answer or mark it as Bonus.")
+                return
+            final_rules[k] = {"type": rule_type, "accepted": accepted}
+            note = st.session_state.get(f"edit_key_note_{key_id}_{q}", "").strip()
             if note:
                 final_notes[k] = note
-        if any(v["type"] != "bonus" and not v["accepted"] for v in final_rules.values()):
-            st.error("Every non-bonus question must have at least one accepted answer.")
-            return
         try:
             with st.spinner("Saving answer-key changes and recalculating all results…"):
-                sh.update_answer_key_rules(key["key_id"], final_rules, final_notes)
-                changed = sh.recalculate_results_for_exam(key["key_id"], final_rules)
+                sh.update_answer_key_rules(key_id, final_rules, final_notes)
+                changed = sh.recalculate_results_for_exam(key_id, final_rules)
                 clear_all_caches()
             st.success(f"✅ Answer key updated. {changed} student result(s) recalculated.")
             st.session_state["edit_exam_key_page"] = 0
@@ -4926,7 +4986,6 @@ def _render_answer_key_editor(key):
             st.rerun()
         except Exception as e:
             st.error(f"Could not update this exam: {e}")
-
 
 def render_answer_key_tab():
     """Mentor Create Exam landing page + existing exam management."""
