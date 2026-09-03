@@ -522,7 +522,7 @@ def inject_global_css():
                 gap: 0 !important;
             }
 
-            [class*="st-key-auth_card_login"] div[data-testid="column"] {
+            [class*="st-key-auth_card_login"] div[data-testid="stColumn"] {
                 display: block !important;
                 flex: 0 0 100% !important;
                 flex-grow: 0 !important;
@@ -534,9 +534,9 @@ def inject_global_css():
                 box-sizing: border-box !important;
             }
 
-            [class*="st-key-auth_card_login"] div[data-testid="column"] > div,
-            [class*="st-key-auth_card_login"] div[data-testid="column"] > div > div,
-            [class*="st-key-auth_card_login"] div[data-testid="column"] > div > div > div {
+            [class*="st-key-auth_card_login"] div[data-testid="stColumn"] > div,
+            [class*="st-key-auth_card_login"] div[data-testid="stColumn"] > div > div,
+            [class*="st-key-auth_card_login"] div[data-testid="stColumn"] > div > div > div {
                 width: 100% !important;
                 max-width: 100% !important;
                 min-width: 0 !important;
@@ -548,10 +548,10 @@ def inject_global_css():
                 display: flex !important;
                 width: 100% !important;
                 max-width: 100% !important;
-                min-height: 245px !important;
+                min-height: 205px !important;
                 height: auto !important;
                 margin: 0 !important;
-                padding: 28px 16px 26px !important;
+                padding: 22px 18px 20px !important;
                 box-sizing: border-box !important;
                 border-right: none !important;
                 border-bottom: 1px solid var(--mv-border) !important;
@@ -560,31 +560,31 @@ def inject_global_css():
             }
 
             [class*="st-key-auth_card_login"] .mv-auth-side-icon-wrap {
-                width: 128px !important;
-                height: 128px !important;
-                margin-bottom: 18px !important;
+                width: 104px !important;
+                height: 104px !important;
+                margin-bottom: 12px !important;
             }
 
             [class*="st-key-auth_card_login"] .mv-auth-ring.r1 {
-                width: 128px !important;
-                height: 128px !important;
+                width: 104px !important;
+                height: 104px !important;
             }
 
             [class*="st-key-auth_card_login"] .mv-auth-ring.r2 {
-                width: 94px !important;
-                height: 94px !important;
+                width: 76px !important;
+                height: 76px !important;
             }
 
             [class*="st-key-auth_card_login"] .mv-auth-icon-box {
-                width: 58px !important;
-                height: 58px !important;
-                border-radius: 17px !important;
-                font-size: 23px !important;
+                width: 52px !important;
+                height: 52px !important;
+                border-radius: 16px !important;
+                font-size: 21px !important;
             }
 
             [class*="st-key-auth_card_login"] .mv-auth-side-title {
-                font-size: 21px !important;
-                margin-bottom: 7px !important;
+                font-size: 20px !important;
+                margin-bottom: 5px !important;
             }
 
             [class*="st-key-auth_card_login"] .mv-auth-side-text {
@@ -600,7 +600,7 @@ def inject_global_css():
                 max-width: 100% !important;
                 min-width: 0 !important;
                 margin: 0 !important;
-                padding: 24px 14px 6px !important;
+                padding: 20px 12px 4px !important;
                 box-sizing: border-box !important;
             }
 
@@ -683,7 +683,7 @@ def inject_global_css():
                 gap: 10px !important;
             }
 
-            [class*="st-key-auth_card_login"] [data-testid="stForm"] div[data-testid="stHorizontalBlock"] div[data-testid="column"] {
+            [class*="st-key-auth_card_login"] [data-testid="stForm"] div[data-testid="stHorizontalBlock"] div[data-testid="stColumn"] {
                 flex: 1 1 0 !important;
                 flex-basis: 0 !important;
                 width: auto !important;
@@ -695,6 +695,121 @@ def inject_global_css():
             .st-key-auth_bottom_links {
                 width: 100% !important;
                 max-width: 100% !important;
+            }
+        }
+
+        /* ---- Final phone polish for the Student Login screen ----
+           This block is intentionally scoped to the login card and only to
+           phone-sized screens, so the desktop layout and app features stay
+           completely unchanged. Streamlit currently uses data-testid="stColumn";
+           targeting that exact node prevents the old desktop column widths
+           from leaking into the phone layout. */
+        @media (max-width: 640px) {
+            .block-container {
+                padding: .65rem .75rem 2rem !important;
+            }
+
+            .mv-hero.mv-hero-compact {
+                padding: 10px 10px 8px !important;
+                margin: -.65rem -.75rem 10px !important;
+            }
+
+            [class*="st-key-auth_card_login"] {
+                border-radius: 16px !important;
+                padding: 5px 5px 14px !important;
+                margin: 0 !important;
+                overflow: hidden !important;
+            }
+
+            [class*="st-key-auth_card_login"] > div[data-testid="stHorizontalBlock"],
+            [class*="st-key-auth_card_login"] div[data-testid="stHorizontalBlock"]:first-child {
+                display: flex !important;
+                flex-direction: column !important;
+                align-items: stretch !important;
+                gap: 0 !important;
+                width: 100% !important;
+            }
+
+            [class*="st-key-auth_card_login"] div[data-testid="stColumn"] {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                flex: 0 0 auto !important;
+            }
+
+            [class*="st-key-auth_card_login"] .mv-auth-side {
+                min-height: auto !important;
+                padding: 20px 14px 18px !important;
+            }
+
+            [class*="st-key-auth_card_login"] [class*="st-key-auth_form_login"] {
+                padding: 18px 10px 2px !important;
+            }
+
+            /* Every actual form control must use the full card width. */
+            [class*="st-key-auth_card_login"] [data-testid="stTextInput"],
+            [class*="st-key-auth_card_login"] [data-testid="stTextInput"] > div,
+            [class*="st-key-auth_card_login"] [data-testid="stSelectbox"],
+            [class*="st-key-auth_card_login"] [data-testid="stSelectbox"] > div,
+            [class*="st-key-auth_card_login"] [data-baseweb="input"],
+            [class*="st-key-auth_card_login"] [data-baseweb="select"] {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                box-sizing: border-box !important;
+            }
+
+            /* Country selector + number input: clean, equal-height row. */
+            [class*="st-key-auth_card_login"] div[class*="_phone_row"] div[data-testid="stVerticalBlock"] {
+                display: grid !important;
+                grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr) !important;
+                gap: 8px !important;
+                width: 100% !important;
+            }
+
+            [class*="st-key-auth_card_login"] div[class*="_phone_row"] div[data-testid="stVerticalBlock"] > div:first-child,
+            [class*="st-key-auth_card_login"] div[class*="_phone_row"] div[data-testid="stVerticalBlock"] > div:last-child {
+                width: 100% !important;
+                min-width: 0 !important;
+                max-width: none !important;
+                flex: none !important;
+            }
+
+            [class*="st-key-auth_card_login"] input {
+                min-height: 48px !important;
+                font-size: 16px !important;
+            }
+
+            [class*="st-key-auth_card_login"] [data-baseweb="select"] > div {
+                min-height: 48px !important;
+            }
+
+            /* Remember + forgot remain readable without squeezing or overlap. */
+            [class*="st-key-auth_card_login"] [data-testid="stForm"] div[data-testid="stHorizontalBlock"] {
+                display: grid !important;
+                grid-template-columns: 1fr auto !important;
+                gap: 8px !important;
+                align-items: center !important;
+            }
+
+            [class*="st-key-auth_card_login"] [data-testid="stForm"] div[data-testid="stHorizontalBlock"] div[data-testid="stColumn"] {
+                width: auto !important;
+                min-width: 0 !important;
+            }
+
+            .st-key-auth_bottom_links {
+                margin-top: 12px !important;
+            }
+
+            .st-key-auth_bottom_links div[data-testid="stHorizontalBlock"] {
+                display: flex !important;
+                flex-direction: column !important;
+                gap: 2px !important;
+            }
+
+            .st-key-auth_bottom_links div[data-testid="stColumn"] {
+                width: 100% !important;
+                flex: 0 0 auto !important;
             }
         }
 
@@ -1149,18 +1264,18 @@ def inject_global_css():
             gap: 6px !important;
             min-width: 620px;
         }
-        .st-key-test_history_table div[data-testid="column"] {
+        .st-key-test_history_table div[data-testid="stColumn"] {
             min-width: 0 !important;
             width: auto !important;
         }
-        .st-key-test_history_table div[data-testid="column"]:nth-child(1) { flex: 0 0 165px !important; }
-        .st-key-test_history_table div[data-testid="column"]:nth-child(2) { flex: 0 0 85px !important; }
-        .st-key-test_history_table div[data-testid="column"]:nth-child(3),
-        .st-key-test_history_table div[data-testid="column"]:nth-child(4),
-        .st-key-test_history_table div[data-testid="column"]:nth-child(5),
-        .st-key-test_history_table div[data-testid="column"]:nth-child(6),
-        .st-key-test_history_table div[data-testid="column"]:nth-child(7) { flex: 0 0 58px !important; }
-        .st-key-test_history_table div[data-testid="column"]:nth-child(8) { flex: 0 0 56px !important; }
+        .st-key-test_history_table div[data-testid="stColumn"]:nth-child(1) { flex: 0 0 165px !important; }
+        .st-key-test_history_table div[data-testid="stColumn"]:nth-child(2) { flex: 0 0 85px !important; }
+        .st-key-test_history_table div[data-testid="stColumn"]:nth-child(3),
+        .st-key-test_history_table div[data-testid="stColumn"]:nth-child(4),
+        .st-key-test_history_table div[data-testid="stColumn"]:nth-child(5),
+        .st-key-test_history_table div[data-testid="stColumn"]:nth-child(6),
+        .st-key-test_history_table div[data-testid="stColumn"]:nth-child(7) { flex: 0 0 58px !important; }
+        .st-key-test_history_table div[data-testid="stColumn"]:nth-child(8) { flex: 0 0 56px !important; }
         .st-key-test_history_table p, .st-key-test_history_table div[data-testid="stMarkdownContainer"] p {
             font-size: 13px !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
@@ -1169,7 +1284,7 @@ def inject_global_css():
         }
         @media (max-width: 640px) {
             .st-key-test_history_table div[data-testid="stHorizontalBlock"] { min-width: 560px; }
-            .st-key-test_history_table div[data-testid="column"]:nth-child(1) { flex-basis: 130px !important; }
+            .st-key-test_history_table div[data-testid="stColumn"]:nth-child(1) { flex-basis: 130px !important; }
         }
 
         /* ---- Input focus glow (nice subtle brand touch) ---- */
@@ -1274,7 +1389,7 @@ def inject_global_css():
                 align-items: center !important;
                 gap: 4px !important;
             }
-            [class*="st-key-acard_"] div[data-testid="column"] {
+            [class*="st-key-acard_"] div[data-testid="stColumn"] {
                 width: 100% !important;
                 min-width: 0 !important;
                 max-width: 100% !important;
@@ -1285,11 +1400,11 @@ def inject_global_css():
                off-screen - this is the one column with genuinely
                variable-length content, so it's the one that should give
                way first. */
-            [class*="st-key-acard_"] div[data-testid="column"]:nth-child(1) .analysis-title {
+            [class*="st-key-acard_"] div[data-testid="stColumn"]:nth-child(1) .analysis-title {
                 font-size: 12.5px !important;
                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
             }
-            [class*="st-key-acard_"] div[data-testid="column"]:nth-child(1) .analysis-subtle {
+            [class*="st-key-acard_"] div[data-testid="stColumn"]:nth-child(1) .analysis-subtle {
                 font-size: 10px !important;
                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
             }
@@ -1305,7 +1420,7 @@ def inject_global_css():
             }
             /* View button column (5th, 46px grid track): compact pill
                button instead of the full-size default. */
-            [class*="st-key-acard_"] div[data-testid="column"]:nth-child(5) .stButton > button {
+            [class*="st-key-acard_"] div[data-testid="stColumn"]:nth-child(5) .stButton > button {
                 padding: 4px 2px !important;
                 font-size: 11px !important;
                 min-height: 30px !important;
@@ -1355,10 +1470,10 @@ def inject_global_css():
                 grid-template-columns: repeat(4, 1fr) !important;
                 gap: 4px !important;
             }
-            .st-key-card_home_active div[data-testid="column"],
-            .st-key-card_home_last div[data-testid="column"],
-            .st-key-card_submit_result div[data-testid="column"],
-            [class*="st-key-card_mentor_result_"] div[data-testid="column"] {
+            .st-key-card_home_active div[data-testid="stColumn"],
+            .st-key-card_home_last div[data-testid="stColumn"],
+            .st-key-card_submit_result div[data-testid="stColumn"],
+            [class*="st-key-card_mentor_result_"] div[data-testid="stColumn"] {
                 width: 100% !important;
                 min-width: 0 !important;
                 max-width: 100% !important;
@@ -1391,27 +1506,27 @@ def inject_global_css():
            appear in the same fixed order, and applied at EVERY screen
            size (not just mobile) since the reference shows this
            coloring at desktop width too. */
-        .st-key-card_home_last div[data-testid="column"]:nth-child(1) [data-testid="stMetricValue"],
-        .st-key-card_home_last div[data-testid="column"]:nth-child(2) [data-testid="stMetricValue"],
-        [class*="st-key-card_mentor_result_"] div[data-testid="column"]:nth-child(1) [data-testid="stMetricValue"] {
+        .st-key-card_home_last div[data-testid="stColumn"]:nth-child(1) [data-testid="stMetricValue"],
+        .st-key-card_home_last div[data-testid="stColumn"]:nth-child(2) [data-testid="stMetricValue"],
+        [class*="st-key-card_mentor_result_"] div[data-testid="stColumn"]:nth-child(1) [data-testid="stMetricValue"] {
             color: var(--mv-primary) !important;
         }
-        .st-key-card_home_last div[data-testid="column"]:nth-child(3) [data-testid="stMetricValue"],
-        [class*="st-key-card_mentor_result_"] div[data-testid="column"]:nth-child(2) [data-testid="stMetricValue"] {
+        .st-key-card_home_last div[data-testid="stColumn"]:nth-child(3) [data-testid="stMetricValue"],
+        [class*="st-key-card_mentor_result_"] div[data-testid="stColumn"]:nth-child(2) [data-testid="stMetricValue"] {
             color: #F2434A !important;
         }
         /* card_submit_result column order is Correct, Wrong, Skipped, Marks */
-        .st-key-card_submit_result div[data-testid="column"]:nth-child(1) [data-testid="stMetricValue"],
-        .st-key-card_submit_result div[data-testid="column"]:nth-child(4) [data-testid="stMetricValue"] {
+        .st-key-card_submit_result div[data-testid="stColumn"]:nth-child(1) [data-testid="stMetricValue"],
+        .st-key-card_submit_result div[data-testid="stColumn"]:nth-child(4) [data-testid="stMetricValue"] {
             color: var(--mv-primary) !important;
         }
-        .st-key-card_submit_result div[data-testid="column"]:nth-child(2) [data-testid="stMetricValue"] {
+        .st-key-card_submit_result div[data-testid="stColumn"]:nth-child(2) [data-testid="stMetricValue"] {
             color: #F2434A !important;
         }
-        [class*="st-key-acard_"] div[data-testid="column"]:nth-child(2) [data-testid="stMetricValue"] {
+        [class*="st-key-acard_"] div[data-testid="stColumn"]:nth-child(2) [data-testid="stMetricValue"] {
             color: var(--mv-primary) !important;
         }
-        [class*="st-key-acard_"] div[data-testid="column"]:nth-child(3) [data-testid="stMetricValue"] {
+        [class*="st-key-acard_"] div[data-testid="stColumn"]:nth-child(3) [data-testid="stMetricValue"] {
             color: #F2434A !important;
         }
         /* "Overall Progress" card's Average value (2nd metric-box, raw
@@ -1625,7 +1740,7 @@ def inject_global_css():
            scoped narrowly to this card so it never affects any other
            button in the app. ---- */
         .st-key-card_profile_stats { padding: 18px 20px !important; }
-        .st-key-card_profile_stats div[data-testid="column"] { text-align: center; }
+        .st-key-card_profile_stats div[data-testid="stColumn"] { text-align: center; }
         .st-key-card_profile_stats .stButton { display: flex; justify-content: center; }
         .st-key-card_profile_stats .stButton > button:not([kind="primary"]) {
             background: transparent !important;
@@ -1773,7 +1888,7 @@ def inject_global_css():
         @media (max-width: 900px) {
             .block-container { max-width: 100%; padding-left: 1rem; padding-right: 1rem; }
             .st-key-card_profile_mentor div[data-testid="stHorizontalBlock"],
-            .st-key-card_profile_mentor div[data-testid="column"] {
+            .st-key-card_profile_mentor div[data-testid="stColumn"] {
                 min-width: 0 !important;
             }
             .st-key-top_nav { display: none !important; }
@@ -1830,7 +1945,7 @@ def inject_global_css():
             min-width: 0 !important;
             box-sizing: border-box !important;
         }
-        [class*="st-key-card_"] div[data-testid="column"] {
+        [class*="st-key-card_"] div[data-testid="stColumn"] {
             min-width: 0 !important;
         }
 
@@ -1872,7 +1987,7 @@ def inject_global_css():
                 grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
                 gap: 12px 4px !important;
             }
-            .st-key-card_profile_stats div[data-testid="column"] {
+            .st-key-card_profile_stats div[data-testid="stColumn"] {
                 width: 100% !important;
                 min-width: 0 !important;
                 max-width: 100% !important;
@@ -1888,7 +2003,7 @@ def inject_global_css():
                 grid-template-columns:minmax(0,1fr) 48px 28px 34px 32px 38px 42px 38px !important;
                 gap:2px !important; width:100% !important; min-width:0 !important;
             }
-            .st-key-test_history_table div[data-testid="column"] { min-width:0 !important; width:auto !important; overflow:hidden !important; }
+            .st-key-test_history_table div[data-testid="stColumn"] { min-width:0 !important; width:auto !important; overflow:hidden !important; }
             .st-key-test_history_table p, .st-key-test_history_table button { font-size:9px !important; line-height:1.15 !important; }
             .st-key-test_history_table .stButton > button { padding:3px 3px !important; min-height:28px !important; }
 
@@ -1986,10 +2101,10 @@ def inject_global_css():
                 gap:5px !important; align-items:start !important;
                 flex-wrap:nowrap !important;
             }
-            [class*="st-key-acard_"] div[data-testid="column"] > div {
+            [class*="st-key-acard_"] div[data-testid="stColumn"] > div {
                 min-width:0 !important; width:100% !important;
             }
-            [class*="st-key-acard_"] div[data-testid="column"] {
+            [class*="st-key-acard_"] div[data-testid="stColumn"] {
                 min-width:0 !important; width:auto !important; max-width:100% !important;
                 overflow:hidden !important;
             }
@@ -2139,7 +2254,7 @@ def inject_global_css():
             .stApp [data-testid="stHorizontalBlock"] { gap: 6px !important; }
             .stApp [data-testid="stColumn"] { min-width: 0 !important; }
             /* OMR panels become one-column on narrow screens; no horizontal overflow. */
-            .stApp div[data-testid="column"] { min-width: 0 !important; }
+            .stApp div[data-testid="stColumn"] { min-width: 0 !important; }
             .stApp .stButton > button { padding: 6px 8px !important; min-height: 36px !important; font-size: 12px !important; }
             .mv-compact-row { padding: 5px 6px; }
             .mv-compact-row [data-testid="stMetricValue"] { font-size: 18px !important; }
@@ -4855,7 +4970,7 @@ def _inject_bubble_grid_css():
             width: 100% !important;
             min-width: 0 !important;
         }
-        [class*="st-key-answer_row_"] div[data-testid="column"] {
+        [class*="st-key-answer_row_"] div[data-testid="stColumn"] {
             width: 100% !important;
             min-width: 0 !important;
             max-width: 100% !important;
