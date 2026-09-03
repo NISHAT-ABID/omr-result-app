@@ -1683,74 +1683,74 @@ def inject_global_css():
             .st-key-test_history_table p, .st-key-test_history_table button { font-size:9px !important; line-height:1.15 !important; }
             .st-key-test_history_table .stButton > button { padding:3px 3px !important; min-height:28px !important; }
 
-            /* Leaderboard: do NOT squeeze the desktop row into a tiny phone.
-               Keep the same one-line proportions as desktop and let the user
-               swipe horizontally. This is much easier to read than stacked
-               or compressed columns and keeps the desktop/mobile UI visually
-               consistent. */
+            /* Leaderboard: compact single-screen mobile table.
+               Everything important stays visible left-to-right on a phone;
+               no horizontal scrolling and no squeezed desktop 720px canvas. */
             .st-key-leaderboard_table_student,
             .st-key-leaderboard_table_mentor {
                 width: 100% !important;
                 max-width: 100% !important;
-                overflow-x: auto !important;
-                overflow-y: visible !important;
-                -webkit-overflow-scrolling: touch !important;
-                scrollbar-width: thin;
-                padding-bottom: 4px !important;
+                overflow: hidden !important;
+                box-sizing: border-box !important;
+                padding-bottom: 2px !important;
             }
             .st-key-leaderboard_table_student .lb-row,
             .st-key-leaderboard_table_mentor .lb-row {
-                display: flex !important;
-                flex-wrap: nowrap !important;
-                width: 720px !important;
-                min-width: 720px !important;
-                max-width: none !important;
+                display: grid !important;
+                grid-template-columns: 30px minmax(0, 1fr) 35px 40px 45px 45px 38px !important;
+                width: 100% !important;
+                min-width: 0 !important;
+                max-width: 100% !important;
                 box-sizing: border-box !important;
                 align-items: center !important;
-                gap: 10px !important;
-                overflow: visible !important;
+                gap: 3px !important;
+                overflow: hidden !important;
                 white-space: nowrap !important;
+                padding: 7px 4px !important;
             }
             .st-key-leaderboard_table_student .lb-row > span,
             .st-key-leaderboard_table_mentor .lb-row > span {
-                flex: 0 0 auto !important;
                 min-width: 0 !important;
+                width: auto !important;
+                flex: none !important;
                 white-space: nowrap !important;
-                overflow: visible !important;
-                text-overflow: clip !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+                font-size: 9px !important;
+                line-height: 1.15 !important;
             }
             /* rank */
             .st-key-leaderboard_table_student .lb-row > span:nth-child(1),
             .st-key-leaderboard_table_mentor .lb-row > span:nth-child(1) {
-                width: 54px !important;
                 text-align: center !important;
+                font-size: 10px !important;
             }
-            /* student name */
+            /* student name — gets the flexible middle space */
             .st-key-leaderboard_table_student .lb-row > span:nth-child(2),
             .st-key-leaderboard_table_mentor .lb-row > span:nth-child(2) {
-                width: 205px !important;
-                flex: 0 0 205px !important;
+                width: auto !important;
                 overflow: hidden !important;
                 text-overflow: ellipsis !important;
             }
-            /* Overall: Tests / Best / Avg / Acc / Trend */
-            .st-key-leaderboard_table_student .lb-row > span:nth-child(3),
-            .st-key-leaderboard_table_mentor .lb-row > span:nth-child(3) { width: 82px !important; }
-            .st-key-leaderboard_table_student .lb-row > span:nth-child(4),
-            .st-key-leaderboard_table_mentor .lb-row > span:nth-child(4) { width: 82px !important; }
-            .st-key-leaderboard_table_student .lb-row > span:nth-child(5),
-            .st-key-leaderboard_table_mentor .lb-row > span:nth-child(5) { width: 82px !important; }
-            .st-key-leaderboard_table_student .lb-row > span:nth-child(6),
-            .st-key-leaderboard_table_mentor .lb-row > span:nth-child(6) { width: 82px !important; }
-            .st-key-leaderboard_table_student .lb-row > span:nth-child(7),
-            .st-key-leaderboard_table_mentor .lb-row > span:nth-child(7) { width: 82px !important; text-align: right !important; }
+            .st-key-leaderboard_table_student .lb-row > span:nth-child(2) > span,
+            .st-key-leaderboard_table_mentor .lb-row > span:nth-child(2) > span {
+                min-width: 0 !important;
+                max-width: 100% !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+                white-space: nowrap !important;
+            }
+            /* Keep the compact numeric columns centered. */
+            .st-key-leaderboard_table_student .lb-row > span:nth-child(n+3),
+            .st-key-leaderboard_table_mentor .lb-row > span:nth-child(n+3) {
+                text-align: center !important;
+            }
 
-            /* Test-wise has only Score + Accuracy. Keep those columns
-               comfortably spaced instead of stretching them across the phone. */
-            .st-key-leaderboard_table_student .lb-row > span:nth-child(3):last-child,
-            .st-key-leaderboard_table_mentor .lb-row > span:nth-child(3):last-child { width: 105px !important; }
-            .st-key-leaderboard_table_student .lb-row > span:nth-child(4):last-child,
-            .st-key-leaderboard_table_mentor .lb-row > span:nth-child(4):last-child { width: 115px !important; }
+            /* Test-wise has only Score + Accuracy. Give the name more room. */
+            .st-key-leaderboard_table_student .lb-row:has(> span:nth-child(4):last-child),
+            .st-key-leaderboard_table_mentor .lb-row:has(> span:nth-child(4):last-child) {
+                grid-template-columns: 30px minmax(0, 1fr) 72px 72px !important;
+            }
         }
 
         /* ---- Analysis / exam-history rows on mobile -------------------
