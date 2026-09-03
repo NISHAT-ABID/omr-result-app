@@ -1762,14 +1762,23 @@ def inject_global_css():
         @media (max-width: 767px) {
             [class*="st-key-acard_"] {
                 width:100% !important; max-width:100% !important; box-sizing:border-box !important;
-                padding:10px 9px !important; overflow:hidden !important;
+                padding:10px 9px 11px !important; overflow:visible !important;
                 border-radius:12px !important;
+                height:auto !important; min-height:0 !important;
+            }
+            [class*="st-key-acard_"] > div[data-testid="stVerticalBlock"] {
+                height:auto !important; min-height:0 !important;
+                overflow:visible !important;
             }
             [class*="st-key-acard_"] div[data-testid="stHorizontalBlock"] {
                 display:grid !important;
                 grid-template-columns:minmax(0,1fr) 54px 54px 54px 54px !important;
                 width:100% !important; min-width:0 !important; max-width:100% !important;
-                gap:5px !important; align-items:center !important;
+                gap:5px !important; align-items:start !important;
+                flex-wrap:nowrap !important;
+            }
+            [class*="st-key-acard_"] div[data-testid="column"] > div {
+                min-width:0 !important; width:100% !important;
             }
             [class*="st-key-acard_"] div[data-testid="column"] {
                 min-width:0 !important; width:auto !important; max-width:100% !important;
@@ -1799,8 +1808,71 @@ def inject_global_css():
                 min-width:54px !important; width:54px !important; padding:5px 3px !important;
                 font-size:10px !important; white-space:nowrap !important;
             }
-            [class*="st-key-acard_"] > div[data-testid="stVerticalBlock"] {
-                min-width:0 !important; width:100% !important;
+            [class*="st-key-acard_"] .analysis-subtle:last-child {
+                display:block !important; width:100% !important;
+                white-space:normal !important; overflow:visible !important;
+                line-height:1.3 !important; margin-top:5px !important;
+            }
+        }
+
+        .mobile-history-list-placeholder { display:none; }
+        [class*="st-key-mobile_history_list"] { display:none; }
+        @media (max-width: 767px) {
+            [class*="st-key-mobile_history_list"] { display:block !important; }
+        }
+
+        /* Mobile-friendly Test History: the old 8-column table becomes
+           a compact card on phones. This prevents Streamlit's responsive
+           column wrapping from splitting values like 31.75 / 40 / 33. */
+        .mobile-history-card {
+            display:none;
+        }
+        @media (max-width: 767px) {
+            .desktop-history-table { display:none !important; }
+            [class*="st-key-desktop_history_table"] { display:none !important; }
+            [class*="st-key-desktop_history_table"] { display:none !important; }
+            .mobile-history-card {
+                display:block !important;
+                width:100% !important; box-sizing:border-box !important;
+                border:1px solid var(--mv-border); border-radius:12px;
+                padding:10px 11px 9px; margin:0 0 8px;
+                background:rgba(127,127,127,.025);
+                overflow:visible !important;
+            }
+            .mobile-history-top {
+                display:flex; align-items:flex-start; justify-content:space-between;
+                gap:8px; min-width:0;
+            }
+            .mobile-history-exam {
+                min-width:0; flex:1 1 auto;
+                font-size:13px; font-weight:800; line-height:1.2;
+                white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+            }
+            .mobile-history-date {
+                margin-top:2px; font-size:9px; color:var(--mv-muted);
+                white-space:nowrap;
+            }
+            .mobile-history-stats {
+                display:grid; grid-template-columns:repeat(5,minmax(0,1fr));
+                gap:4px; margin-top:9px;
+            }
+            .mobile-history-stat {
+                min-width:0; text-align:center;
+                white-space:nowrap; overflow:visible;
+            }
+            .mobile-history-stat span {
+                display:block; font-size:8px; color:var(--mv-muted); line-height:1.05;
+                white-space:nowrap;
+            }
+            .mobile-history-stat b {
+                display:block; margin-top:2px; font-size:13px; line-height:1.15;
+                white-space:nowrap !important; word-break:keep-all !important;
+                overflow:visible !important;
+            }
+            .mobile-history-actions { margin-top:8px; }
+            .mobile-history-actions .stButton > button {
+                min-height:30px !important; padding:4px 10px !important;
+                font-size:11px !important; border-radius:9px !important;
             }
         }
 
@@ -3792,7 +3864,9 @@ def page_tests_results():
         st.caption("No tests submitted yet.")
         return
     my_results = my_results.sort_values("timestamp", ascending=False)
-    with st.container(key="test_history_table"):
+    # Desktop keeps the original table. On phones, use a card layout so
+    # numeric values never get squeezed into vertically split digits.
+    with st.container(key="desktop_history_table"):
         header_cols = st.columns([2.4, 1.3, 0.9, 0.9, 0.9, 0.9, 0.9, 0.8])
         for c, label in zip(header_cols, ["Exam", "Date", "Total", "Correct", "Wrong", "Skipped", "Marks", ""]):
             c.markdown(f"**{label}**")
@@ -3810,6 +3884,33 @@ def page_tests_results():
             if cols[7].button("View", key=f"view_{row['key_id']}"):
                 st.session_state["view_key_id"] = row["key_id"]
                 st.rerun()
+
+    with st.container(key="mobile_history_list"):
+        for hidx, (_, row) in enumerate(my_results.iterrows()):
+            key_match = keys_df[keys_df["key_id"] == row["key_id"]]
+            exam_name = key_match.iloc[0]["exam_name"] if not key_match.empty and key_match.iloc[0]["exam_name"] else row["key_id"]
+            date_text = str(row["timestamp"]).split(" ")[0]
+            total_n = int(row["total"])
+            correct_n = int(row["correct"])
+            wrong_n = int(row["wrong_count"])
+            skipped_n = int(row["skipped"])
+            marks_text = str(row["marks"])
+            with st.container(key=f"mobile_history_{hidx}_{row['key_id']}"):
+                st.markdown(
+                    f"<div class='mobile-history-card'>"
+                    f"<div class='mobile-history-top'><div class='mobile-history-exam'>{exam_name}</div></div>"
+                    f"<div class='mobile-history-date'>{date_text}</div>"
+                    f"<div class='mobile-history-stats'>"
+                    f"<div class='mobile-history-stat'><span>Total</span><b>{total_n}</b></div>"
+                    f"<div class='mobile-history-stat'><span>Correct</span><b>{correct_n}</b></div>"
+                    f"<div class='mobile-history-stat'><span>Wrong</span><b>{wrong_n}</b></div>"
+                    f"<div class='mobile-history-stat'><span>Skipped</span><b>{skipped_n}</b></div>"
+                    f"<div class='mobile-history-stat'><span>Marks</span><b>{marks_text}</b></div>"
+                    f"</div></div>", unsafe_allow_html=True
+                )
+                if st.button("View Result", key=f"mobile_view_{row['key_id']}_{hidx}", use_container_width=True):
+                    st.session_state["view_key_id"] = row["key_id"]
+                    st.rerun()
 
 
 def _exam_name_from_keys(keys_df, key_id):
