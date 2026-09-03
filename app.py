@@ -522,7 +522,7 @@ def inject_global_css():
                 gap: 0 !important;
             }
 
-            [class*="st-key-auth_card_login"] div[data-testid="stColumn"] {
+            [class*="st-key-auth_card_login"] div[data-testid="column"] {
                 display: block !important;
                 flex: 0 0 100% !important;
                 flex-grow: 0 !important;
@@ -534,9 +534,9 @@ def inject_global_css():
                 box-sizing: border-box !important;
             }
 
-            [class*="st-key-auth_card_login"] div[data-testid="stColumn"] > div,
-            [class*="st-key-auth_card_login"] div[data-testid="stColumn"] > div > div,
-            [class*="st-key-auth_card_login"] div[data-testid="stColumn"] > div > div > div {
+            [class*="st-key-auth_card_login"] div[data-testid="column"] > div,
+            [class*="st-key-auth_card_login"] div[data-testid="column"] > div > div,
+            [class*="st-key-auth_card_login"] div[data-testid="column"] > div > div > div {
                 width: 100% !important;
                 max-width: 100% !important;
                 min-width: 0 !important;
@@ -548,10 +548,10 @@ def inject_global_css():
                 display: flex !important;
                 width: 100% !important;
                 max-width: 100% !important;
-                min-height: 205px !important;
+                min-height: 245px !important;
                 height: auto !important;
                 margin: 0 !important;
-                padding: 22px 18px 20px !important;
+                padding: 28px 16px 26px !important;
                 box-sizing: border-box !important;
                 border-right: none !important;
                 border-bottom: 1px solid var(--mv-border) !important;
@@ -560,31 +560,31 @@ def inject_global_css():
             }
 
             [class*="st-key-auth_card_login"] .mv-auth-side-icon-wrap {
-                width: 104px !important;
-                height: 104px !important;
-                margin-bottom: 12px !important;
+                width: 128px !important;
+                height: 128px !important;
+                margin-bottom: 18px !important;
             }
 
             [class*="st-key-auth_card_login"] .mv-auth-ring.r1 {
-                width: 104px !important;
-                height: 104px !important;
+                width: 128px !important;
+                height: 128px !important;
             }
 
             [class*="st-key-auth_card_login"] .mv-auth-ring.r2 {
-                width: 76px !important;
-                height: 76px !important;
+                width: 94px !important;
+                height: 94px !important;
             }
 
             [class*="st-key-auth_card_login"] .mv-auth-icon-box {
-                width: 52px !important;
-                height: 52px !important;
-                border-radius: 16px !important;
-                font-size: 21px !important;
+                width: 58px !important;
+                height: 58px !important;
+                border-radius: 17px !important;
+                font-size: 23px !important;
             }
 
             [class*="st-key-auth_card_login"] .mv-auth-side-title {
-                font-size: 20px !important;
-                margin-bottom: 5px !important;
+                font-size: 21px !important;
+                margin-bottom: 7px !important;
             }
 
             [class*="st-key-auth_card_login"] .mv-auth-side-text {
@@ -600,7 +600,7 @@ def inject_global_css():
                 max-width: 100% !important;
                 min-width: 0 !important;
                 margin: 0 !important;
-                padding: 20px 12px 4px !important;
+                padding: 24px 14px 6px !important;
                 box-sizing: border-box !important;
             }
 
@@ -683,7 +683,7 @@ def inject_global_css():
                 gap: 10px !important;
             }
 
-            [class*="st-key-auth_card_login"] [data-testid="stForm"] div[data-testid="stHorizontalBlock"] div[data-testid="stColumn"] {
+            [class*="st-key-auth_card_login"] [data-testid="stForm"] div[data-testid="stHorizontalBlock"] div[data-testid="column"] {
                 flex: 1 1 0 !important;
                 flex-basis: 0 !important;
                 width: auto !important;
@@ -695,121 +695,6 @@ def inject_global_css():
             .st-key-auth_bottom_links {
                 width: 100% !important;
                 max-width: 100% !important;
-            }
-        }
-
-        /* ---- Final phone polish for the Student Login screen ----
-           This block is intentionally scoped to the login card and only to
-           phone-sized screens, so the desktop layout and app features stay
-           completely unchanged. Streamlit currently uses data-testid="stColumn";
-           targeting that exact node prevents the old desktop column widths
-           from leaking into the phone layout. */
-        @media (max-width: 640px) {
-            .block-container {
-                padding: .65rem .75rem 2rem !important;
-            }
-
-            .mv-hero.mv-hero-compact {
-                padding: 10px 10px 8px !important;
-                margin: -.65rem -.75rem 10px !important;
-            }
-
-            [class*="st-key-auth_card_login"] {
-                border-radius: 16px !important;
-                padding: 5px 5px 14px !important;
-                margin: 0 !important;
-                overflow: hidden !important;
-            }
-
-            [class*="st-key-auth_card_login"] > div[data-testid="stHorizontalBlock"],
-            [class*="st-key-auth_card_login"] div[data-testid="stHorizontalBlock"]:first-child {
-                display: flex !important;
-                flex-direction: column !important;
-                align-items: stretch !important;
-                gap: 0 !important;
-                width: 100% !important;
-            }
-
-            [class*="st-key-auth_card_login"] div[data-testid="stColumn"] {
-                width: 100% !important;
-                max-width: 100% !important;
-                min-width: 0 !important;
-                flex: 0 0 auto !important;
-            }
-
-            [class*="st-key-auth_card_login"] .mv-auth-side {
-                min-height: auto !important;
-                padding: 20px 14px 18px !important;
-            }
-
-            [class*="st-key-auth_card_login"] [class*="st-key-auth_form_login"] {
-                padding: 18px 10px 2px !important;
-            }
-
-            /* Every actual form control must use the full card width. */
-            [class*="st-key-auth_card_login"] [data-testid="stTextInput"],
-            [class*="st-key-auth_card_login"] [data-testid="stTextInput"] > div,
-            [class*="st-key-auth_card_login"] [data-testid="stSelectbox"],
-            [class*="st-key-auth_card_login"] [data-testid="stSelectbox"] > div,
-            [class*="st-key-auth_card_login"] [data-baseweb="input"],
-            [class*="st-key-auth_card_login"] [data-baseweb="select"] {
-                width: 100% !important;
-                max-width: 100% !important;
-                min-width: 0 !important;
-                box-sizing: border-box !important;
-            }
-
-            /* Country selector + number input: clean, equal-height row. */
-            [class*="st-key-auth_card_login"] div[class*="_phone_row"] div[data-testid="stVerticalBlock"] {
-                display: grid !important;
-                grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr) !important;
-                gap: 8px !important;
-                width: 100% !important;
-            }
-
-            [class*="st-key-auth_card_login"] div[class*="_phone_row"] div[data-testid="stVerticalBlock"] > div:first-child,
-            [class*="st-key-auth_card_login"] div[class*="_phone_row"] div[data-testid="stVerticalBlock"] > div:last-child {
-                width: 100% !important;
-                min-width: 0 !important;
-                max-width: none !important;
-                flex: none !important;
-            }
-
-            [class*="st-key-auth_card_login"] input {
-                min-height: 48px !important;
-                font-size: 16px !important;
-            }
-
-            [class*="st-key-auth_card_login"] [data-baseweb="select"] > div {
-                min-height: 48px !important;
-            }
-
-            /* Remember + forgot remain readable without squeezing or overlap. */
-            [class*="st-key-auth_card_login"] [data-testid="stForm"] div[data-testid="stHorizontalBlock"] {
-                display: grid !important;
-                grid-template-columns: 1fr auto !important;
-                gap: 8px !important;
-                align-items: center !important;
-            }
-
-            [class*="st-key-auth_card_login"] [data-testid="stForm"] div[data-testid="stHorizontalBlock"] div[data-testid="stColumn"] {
-                width: auto !important;
-                min-width: 0 !important;
-            }
-
-            .st-key-auth_bottom_links {
-                margin-top: 12px !important;
-            }
-
-            .st-key-auth_bottom_links div[data-testid="stHorizontalBlock"] {
-                display: flex !important;
-                flex-direction: column !important;
-                gap: 2px !important;
-            }
-
-            .st-key-auth_bottom_links div[data-testid="stColumn"] {
-                width: 100% !important;
-                flex: 0 0 auto !important;
             }
         }
 
@@ -1010,7 +895,9 @@ def inject_global_css():
         [data-baseweb="tab-border"] { display: none !important; }
 
         .block-container {
-            padding-top: 1.2rem;
+            /* Slightly more breathing room above the desktop nav fixes the
+               "top feels cut off" look without creating a heavy empty band. */
+            padding-top: 1.65rem;
             padding-bottom: 3.0rem;
             max-width: 1180px;
         }
@@ -1024,7 +911,13 @@ def inject_global_css():
            for a moment. Keeping color/background-color animated (for the
            nice hover/theme feel) but leaving opacity instant fixes that
            without losing the rest of the polish. */
-        * { transition: background-color .15s ease, color .15s ease; }
+        /* Keep motion lightweight: avoid a universal `*` transition because
+           it can make Streamlit rerenders feel slower on weaker phones. */
+        .stButton > button, .stFormSubmitButton > button,
+        [class*="st-key-card_"] {
+            transition: background-color .15s ease, color .15s ease,
+                        border-color .15s ease, box-shadow .15s ease, transform .15s ease;
+        }
 
         /* ---- App accent color: Med Venture deep teal (was default blue) ---- */
         button[kind="primary"], .stButton>button[kind="primary"], .stFormSubmitButton>button[kind="primary"] {
@@ -1049,11 +942,29 @@ def inject_global_css():
 
         /* ---- Desktop navigation ---- */
         .st-key-top_nav {
-            margin-bottom: 14px;
+            margin: 0 0 18px 0;
             border: 1px solid var(--mv-border);
             border-radius: 20px;
             padding: 10px 16px;
             background: var(--mv-surface);
+            box-shadow: 0 10px 30px rgba(0,0,0,.10);
+        }
+        /* Subtle desktop-only depth for real content cards. No animation on
+           mobile, where hover does not exist and extra paint work is wasted. */
+        @media (hover:hover) and (min-width: 769px) {
+            [class*="st-key-card_home_"],
+            [class*="st-key-card_profile_"] {
+                transform: translateZ(0);
+            }
+            [class*="st-key-card_home_"]:hover,
+            [class*="st-key-card_profile_"]:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 14px 32px rgba(0,0,0,.12);
+            }
+        }
+        .stButton > button:focus-visible {
+            outline: 2px solid var(--mv-primary) !important;
+            outline-offset: 2px !important;
         }
         /* align-items: center is the Bug-2 fix - without it, the desktop
            nav row's columns default to stretch, so the 34px-tall round
@@ -1264,18 +1175,18 @@ def inject_global_css():
             gap: 6px !important;
             min-width: 620px;
         }
-        .st-key-test_history_table div[data-testid="stColumn"] {
+        .st-key-test_history_table div[data-testid="column"] {
             min-width: 0 !important;
             width: auto !important;
         }
-        .st-key-test_history_table div[data-testid="stColumn"]:nth-child(1) { flex: 0 0 165px !important; }
-        .st-key-test_history_table div[data-testid="stColumn"]:nth-child(2) { flex: 0 0 85px !important; }
-        .st-key-test_history_table div[data-testid="stColumn"]:nth-child(3),
-        .st-key-test_history_table div[data-testid="stColumn"]:nth-child(4),
-        .st-key-test_history_table div[data-testid="stColumn"]:nth-child(5),
-        .st-key-test_history_table div[data-testid="stColumn"]:nth-child(6),
-        .st-key-test_history_table div[data-testid="stColumn"]:nth-child(7) { flex: 0 0 58px !important; }
-        .st-key-test_history_table div[data-testid="stColumn"]:nth-child(8) { flex: 0 0 56px !important; }
+        .st-key-test_history_table div[data-testid="column"]:nth-child(1) { flex: 0 0 165px !important; }
+        .st-key-test_history_table div[data-testid="column"]:nth-child(2) { flex: 0 0 85px !important; }
+        .st-key-test_history_table div[data-testid="column"]:nth-child(3),
+        .st-key-test_history_table div[data-testid="column"]:nth-child(4),
+        .st-key-test_history_table div[data-testid="column"]:nth-child(5),
+        .st-key-test_history_table div[data-testid="column"]:nth-child(6),
+        .st-key-test_history_table div[data-testid="column"]:nth-child(7) { flex: 0 0 58px !important; }
+        .st-key-test_history_table div[data-testid="column"]:nth-child(8) { flex: 0 0 56px !important; }
         .st-key-test_history_table p, .st-key-test_history_table div[data-testid="stMarkdownContainer"] p {
             font-size: 13px !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
@@ -1284,7 +1195,7 @@ def inject_global_css():
         }
         @media (max-width: 640px) {
             .st-key-test_history_table div[data-testid="stHorizontalBlock"] { min-width: 560px; }
-            .st-key-test_history_table div[data-testid="stColumn"]:nth-child(1) { flex-basis: 130px !important; }
+            .st-key-test_history_table div[data-testid="column"]:nth-child(1) { flex-basis: 130px !important; }
         }
 
         /* ---- Input focus glow (nice subtle brand touch) ---- */
@@ -1389,7 +1300,7 @@ def inject_global_css():
                 align-items: center !important;
                 gap: 4px !important;
             }
-            [class*="st-key-acard_"] div[data-testid="stColumn"] {
+            [class*="st-key-acard_"] div[data-testid="column"] {
                 width: 100% !important;
                 min-width: 0 !important;
                 max-width: 100% !important;
@@ -1400,11 +1311,11 @@ def inject_global_css():
                off-screen - this is the one column with genuinely
                variable-length content, so it's the one that should give
                way first. */
-            [class*="st-key-acard_"] div[data-testid="stColumn"]:nth-child(1) .analysis-title {
+            [class*="st-key-acard_"] div[data-testid="column"]:nth-child(1) .analysis-title {
                 font-size: 12.5px !important;
                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
             }
-            [class*="st-key-acard_"] div[data-testid="stColumn"]:nth-child(1) .analysis-subtle {
+            [class*="st-key-acard_"] div[data-testid="column"]:nth-child(1) .analysis-subtle {
                 font-size: 10px !important;
                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
             }
@@ -1420,7 +1331,7 @@ def inject_global_css():
             }
             /* View button column (5th, 46px grid track): compact pill
                button instead of the full-size default. */
-            [class*="st-key-acard_"] div[data-testid="stColumn"]:nth-child(5) .stButton > button {
+            [class*="st-key-acard_"] div[data-testid="column"]:nth-child(5) .stButton > button {
                 padding: 4px 2px !important;
                 font-size: 11px !important;
                 min-height: 30px !important;
@@ -1470,10 +1381,10 @@ def inject_global_css():
                 grid-template-columns: repeat(4, 1fr) !important;
                 gap: 4px !important;
             }
-            .st-key-card_home_active div[data-testid="stColumn"],
-            .st-key-card_home_last div[data-testid="stColumn"],
-            .st-key-card_submit_result div[data-testid="stColumn"],
-            [class*="st-key-card_mentor_result_"] div[data-testid="stColumn"] {
+            .st-key-card_home_active div[data-testid="column"],
+            .st-key-card_home_last div[data-testid="column"],
+            .st-key-card_submit_result div[data-testid="column"],
+            [class*="st-key-card_mentor_result_"] div[data-testid="column"] {
                 width: 100% !important;
                 min-width: 0 !important;
                 max-width: 100% !important;
@@ -1506,27 +1417,27 @@ def inject_global_css():
            appear in the same fixed order, and applied at EVERY screen
            size (not just mobile) since the reference shows this
            coloring at desktop width too. */
-        .st-key-card_home_last div[data-testid="stColumn"]:nth-child(1) [data-testid="stMetricValue"],
-        .st-key-card_home_last div[data-testid="stColumn"]:nth-child(2) [data-testid="stMetricValue"],
-        [class*="st-key-card_mentor_result_"] div[data-testid="stColumn"]:nth-child(1) [data-testid="stMetricValue"] {
+        .st-key-card_home_last div[data-testid="column"]:nth-child(1) [data-testid="stMetricValue"],
+        .st-key-card_home_last div[data-testid="column"]:nth-child(2) [data-testid="stMetricValue"],
+        [class*="st-key-card_mentor_result_"] div[data-testid="column"]:nth-child(1) [data-testid="stMetricValue"] {
             color: var(--mv-primary) !important;
         }
-        .st-key-card_home_last div[data-testid="stColumn"]:nth-child(3) [data-testid="stMetricValue"],
-        [class*="st-key-card_mentor_result_"] div[data-testid="stColumn"]:nth-child(2) [data-testid="stMetricValue"] {
+        .st-key-card_home_last div[data-testid="column"]:nth-child(3) [data-testid="stMetricValue"],
+        [class*="st-key-card_mentor_result_"] div[data-testid="column"]:nth-child(2) [data-testid="stMetricValue"] {
             color: #F2434A !important;
         }
         /* card_submit_result column order is Correct, Wrong, Skipped, Marks */
-        .st-key-card_submit_result div[data-testid="stColumn"]:nth-child(1) [data-testid="stMetricValue"],
-        .st-key-card_submit_result div[data-testid="stColumn"]:nth-child(4) [data-testid="stMetricValue"] {
+        .st-key-card_submit_result div[data-testid="column"]:nth-child(1) [data-testid="stMetricValue"],
+        .st-key-card_submit_result div[data-testid="column"]:nth-child(4) [data-testid="stMetricValue"] {
             color: var(--mv-primary) !important;
         }
-        .st-key-card_submit_result div[data-testid="stColumn"]:nth-child(2) [data-testid="stMetricValue"] {
+        .st-key-card_submit_result div[data-testid="column"]:nth-child(2) [data-testid="stMetricValue"] {
             color: #F2434A !important;
         }
-        [class*="st-key-acard_"] div[data-testid="stColumn"]:nth-child(2) [data-testid="stMetricValue"] {
+        [class*="st-key-acard_"] div[data-testid="column"]:nth-child(2) [data-testid="stMetricValue"] {
             color: var(--mv-primary) !important;
         }
-        [class*="st-key-acard_"] div[data-testid="stColumn"]:nth-child(3) [data-testid="stMetricValue"] {
+        [class*="st-key-acard_"] div[data-testid="column"]:nth-child(3) [data-testid="stMetricValue"] {
             color: #F2434A !important;
         }
         /* "Overall Progress" card's Average value (2nd metric-box, raw
@@ -1534,6 +1445,22 @@ def inject_global_css():
            the default white. */
         .st-key-card_home_progress .metric-box:nth-child(2) .value {
             color: var(--mv-primary) !important;
+        }
+
+        /* Compact page greeting: same information as before, but visually
+           aligned with the premium dashboard without adding any extra widgets. */
+        .mv-page-greeting {
+            display:flex; align-items:center; gap:10px; margin:4px 0 12px;
+        }
+        .mv-page-greeting span { font-size:24px; filter: drop-shadow(0 4px 8px rgba(0,0,0,.18)); }
+        .mv-page-greeting h2 {
+            margin:0; font-family:var(--serif); font-size:29px; line-height:1.15;
+            letter-spacing:-.02em; color:var(--mv-ink);
+        }
+        @media (max-width:640px) {
+            .mv-page-greeting { margin:2px 0 10px; gap:8px; }
+            .mv-page-greeting span { font-size:21px; }
+            .mv-page-greeting h2 { font-size:23px; }
         }
 
         .rank-badge {
@@ -1740,7 +1667,7 @@ def inject_global_css():
            scoped narrowly to this card so it never affects any other
            button in the app. ---- */
         .st-key-card_profile_stats { padding: 18px 20px !important; }
-        .st-key-card_profile_stats div[data-testid="stColumn"] { text-align: center; }
+        .st-key-card_profile_stats div[data-testid="column"] { text-align: center; }
         .st-key-card_profile_stats .stButton { display: flex; justify-content: center; }
         .st-key-card_profile_stats .stButton > button:not([kind="primary"]) {
             background: transparent !important;
@@ -1886,9 +1813,12 @@ def inject_global_css():
         }
 
         @media (max-width: 900px) {
-            .block-container { max-width: 100%; padding-left: 1rem; padding-right: 1rem; }
+            .block-container {
+                max-width: 100%; padding-top: .85rem;
+                padding-left: 1rem; padding-right: 1rem;
+            }
             .st-key-card_profile_mentor div[data-testid="stHorizontalBlock"],
-            .st-key-card_profile_mentor div[data-testid="stColumn"] {
+            .st-key-card_profile_mentor div[data-testid="column"] {
                 min-width: 0 !important;
             }
             .st-key-top_nav { display: none !important; }
@@ -1945,7 +1875,7 @@ def inject_global_css():
             min-width: 0 !important;
             box-sizing: border-box !important;
         }
-        [class*="st-key-card_"] div[data-testid="stColumn"] {
+        [class*="st-key-card_"] div[data-testid="column"] {
             min-width: 0 !important;
         }
 
@@ -1987,7 +1917,7 @@ def inject_global_css():
                 grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
                 gap: 12px 4px !important;
             }
-            .st-key-card_profile_stats div[data-testid="stColumn"] {
+            .st-key-card_profile_stats div[data-testid="column"] {
                 width: 100% !important;
                 min-width: 0 !important;
                 max-width: 100% !important;
@@ -2003,7 +1933,7 @@ def inject_global_css():
                 grid-template-columns:minmax(0,1fr) 48px 28px 34px 32px 38px 42px 38px !important;
                 gap:2px !important; width:100% !important; min-width:0 !important;
             }
-            .st-key-test_history_table div[data-testid="stColumn"] { min-width:0 !important; width:auto !important; overflow:hidden !important; }
+            .st-key-test_history_table div[data-testid="column"] { min-width:0 !important; width:auto !important; overflow:hidden !important; }
             .st-key-test_history_table p, .st-key-test_history_table button { font-size:9px !important; line-height:1.15 !important; }
             .st-key-test_history_table .stButton > button { padding:3px 3px !important; min-height:28px !important; }
 
@@ -2101,10 +2031,10 @@ def inject_global_css():
                 gap:5px !important; align-items:start !important;
                 flex-wrap:nowrap !important;
             }
-            [class*="st-key-acard_"] div[data-testid="stColumn"] > div {
+            [class*="st-key-acard_"] div[data-testid="column"] > div {
                 min-width:0 !important; width:100% !important;
             }
-            [class*="st-key-acard_"] div[data-testid="stColumn"] {
+            [class*="st-key-acard_"] div[data-testid="column"] {
                 min-width:0 !important; width:auto !important; max-width:100% !important;
                 overflow:hidden !important;
             }
@@ -2254,7 +2184,7 @@ def inject_global_css():
             .stApp [data-testid="stHorizontalBlock"] { gap: 6px !important; }
             .stApp [data-testid="stColumn"] { min-width: 0 !important; }
             /* OMR panels become one-column on narrow screens; no horizontal overflow. */
-            .stApp div[data-testid="stColumn"] { min-width: 0 !important; }
+            .stApp div[data-testid="column"] { min-width: 0 !important; }
             .stApp .stButton > button { padding: 6px 8px !important; min-height: 36px !important; font-size: 12px !important; }
             .mv-compact-row { padding: 5px 6px; }
             .mv-compact-row [data-testid="stMetricValue"] { font-size: 18px !important; }
@@ -3246,7 +3176,10 @@ def page_home():
             go_to("tests")
             return
 
-    st.markdown(f"### 👋 Welcome, {name}")
+    st.markdown(
+        f"<div class='mv-page-greeting'><span>👋</span><h2>Welcome, {name}</h2></div>",
+        unsafe_allow_html=True,
+    )
 
     active = cached_active_answer_key()
     # Real st.container(key=...) instead of a raw <div class='app-card'>
@@ -4970,7 +4903,7 @@ def _inject_bubble_grid_css():
             width: 100% !important;
             min-width: 0 !important;
         }
-        [class*="st-key-answer_row_"] div[data-testid="stColumn"] {
+        [class*="st-key-answer_row_"] div[data-testid="column"] {
             width: 100% !important;
             min-width: 0 !important;
             max-width: 100% !important;
@@ -6602,426 +6535,8 @@ def page_mentor():
 # Main
 # =========================================================================
 
-
-# =========================================================================
-# Professional UI redesign layer
-# Presentation-only override: no feature, state, data, authentication,
-# navigation or OMR logic is changed below. This layer sits after the legacy
-# stylesheet and deliberately restyles the existing Streamlit markup for a
-# cleaner desktop + mobile experience while keeping the same Med Venture
-# dark/teal/orange palette.
-# =========================================================================
-def inject_professional_design_css():
-    st.markdown(
-        """
-        <style>
-        /* ================= PROFESSIONAL DESIGN SYSTEM ================= */
-        :root {
-            --mv-radius-xs: 10px;
-            --mv-radius-sm: 14px;
-            --mv-radius-md: 18px;
-            --mv-radius-lg: 24px;
-            --mv-shadow-sm: 0 2px 10px rgba(0,0,0,.14);
-            --mv-shadow-md: 0 14px 38px rgba(0,0,0,.24);
-            --mv-glass: rgba(14,28,28,.88);
-        }
-
-        html { scroll-behavior: smooth; }
-        .stApp {
-            background:
-                radial-gradient(circle at 10% 0%, rgba(38,171,140,.075), transparent 26%),
-                radial-gradient(circle at 92% 12%, rgba(249,77,16,.045), transparent 22%),
-                linear-gradient(180deg, #071415 0%, var(--mv-bg) 42%, #061112 100%) !important;
-        }
-        [data-testid="stHeader"] {
-            background: rgba(6,17,18,.74) !important;
-            backdrop-filter: blur(14px);
-            -webkit-backdrop-filter: blur(14px);
-        }
-        .block-container {
-            max-width: 1220px !important;
-            padding-top: 1.35rem !important;
-            padding-bottom: 4rem !important;
-        }
-
-        /* Typography */
-        h1, h2, h3 {
-            letter-spacing: -.025em !important;
-            line-height: 1.14 !important;
-        }
-        h1 { font-size: clamp(28px, 4vw, 40px) !important; }
-        h2 { font-size: clamp(22px, 3vw, 30px) !important; }
-        h3 { font-size: clamp(18px, 2.4vw, 23px) !important; }
-        p, label, [data-testid="stMarkdownContainer"] { letter-spacing: .002em; }
-        [data-testid="stMarkdownContainer"] p { line-height: 1.58; }
-        [data-testid="stCaptionContainer"], .stCaption { font-size: 12px !important; }
-
-        /* Global spacing between Streamlit blocks */
-        [data-testid="stVerticalBlock"] { gap: .65rem; }
-        [data-testid="stHorizontalBlock"] { gap: .75rem; }
-
-        /* Cards / forms / expanders */
-        .app-card,
-        [class*="st-key-card_"],
-        [class*="st-key-acard_"],
-        div[data-testid="stForm"],
-        div[data-testid="stExpander"] {
-            background: linear-gradient(145deg, rgba(18,36,35,.96), rgba(11,26,26,.96)) !important;
-            border: 1px solid rgba(230,240,235,.11) !important;
-            border-radius: var(--mv-radius-md) !important;
-            box-shadow: var(--mv-shadow-sm) !important;
-        }
-        [class*="st-key-card_"] { overflow: hidden; }
-        [class*="st-key-card_"]:hover,
-        [class*="st-key-acard_"]:hover {
-            border-color: rgba(38,171,140,.28) !important;
-            box-shadow: 0 12px 32px rgba(0,0,0,.22) !important;
-            transform: translateY(-2px) !important;
-        }
-        div[data-testid="stForm"] {
-            padding: 20px !important;
-            margin: 2px 0 !important;
-        }
-        div[data-testid="stExpander"] { overflow: hidden; }
-        div[data-testid="stExpander"] summary {
-            padding: 2px 0;
-            font-weight: 650;
-        }
-
-        /* Inputs */
-        div[data-testid="stTextInput"] label,
-        div[data-testid="stSelectbox"] label,
-        div[data-testid="stNumberInput"] label,
-        div[data-testid="stDateInput"] label,
-        div[data-testid="stTimeInput"] label,
-        div[data-testid="stTextArea"] label {
-            color: var(--mv-ink) !important;
-            font-weight: 600 !important;
-            font-size: 13px !important;
-            margin-bottom: 3px !important;
-        }
-        div[data-testid="stTextInput"] input,
-        div[data-testid="stNumberInput"] input,
-        div[data-testid="stTextArea"] textarea,
-        div[data-baseweb="select"] > div {
-            background: rgba(5,20,19,.86) !important;
-            border: 1px solid rgba(230,240,235,.13) !important;
-            border-radius: 12px !important;
-            color: var(--mv-ink) !important;
-            box-shadow: inset 0 1px 0 rgba(255,255,255,.018) !important;
-        }
-        div[data-testid="stTextInput"] input,
-        div[data-testid="stNumberInput"] input { min-height: 44px !important; }
-        div[data-testid="stTextInput"] input:focus,
-        div[data-testid="stNumberInput"] input:focus,
-        div[data-testid="stTextArea"] textarea:focus,
-        div[data-baseweb="select"] > div:focus-within {
-            border-color: rgba(38,171,140,.82) !important;
-            box-shadow: 0 0 0 3px rgba(38,171,140,.10) !important;
-        }
-
-        /* Buttons */
-        .stButton > button,
-        .stFormSubmitButton > button,
-        .stDownloadButton > button {
-            min-height: 42px !important;
-            border-radius: 11px !important;
-            font-weight: 650 !important;
-            letter-spacing: .005em !important;
-            box-shadow: none !important;
-        }
-        .stButton > button[kind="primary"],
-        .stFormSubmitButton > button[kind="primary"] {
-            background: linear-gradient(135deg, var(--mv-primary), #1e9379) !important;
-            border: 1px solid rgba(91,224,190,.35) !important;
-            box-shadow: 0 8px 22px rgba(38,171,140,.16) !important;
-        }
-        .stButton > button[kind="primary"]:hover,
-        .stFormSubmitButton > button[kind="primary"]:hover {
-            background: linear-gradient(135deg, var(--mv-primary-hover), var(--mv-primary)) !important;
-            box-shadow: 0 11px 26px rgba(38,171,140,.23) !important;
-        }
-        .stButton > button:not([kind="primary"]),
-        .stFormSubmitButton > button:not([kind="primary"]),
-        .stDownloadButton > button {
-            border-color: rgba(38,171,140,.48) !important;
-            background: rgba(38,171,140,.025) !important;
-        }
-
-        /* Metric widgets */
-        [data-testid="stMetric"] {
-            background: linear-gradient(145deg, rgba(20,45,42,.78), rgba(10,25,25,.82));
-            border: 1px solid rgba(230,240,235,.10);
-            border-radius: 16px;
-            padding: 16px !important;
-            box-shadow: var(--mv-shadow-sm);
-        }
-        [data-testid="stMetricLabel"] p {
-            font-size: 11px !important;
-            letter-spacing: .08em !important;
-            text-transform: uppercase !important;
-        }
-        [data-testid="stMetricValue"] { font-size: 26px !important; }
-
-        /* Tables / dataframes */
-        [data-testid="stDataFrame"], [data-testid="stTable"] {
-            border: 1px solid rgba(230,240,235,.11) !important;
-            border-radius: 14px !important;
-            overflow: hidden !important;
-            background: rgba(10,25,25,.65) !important;
-        }
-        .st-key-test_history_table {
-            border: 1px solid rgba(230,240,235,.10);
-            border-radius: 16px;
-            background: rgba(10,25,25,.52);
-            padding: 8px;
-        }
-
-        /* Tabs */
-        [data-baseweb="tab-list"] {
-            background: rgba(255,255,255,.035) !important;
-            border: 1px solid rgba(230,240,235,.08);
-            border-radius: 14px !important;
-            padding: 5px !important;
-            overflow-x: auto;
-            scrollbar-width: none;
-        }
-        [data-baseweb="tab-list"]::-webkit-scrollbar { display: none; }
-        [data-baseweb="tab-list"] button[data-baseweb="tab"] {
-            min-height: 40px;
-            padding: 0 15px !important;
-            white-space: nowrap;
-        }
-        [data-baseweb="tab-list"] button[aria-selected="true"] {
-            background: rgba(38,171,140,.12) !important;
-            border: 1px solid rgba(38,171,140,.20) !important;
-        }
-
-        /* Alerts */
-        [data-testid="stAlert"] {
-            border-radius: 13px !important;
-            border-width: 1px !important;
-        }
-
-        /* ================= TOP NAVIGATION ================= */
-        .st-key-top_nav {
-            position: sticky;
-            top: .65rem;
-            z-index: 50;
-            margin: 0 0 22px !important;
-            padding: 8px 10px !important;
-            background: rgba(11,27,27,.82) !important;
-            border: 1px solid rgba(230,240,235,.10) !important;
-            border-radius: 18px !important;
-            box-shadow: 0 12px 30px rgba(0,0,0,.20) !important;
-            backdrop-filter: blur(18px);
-            -webkit-backdrop-filter: blur(18px);
-        }
-        .st-key-top_nav .stButton > button {
-            min-height: 40px !important;
-            border-radius: 10px !important;
-            font-size: 13px !important;
-            border-bottom: none !important;
-        }
-        .st-key-top_nav .stButton > button[kind="primary"] {
-            background: rgba(38,171,140,.12) !important;
-            border: 1px solid rgba(38,171,140,.24) !important;
-            color: var(--mv-primary) !important;
-        }
-        .st-key-top_nav .stButton > button:not([kind="primary"]) {
-            border: 1px solid transparent !important;
-        }
-        .st-key-top_nav .stButton > button:not([kind="primary"]):hover {
-            background: rgba(255,255,255,.035) !important;
-            border-color: rgba(230,240,235,.07) !important;
-        }
-
-        /* ================= HERO / AUTH ================= */
-        .mv-hero {
-            padding: 42px 18px 28px !important;
-            margin: -1rem -1rem 22px !important;
-            background:
-                radial-gradient(circle at 50% 18%, rgba(38,171,140,.10), transparent 33%),
-                radial-gradient(var(--mv-dot) 1.2px, transparent 1.2px) !important;
-            background-size: auto, 19px 19px !important;
-            border-bottom: 1px solid rgba(230,240,235,.06);
-        }
-        .mv-hero.mv-hero-compact {
-            padding: 24px 16px 16px !important;
-            margin-bottom: 14px !important;
-        }
-        .mv-hero-badge {
-            border: 1px solid rgba(38,171,140,.18);
-            box-shadow: 0 6px 18px rgba(0,0,0,.12);
-        }
-        [class*="st-key-auth_card_"] {
-            max-width: 900px;
-            margin: 0 auto 14px !important;
-            padding: 8px !important;
-            border-radius: 24px !important;
-            background: linear-gradient(145deg, rgba(16,37,36,.97), rgba(10,24,24,.98)) !important;
-            border-color: rgba(230,240,235,.12) !important;
-            box-shadow: var(--mv-shadow-md) !important;
-            overflow: hidden !important;
-        }
-        .mv-auth-side {
-            min-height: 350px;
-            padding: 38px 28px !important;
-            border-radius: 18px;
-            background:
-                radial-gradient(circle at 50% 28%, rgba(38,171,140,.12), transparent 34%),
-                linear-gradient(145deg, rgba(20,50,47,.78), rgba(10,27,27,.45));
-        }
-        .mv-auth-side-icon-wrap { transform: scale(1.08); margin-bottom: 22px !important; }
-        .mv-auth-side-title { font-size: 24px !important; letter-spacing: -.02em; }
-        .mv-auth-side-text { font-size: 13.5px !important; }
-        [class*="st-key-auth_form_"] {
-            padding: 26px 28px 12px !important;
-        }
-        [class*="st-key-auth_form_"] div[data-testid="stForm"] {
-            background: transparent !important;
-            border: none !important;
-            box-shadow: none !important;
-            padding: 0 !important;
-        }
-        .st-key-auth_bottom_links {
-            max-width: 900px;
-            margin: 10px auto 0 !important;
-            padding: 2px 4px;
-        }
-
-        /* Profile and dashboard status blocks */
-        [class*="st-key-card_profile_"] { border-left: 3px solid rgba(38,171,140,.55) !important; }
-        [class*="st-key-card_home_"] { min-height: 100%; }
-
-        /* Digital OMR */
-        .digital-omr-shell {
-            border-radius: 22px !important;
-            padding: 16px !important;
-            background: linear-gradient(180deg, rgba(16,39,38,.96), rgba(8,21,21,.98)) !important;
-            box-shadow: var(--mv-shadow-md) !important;
-        }
-        .digital-omr-block { border-radius: 15px !important; padding: 10px 8px 6px !important; }
-        [class*="st-key-digital_omr_q_"] button {
-            min-height: 34px !important;
-            height: 34px !important;
-            border-radius: 10px !important;
-        }
-        .omr-photo-card { border-radius: 18px !important; }
-
-        /* Divider */
-        hr { border-color: rgba(230,240,235,.08) !important; }
-
-        /* ================= MOBILE ================= */
-        @media (max-width: 900px) {
-            .block-container {
-                padding: .8rem .85rem 5.2rem !important;
-                max-width: 100% !important;
-            }
-            .st-key-top_nav { display: none !important; }
-            .st-key-mobile_top_bar,
-            .st-key-mobile_top_bar[data-testid="stVerticalBlock"] {
-                display: flex !important;
-                position: sticky;
-                top: .45rem;
-                z-index: 100;
-                margin: 0 0 16px !important;
-                padding: 8px 10px !important;
-                background: rgba(11,27,27,.88) !important;
-                border: 1px solid rgba(230,240,235,.10);
-                border-radius: 16px;
-                box-shadow: 0 10px 26px rgba(0,0,0,.24);
-                backdrop-filter: blur(16px);
-                -webkit-backdrop-filter: blur(16px);
-            }
-            .mobile-menu-card, [class*="st-key-mobile_menu_"] {
-                width: min(86vw, 340px) !important;
-                padding: 22px 16px calc(28px + env(safe-area-inset-bottom)) !important;
-                background: linear-gradient(180deg, #102020, #091718) !important;
-            }
-            .mobile-menu-card button, [class*="st-key-mobile_menu_"] button {
-                border-radius: 12px !important;
-                padding: 0 12px !important;
-            }
-
-            .mv-hero {
-                padding: 26px 12px 18px !important;
-                margin: -.8rem -.85rem 14px !important;
-                border-radius: 0 0 20px 20px;
-            }
-            .mv-hero.mv-hero-compact {
-                padding: 18px 12px 10px !important;
-            }
-            .mv-hero h1 { font-size: 26px !important; }
-
-            [class*="st-key-auth_card_"] {
-                width: 100% !important;
-                max-width: 100% !important;
-                border-radius: 20px !important;
-                padding: 6px !important;
-                margin: 0 auto 10px !important;
-            }
-            [class*="st-key-auth_card_login"] .mv-auth-side {
-                min-height: auto !important;
-                padding: 24px 16px 22px !important;
-                border-radius: 15px 15px 12px 12px !important;
-            }
-            [class*="st-key-auth_card_login"] .mv-auth-side-icon-wrap {
-                transform: scale(.86);
-                margin-bottom: 3px !important;
-            }
-            [class*="st-key-auth_card_login"] .mv-auth-side-title {
-                font-size: 21px !important;
-                margin-top: -4px;
-            }
-            [class*="st-key-auth_form_"] { padding: 20px 14px 10px !important; }
-            [class*="st-key-auth_form_"] div[data-testid="stForm"] { padding: 0 !important; }
-            .st-key-auth_bottom_links { padding: 2px 0 !important; }
-            .st-key-auth_bottom_links div[data-testid="stHorizontalBlock"] { gap: 2px !important; }
-            .st-key-auth_bottom_links button { font-size: 12px !important; }
-
-            div[data-testid="stForm"] { padding: 16px !important; border-radius: 15px !important; }
-            [data-testid="stMetric"] { padding: 13px !important; border-radius: 14px; }
-            [data-testid="stMetricValue"] { font-size: 22px !important; }
-            [data-baseweb="tab-list"] { border-radius: 12px !important; }
-            [data-baseweb="tab-list"] button[data-baseweb="tab"] { min-height: 38px; padding: 0 12px !important; }
-
-            .digital-omr-shell { padding: 10px !important; border-radius: 17px !important; }
-            .digital-omr-title-main { font-size: 18px !important; }
-            .omr-photo-card { position: static !important; }
-
-            .st-key-test_history_table { border-radius: 13px; padding: 5px; }
-            .stButton > button, .stFormSubmitButton > button { min-height: 44px !important; }
-        }
-
-        @media (max-width: 520px) {
-            .block-container { padding-left: .65rem !important; padding-right: .65rem !important; }
-            h1 { font-size: 27px !important; }
-            h2 { font-size: 22px !important; }
-            h3 { font-size: 18px !important; }
-            [class*="st-key-auth_card_login"] .mv-auth-side-text { max-width: 260px !important; }
-            [class*="st-key-auth_card_login"] [data-testid="stForm"] div[data-testid="stHorizontalBlock"] { gap: 6px !important; }
-            [class*="st-key-auth_card_login"] [data-testid="stForm"] div[data-testid="stHorizontalBlock"] div[data-testid="column"] { min-width: 0 !important; }
-            .st-key-auth_bottom_links div[data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; }
-            .st-key-auth_bottom_links div[data-testid="column"] { flex: 1 1 100% !important; }
-        }
-
-        @media (prefers-reduced-motion: reduce) {
-            *, *::before, *::after {
-                animation-duration: .01ms !important;
-                animation-iteration-count: 1 !important;
-                transition-duration: .01ms !important;
-                scroll-behavior: auto !important;
-            }
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
 def main():
     inject_global_css()
-    inject_professional_design_css()
 
     # The ENTIRE visible app body - the app-password gate, the Google
     # Sheets "Connecting..." boot sequence, the mentor panel, the login/
