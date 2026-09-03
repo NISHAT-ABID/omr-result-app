@@ -1806,6 +1806,25 @@ def inject_global_css():
             92%  { stroke-dashoffset: -400; opacity: 0; }
             100% { stroke-dashoffset: -400; opacity: 0; }
         }
+
+        /* ---- Responsive two-panel / compact table system ---- */
+        .mv-compact-row { border:1px solid var(--mv-border); border-radius:12px; background:var(--mv-surface); padding:7px 9px; margin:4px 0; }
+        .mv-review-dot { font-size:13px; text-align:center; }
+        @media (max-width: 800px) {
+            .stApp [data-testid="stHorizontalBlock"] { gap: 6px !important; }
+            .stApp [data-testid="stColumn"] { min-width: 0 !important; }
+            /* OMR panels become one-column on narrow screens; no horizontal overflow. */
+            .stApp div[data-testid="column"] { min-width: 0 !important; }
+            .stApp .stButton > button { padding: 6px 8px !important; min-height: 36px !important; font-size: 12px !important; }
+            .mv-compact-row { padding: 5px 6px; }
+            .mv-compact-row [data-testid="stMetricValue"] { font-size: 18px !important; }
+            .mv-exam-meta-grid { gap:6px !important; }
+        }
+        @media (max-width: 560px) {
+            .mv-mobile-stack > div[data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; }
+            .stApp .stTextInput input, .stApp .stSelectbox, .stApp textarea { font-size: 13px !important; }
+            .stApp [data-testid="stMarkdownContainer"] p { overflow-wrap:anywhere; }
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -2968,7 +2987,33 @@ def render_omr_review(rows):
         )
 
 
-def render_result_detail(result_row, key_row):
+def _render_readonly_digital_omr(result_row, key_row):
+    """Read-only digital OMR for completed results. Mentor/student cannot edit here."""
+    import json as _json
+    total = int(result_row.get("total", 0) or 0)
+    try:
+        final = _json.loads(result_row.get("omr_final_answers_json") or "{}")
+    except Exception:
+        final = {}
+    try:
+        original = _json.loads(result_row.get("omr_original_answers_json") or "{}")
+    except Exception:
+        original = {}
+    if not final:
+        final = original
+    cols = st.columns(2 if total > 40 else 1, gap="small")
+    chunk = (total + 1)//2 if total > 40 else total
+    ranges = [(1, chunk), (chunk+1, total)] if total > 40 else [(1,total)]
+    for col,(start,end) in zip(cols,ranges):
+        with col:
+            for q in range(start,end+1):
+                ans = final.get(str(q), final.get(q))
+                ans = _normalise_answer_value(ans)
+                bubbles = " ".join(f"<span class='digital-bubble {'selected' if ans == o else ''}'>{o}</span>" for o in 'ABCD')
+                st.markdown(f"<div class='mv-compact-row'><b>Q{q:02d}</b>&nbsp;&nbsp;{bubbles}</div>", unsafe_allow_html=True)
+
+
+def render_result_detail(result_row, key_row, mentor_mode=False):
     exam_name = key_row.get("exam_name") or result_row["key_id"]
     st.markdown(f"### {exam_name}")
     total, correct, wrong_count, skipped = (
@@ -2979,12 +3024,35 @@ def render_result_detail(result_row, key_row):
         f"`Score: {correct}/{total}` &nbsp; `❌ Wrong {wrong_count}` &nbsp; "
         f"`⚪ Skipped {skipped}` &nbsp; `✅ Correct {correct}`"
     )
+    import json as _json
     # Google Sheets may return the checkbox/boolean as the text "TRUE"/"FALSE".
     # Do not use bool("FALSE"), because any non-empty string is truthy in Python.
     if sh._to_bool(result_row.get("edited_by_mentor", False)):
-        st.caption("ℹ️ This result was reviewed/edited by your mentor.")
+        st.caption("ℹ️ This result was reviewed by your mentor.")
 
-    import json as _json
+    # Mentor can review the submitted scan and record a yes/no cheating decision,
+    # but cannot change the student's answer from this profile/result page.
+    double_qs = []
+    try:
+        double_qs = _json.loads(result_row.get("omr_double_touch_json") or "[]")
+    except Exception:
+        double_qs = []
+    if mentor_mode and double_qs:
+        status = str(result_row.get("review_status", "") or "")
+        st.markdown("#### ⚠️ Review Needed")
+        st.caption(f"Scanner flagged Q{', Q'.join(map(str, double_qs))} for multiple marking. The student's submitted OMR is shown below for review.")
+        rc1, rc2 = st.columns(2)
+        with rc1:
+            if st.button("YES — Cheating", type="primary", use_container_width=True, key=f"cheat_yes_{result_row['student_id']}_{result_row['key_id']}"):
+                sh.set_result_review(result_row['student_id'], result_row['key_id'], "confirmed_cheating", "Mentor confirmed cheating / invalid marking.")
+                clear_all_caches(); st.rerun()
+        with rc2:
+            if st.button("NO — Clear Review", use_container_width=True, key=f"cheat_no_{result_row['student_id']}_{result_row['key_id']}"):
+                sh.set_result_review(result_row['student_id'], result_row['key_id'], "cleared", "Mentor reviewed and cleared the flag.")
+                clear_all_caches(); st.rerun()
+        if status:
+            st.info(f"Current review status: **{status.replace('_',' ').title()}**")
+
     answer_string = key_row["answer_string"]
 
     try:
@@ -3026,6 +3094,10 @@ def render_result_detail(result_row, key_row):
                     st.info("Submitted OMR photo is unavailable.")
             except Exception:
                 st.info("Submitted OMR photo is unavailable.")
+
+    st.markdown("#### 📝 Digital OMR · View Only")
+    st.caption("Answers shown here are the student's submitted final answers. They cannot be changed from a student profile/result page.")
+    _render_readonly_digital_omr(result_row, key_row)
 
     st.markdown("#### Wrong & Skipped Answers")
     render_omr_review(rows)
@@ -3873,7 +3945,7 @@ def page_mentor_student_analysis():
             st.warning("Result not found.")
         else:
             render_student_header(sid, name, heading_level=3)
-            render_result_detail(match.iloc[0], key_match.iloc[0])
+            render_result_detail(match.iloc[0], key_match.iloc[0], mentor_mode=True)
         return
 
     render_student_analysis(sid, name, mentor_mode=True)
@@ -4705,7 +4777,219 @@ def _render_exam_window_summary(start_dt, end_dt, duration_min):
     st.markdown("".join(parts), unsafe_allow_html=True)
 
 
+
+def _answer_rule_defaults(key):
+    total = int(key.get("total_questions", 0) or 0)
+    rules = key.get("answer_rules") or {}
+    if not rules:
+        ans = str(key.get("answer_string", ""))
+        rules = {str(q): {"type": "normal", "accepted": ([ans[q-1]] if q <= len(ans) and ans[q-1] in "ABCD" else [])} for q in range(1, total+1)}
+    else:
+        rules = {str(q): dict(rules.get(str(q), {})) for q in range(1, total+1)}
+        ans = str(key.get("answer_string", ""))
+        for q in range(1, total+1):
+            r = rules[str(q)]
+            if not r:
+                a = ans[q-1:q].upper()
+                rules[str(q)] = {"type":"normal", "accepted":[a] if a in "ABCD" else []}
+    return rules
+
+
+def _render_answer_key_readonly(key):
+    total = int(key.get("total_questions", 0) or 0)
+    rules = _answer_rule_defaults(key)
+    notes = key.get("question_notes") or {}
+    st.markdown(f"#### 📝 Answer Key · {total} Questions")
+    cols = st.columns(2 if total > 40 else 1, gap="small")
+    half = (total + 1) // 2 if total > 40 else total
+    ranges = [(1, half), (half + 1, total)] if total > 40 else [(1, total)]
+    for col, (start, end) in zip(cols, ranges):
+        with col:
+            for q in range(start, end + 1):
+                r = rules.get(str(q), {}) or {}
+                typ = str(r.get("type", "normal")).lower()
+                accepted = ", ".join(r.get("accepted", []))
+                if typ == "bonus":
+                    label = "⭐ Bonus / Invalid · +1 mark"
+                elif typ == "multiple":
+                    label = f"Multiple Correct · {accepted or '—'}"
+                else:
+                    label = f"Normal · {accepted or '—'}"
+                note = str(notes.get(str(q), "") or "")
+                st.markdown(f"**Q{q}** &nbsp; `{label}`", unsafe_allow_html=True)
+                if note:
+                    st.caption(f"📝 {note}")
+
+
+def _render_answer_key_editor(key):
+    total = int(key.get("total_questions", 0) or 0)
+    rules = _answer_rule_defaults(key)
+    notes = {str(k): str(v) for k, v in (key.get("question_notes") or {}).items()}
+    st.markdown(f"### ✏️ Edit Answer Key")
+    st.caption(f"{key.get('exam_name') or key.get('key_id')} · {total} questions")
+    st.warning("⚠️ Saving changes will recalculate every submitted student's result for this exam.")
+
+    show_pdf = st.session_state.get("edit_exam_show_pdf", False)
+    if st.button("📄 " + ("Hide Question Paper" if show_pdf else "View Question Paper"), key="edit_exam_pdf_btn", use_container_width=True):
+        st.session_state["edit_exam_show_pdf"] = not show_pdf
+        st.rerun()
+    if st.session_state.get("edit_exam_show_pdf"):
+        pdf_id = str(key.get("question_pdf_file_id", "") or "")
+        if pdf_id:
+            try:
+                pdf_bytes = sh.get_question_pdf_bytes(pdf_id)
+                if pdf_bytes:
+                    _render_question_pdf(pdf_bytes, None, key["key_id"])
+                else:
+                    st.info("Question PDF is unavailable.")
+            except Exception:
+                st.info("Question PDF is unavailable.")
+        else:
+            st.info("No question PDF is attached to this exam.")
+
+    st.markdown("#### 📝 Digital OMR Answer Editor")
+    st.caption("Update the exam's answer key here. This changes the key for the whole exam — never an individual student's answer.")
+    page_size = 25 if total > 40 else total
+    pages = list(range(1, total + 1, page_size))
+    page = st.session_state.get("edit_exam_key_page", 0)
+    page = min(page, len(pages)-1)
+    start = pages[page]
+    end = min(start + page_size - 1, total)
+    st.progress(end / total if total else 0)
+    st.caption(f"Questions {start}–{end} of {total}")
+
+    for q in range(start, end + 1):
+        r = rules.get(str(q), {}) or {}
+        typ = str(r.get("type", "normal")).lower()
+        with st.container(key=f"mentor_edit_key_q_{q}"):
+            head, type_col = st.columns([1.2, 2.8], gap="small")
+            with head:
+                st.markdown(f"**Q{q:02d}**")
+            with type_col:
+                type_options = ["normal", "multiple", "bonus"]
+                type_label = {"normal":"Normal", "multiple":"Multiple Correct", "bonus":"Bonus / Invalid"}
+                chosen_type = st.radio(
+                    f"Q{q} type", type_options,
+                    index=type_options.index(typ) if typ in type_options else 0,
+                    format_func=lambda x: type_label[x], horizontal=True,
+                    key=f"edit_key_type_{key['key_id']}_{q}", label_visibility="collapsed",
+                )
+            if chosen_type == "normal":
+                accepted = r.get("accepted", [])
+                current = accepted[0] if accepted else None
+                st.radio("Answer", ["A", "B", "C", "D"], index=(['A','B','C','D'].index(current) if current in ['A','B','C','D'] else None), horizontal=True, key=f"edit_key_ans_{key['key_id']}_{q}", label_visibility="collapsed")
+            elif chosen_type == "multiple":
+                st.multiselect("Accepted answers", ["A","B","C","D"], default=[x for x in r.get("accepted", []) if x in "ABCD"], key=f"edit_key_multi_{key['key_id']}_{q}", label_visibility="collapsed")
+            else:
+                st.success("⭐ Everyone receives +1 mark for this question.")
+            st.text_input("Note / explanation for students", value=notes.get(str(q), ""), key=f"edit_key_note_{key['key_id']}_{q}", placeholder="Optional explanation…", label_visibility="collapsed")
+            st.divider()
+
+    nav1, nav2 = st.columns(2)
+    with nav1:
+        if st.button("← Previous", key="edit_exam_prev", use_container_width=True, disabled=page == 0):
+            st.session_state["edit_exam_key_page"] = page - 1
+            st.rerun()
+    with nav2:
+        if st.button("Next →", key="edit_exam_next", use_container_width=True, disabled=page >= len(pages)-1):
+            st.session_state["edit_exam_key_page"] = page + 1
+            st.rerun()
+
+    if st.button("💾 Save Changes & Recalculate All Results", type="primary", use_container_width=True, key="edit_exam_save_all"):
+        final_rules = {}
+        final_notes = {}
+        for q in range(1, total + 1):
+            k = str(q)
+            chosen_type = st.session_state.get(f"edit_key_type_{key['key_id']}_{q}", "normal")
+            if chosen_type == "multiple":
+                accepted = st.session_state.get(f"edit_key_multi_{key['key_id']}_{q}", [])
+            elif chosen_type == "bonus":
+                accepted = []
+            else:
+                a = st.session_state.get(f"edit_key_ans_{key['key_id']}_{q}")
+                accepted = [a] if a in "ABCD" else []
+            final_rules[k] = {"type": chosen_type, "accepted": accepted}
+            note = st.session_state.get(f"edit_key_note_{key['key_id']}_{q}", "").strip()
+            if note:
+                final_notes[k] = note
+        if any(v["type"] != "bonus" and not v["accepted"] for v in final_rules.values()):
+            st.error("Every non-bonus question must have at least one accepted answer.")
+            return
+        try:
+            with st.spinner("Saving answer-key changes and recalculating all results…"):
+                sh.update_answer_key_rules(key["key_id"], final_rules, final_notes)
+                changed = sh.recalculate_results_for_exam(key["key_id"], final_rules)
+                clear_all_caches()
+            st.success(f"✅ Answer key updated. {changed} student result(s) recalculated.")
+            st.session_state["edit_exam_key_page"] = 0
+            st.session_state["edit_exam_show_pdf"] = False
+            st.rerun()
+        except Exception as e:
+            st.error(f"Could not update this exam: {e}")
+
+
 def render_answer_key_tab():
+    """Mentor Create Exam landing page + existing exam management."""
+    st.markdown("### 🗓️ Create Exam")
+    st.caption("Create a new exam or manage an existing exam from one place.")
+    mode = st.session_state.get("mentor_exam_mode", "create")
+    c1, c2 = st.columns(2, gap="medium")
+    with c1:
+        if st.button("＋ Create Exam", type="primary" if mode == "create" else "secondary", use_container_width=True, key="mentor_mode_create"):
+            st.session_state["mentor_exam_mode"] = "create"
+            st.rerun()
+    with c2:
+        if st.button("✏️ Edit Exam", type="primary" if mode == "edit" else "secondary", use_container_width=True, key="mentor_mode_edit"):
+            st.session_state["mentor_exam_mode"] = "edit"
+            st.session_state["edit_exam_key_page"] = 0
+            st.rerun()
+
+    st.divider()
+    if st.session_state.get("mentor_exam_mode", "create") == "create":
+        _render_create_exam_form()
+        return
+
+    keys_df = cached_answer_keys()
+    if keys_df.empty:
+        st.info("No exams have been created yet.")
+        return
+    keys_df = keys_df.iloc[::-1].reset_index(drop=True)
+    options = {f"{r.get('exam_name') or r['key_id']} · {r.get('date','')}": r['key_id'] for _, r in keys_df.iterrows()}
+    selected_label = st.selectbox("Select an exam to manage", list(options.keys()), key="mentor_edit_exam_select")
+    key_id = options[selected_label]
+    key = sh.get_answer_key_by_id(key_id)
+    if not key:
+        st.error("This exam could not be loaded.")
+        return
+    st.markdown(f"## {key.get('exam_name') or key_id}")
+    st.caption(f"{key.get('date','')} · {key.get('total_questions',0)} questions · {key.get('duration_minutes',0)} minutes")
+    view_col, edit_col = st.columns(2, gap="small")
+    with view_col:
+        if st.button("👁️ View Answer Key", use_container_width=True, key="view_existing_key"):
+            st.session_state["edit_exam_subview"] = "view"
+    with edit_col:
+        if st.button("✏️ Edit Answer Key", type="primary", use_container_width=True, key="edit_existing_key"):
+            st.session_state["edit_exam_subview"] = "edit"
+            st.session_state["edit_exam_key_page"] = 0
+    subview = st.session_state.get("edit_exam_subview", "view")
+    if subview == "edit":
+        _render_answer_key_editor(key)
+    else:
+        show_pdf = st.session_state.get("view_existing_pdf", False)
+        if st.button("📄 " + ("Hide Question Paper" if show_pdf else "View Question Paper"), use_container_width=True, key="view_existing_pdf_btn"):
+            st.session_state["view_existing_pdf"] = not show_pdf
+            st.rerun()
+        if st.session_state.get("view_existing_pdf"):
+            try:
+                pdf_bytes = sh.get_question_pdf_bytes(key.get("question_pdf_file_id"))
+                if pdf_bytes:
+                    _render_question_pdf(pdf_bytes, None, key_id)
+                else: st.info("Question PDF is unavailable.")
+            except Exception: st.info("Question PDF is unavailable.")
+        _render_answer_key_readonly(key)
+
+
+def _render_create_exam_form():
     st.subheader("🗓️ Create Exam & Set Answer Key")
 
     st.markdown("#### ① How many MCQs? (Exam Style)")
@@ -5071,89 +5355,45 @@ def page_mentor_students():
 # =========================================================================
 
 def page_mentor_results():
-    st.subheader("🧾 Results & Result Editing")
+    st.subheader("🧾 Results")
+    st.caption("Select an exam, then open a student's analysis. Student answers are view-only here.")
     keys_df = cached_answer_keys()
     if keys_df.empty:
         st.info("No exams created yet.")
         return
-
     keys_df = keys_df.iloc[::-1].reset_index(drop=True)
-    options = {f"{r.get('exam_name') or r['key_id']} | {r['date']}": r["key_id"] for _, r in keys_df.iterrows()}
-    choice = st.selectbox("Select exam", list(options.keys()))
+    options = {f"{r.get('exam_name') or r['key_id']} | {r['date']}": r['key_id'] for _, r in keys_df.iterrows()}
+    choice = st.selectbox("Select exam", list(options.keys()), key="mentor_results_exam_select")
     key_id = options[choice]
-
     results = cached_results()
-    exam_results = results[results["key_id"] == key_id] if not results.empty else results
-
+    exam_results = results[results["key_id"] == key_id].copy() if not results.empty else results
     if exam_results.empty:
         st.info("No submissions for this exam yet.")
         return
-
     exam_results = exam_results.sort_values("marks", ascending=False)
-
-    exp_col1, exp_col2 = st.columns(2)
-    with exp_col1:
-        st.download_button(
-            "⬇️ Export CSV", data=sh.df_to_csv_bytes(exam_results),
-            file_name=f"{key_id}_results.csv", mime="text/csv", use_container_width=True,
-        )
-    with exp_col2:
-        st.download_button(
-            "⬇️ Export Excel", data=sh.df_to_excel_bytes(exam_results),
-            file_name=f"{key_id}_results.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-        )
+    exp1, exp2 = st.columns(2, gap="small")
+    with exp1:
+        st.download_button("⬇️ Export CSV", data=sh.df_to_csv_bytes(exam_results), file_name=f"{key_id}_results.csv", mime="text/csv", use_container_width=True)
+    with exp2:
+        st.download_button("⬇️ Export Excel", data=sh.df_to_excel_bytes(exam_results), file_name=f"{key_id}_results.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
 
     st.markdown("#### Submissions")
+    st.markdown("<div style='display:grid;grid-template-columns:24px minmax(0,1fr) 58px 58px 58px;gap:6px;padding:4px 9px;color:var(--mv-muted);font-size:10px;text-transform:uppercase;letter-spacing:.06em;'><span></span><span>Name</span><span>Marks</span><span>Correct</span><span>Wrong</span></div>", unsafe_allow_html=True)
     for _, row in exam_results.iterrows():
-        # Google Sheets commonly returns boolean cells as the text "TRUE"/"FALSE".
-        # Python's bool("FALSE") is True, which made every untouched result show
-        # "(edited)" before the mentor had edited anything. Parse the stored value
-        # semantically instead.
-        edited_flag = sh._to_bool(row.get("edited_by_mentor", False))
-        edited_suffix = " (edited)" if edited_flag else ""
-        with st.expander(
-            f"{row['student']} — Marks: {row['marks']}{edited_suffix}"
-        ):
-            with st.container(key=f"card_mentor_result_{row['student_id']}_{key_id}"):
-                c1, c2, c3 = st.columns(3)
-                c1.metric("Correct", int(row["correct"]))
-                c2.metric("Wrong", int(row["wrong_count"]))
-                c3.metric("Skipped", int(row["skipped"]))
-
-            with st.form(key=f"edit_form_{row['student_id']}"):
-                total_q = int(row["total"])
-                new_correct = st.number_input(
-                    "Correct", min_value=0, max_value=total_q, value=int(row["correct"])
-                )
-                new_wrong = st.number_input(
-                    "Wrong", min_value=0, max_value=total_q, value=int(row["wrong_count"])
-                )
-                new_skipped = st.number_input(
-                    "Skipped", min_value=0, max_value=total_q, value=int(row["skipped"])
-                )
-                st.caption(
-                    f"Total must be {total_q}. Marks will be recalculated automatically from Correct/Wrong/Skipped."
-                )
-                submitted = st.form_submit_button("💾 Save Result", type="primary")
-                if submitted:
-                    if int(new_correct) + int(new_wrong) + int(new_skipped) != total_q:
-                        st.error(f"Correct + Wrong + Skipped must equal {total_q}.")
-                    else:
-                        try:
-                            with st.spinner("Saving..."):
-                                sh.update_result(
-                                    row["student_id"], key_id,
-                                    new_correct=int(new_correct),
-                                    new_wrong_count=int(new_wrong),
-                                    new_skipped=int(new_skipped),
-                                )
-                                clear_all_caches()
-                            st.success("Result updated and marks recalculated.")
-                            st.rerun()
-                        except ValueError as e:
-                            st.error(str(e))
+        review_needed = bool(str(row.get("omr_double_touch_json", "") or "").strip()) and str(row.get("review_status", "") or "") == ""
+        with st.container(key=f"mentor_result_row_{row['student_id']}_{key_id}"):
+            c1,c2,c3,c4,c5 = st.columns([0.35,3.2,0.9,0.9,0.9], gap="small")
+            with c1:
+                st.markdown(f"<div class='mv-review-dot'>{'⚠️' if review_needed else ''}</div>", unsafe_allow_html=True)
+            with c2:
+                if st.button(str(row["student"]), key=f"mentor_result_student_{row['student_id']}_{key_id}", use_container_width=True):
+                    st.session_state["mentor_analysis_sid"] = row["student_id"]
+                    st.session_state["mentor_analysis_name"] = row["student"]
+                    st.session_state["mentor_analysis_view_key_id"] = key_id
+                    go_to("mentor_student_analysis")
+            with c3: st.markdown(f"**{row['marks']}**")
+            with c4: st.markdown(str(int(row['correct'])))
+            with c5: st.markdown(str(int(row['wrong_count'])))
 
 
 # =========================================================================
