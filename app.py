@@ -5038,13 +5038,14 @@ def render_answer_key_tab():
     }
     .mentor-create-card .title {font-weight:800; font-size:17px; margin-bottom:3px;}
     .mentor-create-card .sub {font-size:12px; color:var(--mv-muted);}
-    .mentor-exam-card {
-        border:1px solid var(--mv-border); border-radius:14px; padding:12px 14px;
-        background:var(--mv-card-bg); margin:8px 0 4px;
-        box-shadow:0 4px 16px rgba(0,0,0,.025);
+    .mentor-exam-row {
+        padding:10px 4px 9px 2px; min-width:0;
     }
-    .mentor-exam-card .name {font-weight:800; font-size:15px; color:var(--mv-ink);}
-    .mentor-exam-card .meta {font-size:11px; color:var(--mv-muted); margin-top:4px;}
+    .mentor-exam-row .name {font-weight:800; font-size:15px; color:var(--mv-ink);
+        white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+    .mentor-exam-row .meta {font-size:11px; color:var(--mv-muted); margin-top:3px;
+        white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+    .mentor-exam-divider {border-bottom:1px solid var(--mv-border); margin:0 0 2px;}
     .mentor-edit-head {
         border:1px solid var(--mv-border); border-radius:16px; padding:16px 18px;
         background:var(--mv-card-bg); margin-bottom:15px;
@@ -5057,8 +5058,8 @@ def render_answer_key_tab():
         .mentor-exam-hero p{font-size:11px}
         .mentor-create-card{padding:12px 13px}.mentor-edit-head{padding:13px}
         .mentor-edit-head .name{font-size:18px}
-        .mentor-exam-card .name{font-size:14px}
-        .mentor-exam-card .meta{font-size:10px}
+        .mentor-exam-row .name{font-size:14px}
+        .mentor-exam-row .meta{font-size:10px}
     }
     </style>
     """, unsafe_allow_html=True)
@@ -5126,37 +5127,21 @@ def render_answer_key_tab():
         total = int(row.get("total_questions") or 0)
         duration = int(row.get("duration_minutes") or 0)
         with st.container(key=f"mentor_exam_card_{idx}"):
-            st.markdown(
-                f"<div class='mentor-exam-card'><div class='name'>{name}</div>"
-                f"<div class='meta'>{exam_date} &nbsp;·&nbsp; {total} MCQs &nbsp;·&nbsp; {duration} min</div></div>",
-                unsafe_allow_html=True,
-            )
-            b1, b2 = st.columns([1, 1], gap="small")
-            with b1:
-                if st.button("✏️ Edit Answer Key", type="primary", use_container_width=True, key=f"mentor_edit_exam_{key_id}_{idx}"):
+            # Compact single-row exam list: details on the left, one Edit action on the right.
+            c1, c2 = st.columns([5.2, 1.15], gap="small", vertical_alignment="center")
+            with c1:
+                st.markdown(
+                    f"<div class='mentor-exam-row'><div class='name'>{name}</div>"
+                    f"<div class='meta'>{exam_date} &nbsp;·&nbsp; {total} MCQs &nbsp;·&nbsp; {duration} min</div></div>",
+                    unsafe_allow_html=True,
+                )
+            with c2:
+                if st.button("✏️ Edit", type="primary", use_container_width=True, key=f"mentor_edit_exam_{key_id}_{idx}"):
                     st.session_state["mentor_edit_key_id"] = key_id
                     st.session_state["edit_exam_key_page"] = 0
                     st.session_state["edit_exam_show_pdf"] = False
                     st.rerun()
-            with b2:
-                if st.button("📄 Question Paper", use_container_width=True, key=f"mentor_view_pdf_{key_id}_{idx}"):
-                    st.session_state["mentor_view_pdf_key_id"] = key_id
-                    st.rerun()
-
-            if st.session_state.get("mentor_view_pdf_key_id") == key_id:
-                if st.button("Hide PDF", key=f"mentor_hide_pdf_{key_id}_{idx}"):
-                    st.session_state.pop("mentor_view_pdf_key_id", None)
-                    st.rerun()
-                try:
-                    pdf_bytes = sh.get_question_pdf_bytes(row.get("question_pdf_file_id"))
-                    if pdf_bytes:
-                        _render_question_pdf(pdf_bytes, None, key_id)
-                    else:
-                        st.info("Question PDF is unavailable.")
-                except Exception:
-                    st.info("Question PDF is unavailable.")
-
-            st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+            st.markdown("<div class='mentor-exam-divider'></div>", unsafe_allow_html=True)
 
 
 def _render_create_exam_form():
