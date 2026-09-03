@@ -493,15 +493,12 @@ def inject_global_css():
         }
         .mv-auth-form-side, [class*="st-key-auth_form_"] { padding: 18px 20px 2px; }
 
-        /* ---- Mobile auth layout ------------------------------------------------
-           Desktop stays EXACTLY as before.
-           On phones the auth card becomes a comfortable vertical stack:
-             1) lock / welcome block on top
-             2) full-width login form underneath
-           The previous mobile CSS only changed the border/padding; it did not
-           force Streamlit's column row to become a single column, so the two
-           halves stayed side-by-side and everything became cramped. */
-        @media (max-width: 767px) {
+        /* ---- Responsive auth layout -----------------------------------------
+           Desktop (>900px): keep the original two-column design.
+           Phones/tablets (<=900px): stack the decorative lock/welcome block
+           above the form and make BOTH blocks use the full available width.
+           This intentionally changes LOOK ONLY; no auth logic/features change. */
+        @media (max-width: 900px) {
             .mv-hero.mv-hero-compact {
                 padding: 22px 16px 16px !important;
                 margin: -1rem -1rem 16px !important;
@@ -512,38 +509,51 @@ def inject_global_css():
                 line-height: 1.15 !important;
             }
 
+            /* Full-width outer auth card. */
             [class*="st-key-auth_card_"] {
                 width: 100% !important;
                 max-width: 100% !important;
                 box-sizing: border-box !important;
-                padding: 8px 8px 18px !important;
+                padding: 8px 10px 18px !important;
                 margin: 0 0 14px !important;
                 overflow: visible !important;
             }
 
-            /* Force the two Streamlit columns into one vertical stack.
-               This is the actual fix for the compressed phone screenshot. */
+            /* IMPORTANT: Streamlit's columns keep their desktop flex-basis
+               unless every relevant flex/width property is reset. */
             [class*="st-key-auth_card_"] div[data-testid="stHorizontalBlock"] {
-                display: grid !important;
-                grid-template-columns: minmax(0, 1fr) !important;
+                display: flex !important;
+                flex-direction: column !important;
+                flex-wrap: nowrap !important;
                 width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
                 gap: 0 !important;
                 align-items: stretch !important;
             }
 
             [class*="st-key-auth_card_"] div[data-testid="column"] {
+                display: block !important;
+                flex: 0 0 100% !important;
                 width: 100% !important;
-                min-width: 0 !important;
                 max-width: 100% !important;
-                flex: none !important;
+                min-width: 0 !important;
                 box-sizing: border-box !important;
             }
 
-            /* Lock / welcome section: give it the breathing room it has on
-               desktop instead of squeezing it into half the phone width. */
+            [class*="st-key-auth_card_"] div[data-testid="column"] > div,
+            [class*="st-key-auth_card_"] div[data-testid="column"] > div > div {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                box-sizing: border-box !important;
+            }
+
+            /* Lock / welcome section on top. */
             [class*="st-key-auth_card_"] .mv-auth-side {
                 width: 100% !important;
                 min-height: 205px !important;
+                height: auto !important;
                 box-sizing: border-box !important;
                 border-right: none !important;
                 border-bottom: 1px solid var(--mv-border) !important;
@@ -584,22 +594,35 @@ def inject_global_css():
                 line-height: 1.5 !important;
             }
 
-            /* Form becomes a full-width section below the lock. */
-            [class*="st-key-auth_card_"] .mv-auth-form-side,
+            /* Form BELOW the lock and genuinely full width. */
             [class*="st-key-auth_card_"] [class*="st-key-auth_form_"] {
+                display: block !important;
                 width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
                 box-sizing: border-box !important;
                 padding: 22px 14px 4px !important;
             }
 
             [class*="st-key-auth_card_"] [data-testid="stForm"] {
+                display: block !important;
                 width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
                 box-sizing: border-box !important;
                 padding: 18px 16px !important;
             }
 
-            /* Keep the phone field and all inputs comfortably sized rather
-               than inheriting any narrow desktop-column width. */
+            /* Inputs / country selector / login button fill the form width. */
+            [class*="st-key-auth_card_"] [data-testid="stForm"] input,
+            [class*="st-key-auth_card_"] [data-testid="stForm"] textarea,
+            [class*="st-key-auth_card_"] [data-testid="stForm"] [data-baseweb="select"],
+            [class*="st-key-auth_card_"] [data-testid="stForm"] [data-baseweb="select"] > div {
+                width: 100% !important;
+                max-width: 100% !important;
+                box-sizing: border-box !important;
+            }
+
             [class*="st-key-auth_card_"] input,
             [class*="st-key-auth_card_"] div[data-baseweb="select"] > div {
                 min-height: 46px !important;
@@ -610,10 +633,25 @@ def inject_global_css():
                 min-height: 42px !important;
             }
 
-            /* The two secondary links stay side-by-side like desktop, but
-               use the full card width and remain easy to tap. */
+            /* Remember + Forgot stay on one row inside the now-full-width form. */
+            [class*="st-key-auth_card_"] [data-testid="stForm"] div[data-testid="stHorizontalBlock"] {
+                flex-direction: row !important;
+                flex-wrap: nowrap !important;
+                align-items: center !important;
+                gap: 8px !important;
+            }
+
+            [class*="st-key-auth_card_"] [data-testid="stForm"] div[data-testid="stHorizontalBlock"] div[data-testid="column"] {
+                flex: 1 1 0 !important;
+                width: auto !important;
+                min-width: 0 !important;
+                max-width: none !important;
+            }
+
+            /* Bottom navigation links use the full page width. */
             .st-key-auth_bottom_links {
                 width: 100% !important;
+                max-width: 100% !important;
                 margin-top: 18px !important;
             }
 
@@ -639,16 +677,142 @@ def inject_global_css():
             }
         }
 
-        /* Tablets: keep the existing two-column auth design, only remove
-           the right divider where the available width is getting tighter. */
-        @media (min-width: 768px) and (max-width: 900px) {
-            .mv-auth-side {
-                border-right: none;
-                border-bottom: 1px solid var(--mv-border);
-                padding: 18px 16px;
+        /* =====================================================================
+           MOBILE AUTH — FINAL LAYOUT FIX
+           Desktop stays unchanged. On <=900px, the auth columns themselves
+           become full-width blocks. Streamlit sometimes writes a min-width and
+           flex-basis on column wrappers, so all of those are explicitly reset.
+           ===================================================================== */
+        @media (max-width: 900px) {
+            /* The auth card must occupy the complete available page width. */
+            [data-testid="stVerticalBlock"]:has(> [data-testid="stHorizontalBlock"]) [class*="st-key-auth_card_"] {
+                width: 100% !important;
+                max-width: 100% !important;
+                box-sizing: border-box !important;
             }
-            .mv-auth-form-side, [class*="st-key-auth_form_"] {
-                padding: 14px 14px 2px;
+
+            [class*="st-key-auth_card_"] {
+                width: 100vw !important;
+                max-width: 100% !important;
+                margin-left: 0 !important;
+                margin-right: 0 !important;
+                box-sizing: border-box !important;
+                overflow: visible !important;
+            }
+
+            /* Kill Streamlit's desktop column sizing completely. */
+            [class*="st-key-auth_card_"] > div[data-testid="stHorizontalBlock"],
+            [class*="st-key-auth_card_"] div[data-testid="stHorizontalBlock"] {
+                display: flex !important;
+                flex-direction: column !important;
+                flex-wrap: nowrap !important;
+                align-items: stretch !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                gap: 0 !important;
+            }
+
+            [class*="st-key-auth_card_"] div[data-testid="column"] {
+                display: block !important;
+                flex: 0 0 100% !important;
+                flex-grow: 0 !important;
+                flex-shrink: 0 !important;
+                flex-basis: 100% !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                box-sizing: border-box !important;
+            }
+
+            [class*="st-key-auth_card_"] div[data-testid="column"] > div,
+            [class*="st-key-auth_card_"] div[data-testid="column"] > div > div,
+            [class*="st-key-auth_card_"] div[data-testid="column"] > div > div > div {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                box-sizing: border-box !important;
+            }
+
+            /* TOP: lock + welcome. */
+            [class*="st-key-auth_card_"] .mv-auth-side {
+                width: 100% !important;
+                height: auto !important;
+                min-height: 245px !important;
+                padding: 28px 16px 26px !important;
+                margin: 0 !important;
+                border-right: none !important;
+                border-bottom: 1px solid var(--mv-border) !important;
+                box-sizing: border-box !important;
+            }
+
+            /* BOTTOM: login form. */
+            [class*="st-key-auth_card_"] [class*="st-key-auth_form_"] {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                padding: 24px 14px 8px !important;
+                margin: 0 !important;
+                box-sizing: border-box !important;
+            }
+
+            [class*="st-key-auth_card_"] [data-testid="stForm"],
+            [class*="st-key-auth_card_"] [data-testid="stForm"] > div {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                box-sizing: border-box !important;
+            }
+
+            /* Phone field: keep country code + number as one full-width field. */
+            [class*="st-key-auth_card_"] div[class*="_phone_row"] {
+                width: 100% !important;
+                max-width: 100% !important;
+                box-sizing: border-box !important;
+            }
+
+            [class*="st-key-auth_card_"] div[class*="_phone_row"] > div:first-child {
+                flex: 0 0 145px !important;
+                width: 145px !important;
+                min-width: 145px !important;
+            }
+
+            [class*="st-key-auth_card_"] div[class*="_phone_row"] > div:last-child {
+                flex: 1 1 auto !important;
+                width: auto !important;
+                min-width: 0 !important;
+            }
+
+            /* Password + phone inputs should actually use the available width. */
+            [class*="st-key-auth_card_"] input,
+            [class*="st-key-auth_card_"] [data-baseweb="select"],
+            [class*="st-key-auth_card_"] [data-baseweb="select"] > div {
+                box-sizing: border-box !important;
+                max-width: 100% !important;
+            }
+
+            /* Remember/Forgot row remains horizontal, but each side gets space. */
+            [class*="st-key-auth_card_"] [data-testid="stForm"] > div[data-testid="stHorizontalBlock"] {
+                display: flex !important;
+                flex-direction: row !important;
+                flex-wrap: nowrap !important;
+                width: 100% !important;
+                gap: 10px !important;
+            }
+
+            [class*="st-key-auth_card_"] [data-testid="stForm"] > div[data-testid="stHorizontalBlock"] div[data-testid="column"] {
+                flex: 1 1 0 !important;
+                flex-basis: 0 !important;
+                width: auto !important;
+                max-width: none !important;
+            }
+        }
+
+        /* Desktop only: preserve the original two-column auth card. */
+        @media (min-width: 901px) {
+            .mv-auth-side {
+                border-right: 1px solid var(--mv-border);
+                border-bottom: none;
             }
         }
 
