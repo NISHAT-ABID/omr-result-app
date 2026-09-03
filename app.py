@@ -5123,15 +5123,28 @@ def render_answer_key_tab():
         st.info("No exams have been created yet.")
         return
 
-    # Scalable exam browser: search + 10 exams/page.
+    # Scalable exam browser: searchable typeahead + 10 exams/page.
+    # Streamlit's selectbox is natively searchable: type only part of an exam
+    # name (e.g. "Phy") and matching exam-name suggestions appear instantly.
     search_col, sort_col = st.columns([4.2, 1.35], gap="small")
+
+    exam_names = (
+        keys_df["exam_name"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+    exam_names = sorted({name for name in exam_names if name}, key=str.casefold)
+    search_options = ["All Exams"] + exam_names
+
     with search_col:
-        exam_search = st.text_input(
+        selected_exam = st.selectbox(
             "Search exams",
-            key="mentor_exam_search",
-            placeholder="🔍  Search by exam name…",
+            search_options,
+            key="mentor_exam_search_pick",
             label_visibility="collapsed",
-        ).strip().lower()
+            help="Type part of an exam name to get matching suggestions.",
+        )
     with sort_col:
         sort_newest = st.selectbox(
             "Sort", ["Newest", "Oldest"],
@@ -5139,10 +5152,17 @@ def render_answer_key_tab():
             label_visibility="collapsed",
         )
 
+    # Reset pagination whenever the filter/sort changes.
+    filter_signature = (selected_exam, sort_newest)
+    if st.session_state.get("mentor_exam_filter_signature") != filter_signature:
+        st.session_state["mentor_exam_list_page"] = 0
+        st.session_state["mentor_exam_filter_signature"] = filter_signature
+
     work_df = keys_df.copy()
-    if exam_search:
-        mask = work_df["exam_name"].fillna("").astype(str).str.lower().str.contains(exam_search, regex=False)
-        work_df = work_df[mask]
+    if selected_exam != "All Exams":
+        work_df = work_df[
+            work_df["exam_name"].fillna("").astype(str).str.strip() == selected_exam
+        ]
 
     # Newest first by default; preserve existing row order as fallback.
     if "date" in work_df.columns:
