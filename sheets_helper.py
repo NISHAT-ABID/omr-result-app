@@ -968,35 +968,63 @@ def update_student_name(student_id, new_name):
 
 
 def update_student_extra_profile(student_id, birth_date=None, gender=None):
-    """Updates the optional Profile-page fields (birth date, gender) that
-    a student can add or change any time after signing up - these are
-    deliberately NOT asked for at signup (see create_student()).
+    """Safely update optional student Profile fields.
 
-    Passing None for either argument leaves that column untouched, so
-    callers can update just one field without clobbering the other.
-    Passing an empty string clears that field.
-
-    Phone number is intentionally NOT a parameter here (or anywhere in
-    this app) - it's the student's login identity and is never editable
-    through self-service profile editing.
+    The first version assumed ``birth_date`` and ``gender`` were always
+    columns K/L. That can fail on an older Google Sheet whose header was
+    created before those fields existed, or whose columns were manually
+    rearranged. This version reads the live header, adds any missing profile
+    columns without touching existing data, then updates by header name.
     """
     ws = _cached_worksheet("Students")
+    values = _with_retry(ws.get_all_values)
+    if not values:
+        raise ValueError("Students sheet is empty or not initialized.")
+
+    header = [str(x or "").strip() for x in values[0]]
+
+    # Make old sheets forward-compatible. Only append missing optional
+    # columns; never rewrite/reorder existing headers.
+    missing = [c for c in ("birth_date", "gender") if c not in header]
+    if missing:
+        header.extend(missing)
+        last_col = gspread.utils.rowcol_to_a1(1, len(header)).rstrip("1")
+        _with_retry(ws.update, f"A1:{last_col}1", [header], value_input_option=RAW)
+
     row_idx = _find_student_row_idx(ws, student_id)
     if not row_idx:
         raise ValueError("Student not found.")
 
     updates = {}
     if birth_date is not None:
-        updates["birth_date"] = birth_date
+        value = str(birth_date).strip()
+        if value:
+            try:
+                parsed = datetime.strptime(value, "%Y-%m-%d").date()
+            except ValueError:
+                raise ValueError("Birth date must be in YYYY-MM-DD format.")
+            if parsed > datetime.now(BD_TZ).date():
+                raise ValueError("Birth date cannot be in the future.")
+        updates["birth_date"] = value
     if gender is not None:
-        updates["gender"] = gender
+        updates["gender"] = str(gender).strip()
     if not updates:
         return
 
+    # Refresh the header after a possible migration and resolve columns by
+    # name rather than a hardcoded K/L position. Batch update keeps this to
+    # one Sheets request, so the profile save stays fast.
+    live_header = [str(x or "").strip() for x in _with_retry(ws.row_values, 1)]
+    batch = []
     for col, val in updates.items():
-        col_idx = STUDENTS_HEADER.index(col) + 1
+        if col not in live_header:
+            raise ValueError(f"Profile column '{col}' could not be prepared.")
+        col_idx = live_header.index(col) + 1
         col_letter = gspread.utils.rowcol_to_a1(1, col_idx).rstrip("1")
-        _with_retry(ws.update, f"{col_letter}{row_idx}", [[val]], value_input_option=RAW)
+        batch.append({"range": f"{col_letter}{row_idx}", "values": [[val]]})
+
+    if batch:
+        _with_retry(ws.batch_update, batch, value_input_option=RAW)
     clear_data_caches()
 
 
