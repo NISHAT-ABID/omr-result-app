@@ -2504,7 +2504,43 @@ def inject_global_css():
             }
         }
 
-        </style>
+        
+
+        /* ABSOLUTE MOBILE AUTH WIDTH FIX — final override */
+        @media (max-width: 760px) {
+            .block-container:has([class*="st-key-auth_card_login"]) {
+                width: 100% !important; max-width: none !important;
+                padding-left: 10px !important; padding-right: 10px !important;
+                box-sizing: border-box !important;
+            }
+            [class*="st-key-auth_card_login"],
+            [class*="st-key-auth_card_login"] > div,
+            [class*="st-key-auth_card_login"] [data-testid="stVerticalBlockBorderWrapper"] {
+                width: 100% !important; max-width: 100% !important;
+                min-width: 0 !important; box-sizing: border-box !important;
+            }
+            /* Outer two-column login layout -> one full-width column on phone */
+            [class*="st-key-auth_card_login"] > div [data-testid="stHorizontalBlock"]:first-child {
+                width: 100% !important; max-width: 100% !important;
+                display: flex !important; flex-direction: column !important;
+                align-items: stretch !important; gap: 0 !important;
+            }
+            [class*="st-key-auth_card_login"] > div [data-testid="stHorizontalBlock"]:first-child > [data-testid="column"] {
+                display: block !important; flex: 0 0 100% !important;
+                width: 100% !important; max-width: 100% !important;
+                min-width: 0 !important; padding: 0 !important;
+                box-sizing: border-box !important;
+            }
+            [class*="st-key-auth_form_login"],
+            [class*="st-key-auth_form_login"] > div,
+            [class*="st-key-auth_form_login"] [data-testid="stForm"],
+            [class*="st-key-auth_form_login"] [data-testid="stTextInput"],
+            [class*="st-key-auth_form_login"] [data-testid="stSelectbox"] {
+                width: 100% !important; max-width: 100% !important;
+                min-width: 0 !important; box-sizing: border-box !important;
+            }
+        }
+</style>
         """,
         unsafe_allow_html=True,
     )
