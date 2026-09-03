@@ -1756,35 +1756,65 @@ def inject_global_css():
         /* ---- Analysis / exam-history rows on mobile -------------------
            No horizontal scroll: keep the same desktop information but pack it
            into a two-line card that fits a narrow phone. */
+        /* Mobile Analysis / Test History
+           Keep every statistic in a fixed-width cell so values like 40, 100,
+           40.5 can NEVER break into separate digits. */
         @media (max-width: 767px) {
             [class*="st-key-acard_"] {
-                width: 100% !important; max-width: 100% !important; box-sizing: border-box !important;
-                padding: 7px 8px !important; overflow: hidden !important;
+                width:100% !important; max-width:100% !important; box-sizing:border-box !important;
+                padding:10px 9px !important; overflow:hidden !important;
+                border-radius:12px !important;
             }
             [class*="st-key-acard_"] div[data-testid="stHorizontalBlock"] {
-                display:grid !important; grid-template-columns:minmax(0,1fr) 50px 50px 50px 54px !important;
+                display:grid !important;
+                grid-template-columns:minmax(0,1fr) 54px 54px 54px 54px !important;
                 width:100% !important; min-width:0 !important; max-width:100% !important;
-                gap:4px !important; align-items:center !important;
+                gap:5px !important; align-items:center !important;
             }
             [class*="st-key-acard_"] div[data-testid="column"] {
-                min-width:0 !important; max-width:100% !important; width:auto !important; overflow:hidden !important;
+                min-width:0 !important; width:auto !important; max-width:100% !important;
+                overflow:hidden !important;
             }
-            [class*="st-key-acard_"] [data-testid="stMetricValue"] { font-size:13px !important; line-height:1.05 !important; white-space:nowrap !important; }
-            [class*="st-key-acard_"] [data-testid="stMetricLabel"] p { font-size:8px !important; line-height:1.1 !important; white-space:nowrap !important; }
-            [class*="st-key-acard_"] .analysis-title { font-size:12px !important; white-space:nowrap !important; overflow:hidden !important; text-overflow:ellipsis !important; }
-            [class*="st-key-acard_"] .analysis-subtle { font-size:9px !important; white-space:nowrap !important; overflow:hidden !important; text-overflow:ellipsis !important; }
-            [class*="st-key-acard_"] .stButton > button { min-width:0 !important; width:100% !important; padding:4px 4px !important; font-size:10px !important; }
-            [class*="st-key-acard_"] > div[data-testid="stVerticalBlock"] { min-width:0 !important; width:100% !important; }
+            [class*="st-key-acard_"] .analysis-title {
+                font-size:12px !important; line-height:1.2 !important;
+                white-space:nowrap !important; overflow:hidden !important; text-overflow:ellipsis !important;
+            }
+            [class*="st-key-acard_"] .analysis-subtle {
+                font-size:9px !important; line-height:1.15 !important;
+                white-space:nowrap !important; overflow:hidden !important; text-overflow:ellipsis !important;
+            }
+            [class*="st-key-acard_"] .history-value {
+                width:54px !important; min-width:54px !important; max-width:54px !important;
+                text-align:center !important; white-space:nowrap !important; overflow:hidden !important;
+            }
+            [class*="st-key-acard_"] .history-value span {
+                display:block !important; font-size:8px !important; line-height:1 !important;
+                white-space:nowrap !important;
+            }
+            [class*="st-key-acard_"] .history-value b {
+                display:block !important; font-size:14px !important; line-height:1.25 !important;
+                white-space:nowrap !important; word-break:keep-all !important; overflow:visible !important;
+            }
+            [class*="st-key-acard_"] .stButton > button {
+                min-width:54px !important; width:54px !important; padding:5px 3px !important;
+                font-size:10px !important; white-space:nowrap !important;
+            }
+            [class*="st-key-acard_"] > div[data-testid="stVerticalBlock"] {
+                min-width:0 !important; width:100% !important;
+            }
         }
 
-        /* Final mobile fix for Analysis/Test History: never allow a score
-           such as 40 to wrap into "4" + "0". */
-        @media (max-width: 767px) {
-            [class*="st-key-acard_"] .history-value { white-space:nowrap !important; overflow:hidden !important; text-align:center !important; }
-            [class*="st-key-acard_"] .history-value span { font-size:8px !important; line-height:1 !important; }
-            [class*="st-key-acard_"] .history-value b { font-size:14px !important; line-height:1.15 !important; white-space:nowrap !important; }
-            [class*="st-key-acard_"] div[data-testid="stHorizontalBlock"] { grid-template-columns:minmax(0,1fr) 48px 48px 48px 52px !important; }
-            [class*="st-key-acard_"] div[data-testid="column"] { min-width:0 !important; overflow:hidden !important; }
+        /* Very narrow phones: stack the title above the four fixed stats.
+           This is intentionally a card, not a horizontally scrolling table. */
+        @media (max-width: 380px) {
+            [class*="st-key-acard_"] div[data-testid="stHorizontalBlock"] {
+                grid-template-columns:minmax(0,1fr) 52px 52px 52px 52px !important;
+                gap:3px !important;
+            }
+            [class*="st-key-acard_"] .history-value,
+            [class*="st-key-acard_"] .stButton > button {
+                width:52px !important; min-width:52px !important; max-width:52px !important;
+            }
         }
 
         /* ---- Themed spinner (recolors Streamlit's built-in spinner to
@@ -4867,8 +4897,8 @@ def _render_answer_key_editor(key):
         else:
             st.info("No question PDF is attached to this exam.")
 
-    st.markdown("#### 📝 Digital OMR Answer Editor")
-    st.caption("Just click the correct bubbles. One bubble = Normal, multiple bubbles = Multiple Correct, ⭐ Bonus = everyone gets the mark.")
+    st.markdown("#### 📝 Answer Key")
+    st.caption("Tap the correct OMR bubbles directly. 1 bubble = Normal · 2+ bubbles = Multiple Correct · ⭐ = Bonus")
 
     page_size = 25 if total > 40 else total
     pages = list(range(1, total + 1, page_size))
@@ -4988,64 +5018,145 @@ def _render_answer_key_editor(key):
             st.error(f"Could not update this exam: {e}")
 
 def render_answer_key_tab():
-    """Mentor Create Exam landing page + existing exam management."""
-    st.markdown("### 🗓️ Create Exam")
-    st.caption("Create a new exam or manage an existing exam from one place.")
-    mode = st.session_state.get("mentor_exam_mode", "create")
-    c1, c2 = st.columns(2, gap="medium")
-    with c1:
-        if st.button("＋ Create Exam", type="primary" if mode == "create" else "secondary", use_container_width=True, key="mentor_mode_create"):
-            st.session_state["mentor_exam_mode"] = "create"
-            st.rerun()
-    with c2:
-        if st.button("✏️ Edit Exam", type="primary" if mode == "edit" else "secondary", use_container_width=True, key="mentor_mode_edit"):
-            st.session_state["mentor_exam_mode"] = "edit"
-            st.session_state["edit_exam_key_page"] = 0
+    """Mentor exam hub: clean create flow + one-click answer-key editing."""
+    st.markdown("""
+    <style>
+    .mentor-exam-hero {
+        border:1px solid var(--mv-border); border-radius:20px;
+        padding:18px 20px; margin:2px 0 14px;
+        background:linear-gradient(135deg, rgba(38,171,140,.12), rgba(249,77,16,.035));
+        box-shadow:0 8px 24px rgba(0,0,0,.035);
+    }
+    .mentor-exam-hero .eyebrow {font-size:11px; text-transform:uppercase; letter-spacing:.12em;
+        color:var(--mv-primary); font-weight:800; margin-bottom:5px;}
+    .mentor-exam-hero h2 {margin:0; font-size:28px; line-height:1.15;}
+    .mentor-exam-hero p {margin:7px 0 0; color:var(--mv-muted); font-size:13px;}
+    .mentor-create-card {
+        border:1px solid var(--mv-border); border-radius:15px; padding:13px 15px;
+        background:var(--mv-card-bg); margin-bottom:8px;
+        box-shadow:0 5px 18px rgba(0,0,0,.025);
+    }
+    .mentor-create-card .title {font-weight:800; font-size:17px; margin-bottom:3px;}
+    .mentor-create-card .sub {font-size:12px; color:var(--mv-muted);}
+    .mentor-exam-card {
+        border:1px solid var(--mv-border); border-radius:14px; padding:12px 14px;
+        background:var(--mv-card-bg); margin:8px 0 4px;
+        box-shadow:0 4px 16px rgba(0,0,0,.025);
+    }
+    .mentor-exam-card .name {font-weight:800; font-size:15px; color:var(--mv-ink);}
+    .mentor-exam-card .meta {font-size:11px; color:var(--mv-muted); margin-top:4px;}
+    .mentor-edit-head {
+        border:1px solid var(--mv-border); border-radius:16px; padding:16px 18px;
+        background:var(--mv-card-bg); margin-bottom:15px;
+    }
+    .mentor-edit-head .name {font-size:22px; font-weight:800; line-height:1.2;}
+    .mentor-edit-head .meta {font-size:12px; color:var(--mv-muted); margin-top:5px;}
+    .mentor-exam-card + div .stButton > button { border-radius:10px !important; min-height:38px !important; font-weight:700 !important; }
+    @media(max-width:640px){
+        .mentor-exam-hero{padding:15px 14px}.mentor-exam-hero h2{font-size:21px}
+        .mentor-exam-hero p{font-size:11px}
+        .mentor-create-card{padding:12px 13px}.mentor-edit-head{padding:13px}
+        .mentor-edit-head .name{font-size:18px}
+        .mentor-exam-card .name{font-size:14px}
+        .mentor-exam-card .meta{font-size:10px}
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # If an exam is currently being edited, keep the page focused on that exam.
+    edit_key_id = st.session_state.get("mentor_edit_key_id")
+    if edit_key_id:
+        key = sh.get_answer_key_by_id(edit_key_id)
+        if not key:
+            st.session_state.pop("mentor_edit_key_id", None)
             st.rerun()
 
-    st.divider()
-    if st.session_state.get("mentor_exam_mode", "create") == "create":
+        back_col, title_col = st.columns([0.85, 3.2], gap="small")
+        with back_col:
+            if st.button("← Exams", use_container_width=True, key="mentor_back_exam_list"):
+                st.session_state.pop("mentor_edit_key_id", None)
+                st.session_state["edit_exam_key_page"] = 0
+                st.session_state["edit_exam_show_pdf"] = False
+                st.rerun()
+        with title_col:
+            st.markdown(
+                f"<div class='mentor-edit-head'><div class='name'>✏️ {key.get('exam_name') or edit_key_id}</div>"
+                f"<div class='meta'>{key.get('date','')} &nbsp;·&nbsp; {key.get('total_questions',0)} MCQs &nbsp;·&nbsp; {key.get('duration_minutes',0)} min</div></div>",
+                unsafe_allow_html=True,
+            )
+        _render_answer_key_editor(key)
+        return
+
+    # Main exam hub — no create/edit toggle.
+    st.markdown(
+        "<div class='mentor-exam-hero'><div class='eyebrow'>Mentor Workspace</div>"
+        "<h2>🗓️ Exams</h2>"
+        "<p>Create a new exam or open an existing exam and edit its answer key.</p></div>",
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        "<div class='mentor-create-card'><div class='title'>＋ Create a New Exam</div>"
+        "<div class='sub'>Set MCQ count, exam window, duration, question paper and answer key.</div></div>",
+        unsafe_allow_html=True,
+    )
+    if st.button("＋ Create Exam", type="primary", use_container_width=True, key="mentor_create_exam_open"):
+        st.session_state["mentor_show_create_exam"] = True
+        st.rerun()
+
+    if st.session_state.get("mentor_show_create_exam"):
+        st.divider()
+        if st.button("← Back to Exams", key="mentor_create_back"):
+            st.session_state["mentor_show_create_exam"] = False
+            st.rerun()
         _render_create_exam_form()
         return
 
+    st.markdown("### Existing Exams")
     keys_df = cached_answer_keys()
     if keys_df.empty:
         st.info("No exams have been created yet.")
         return
+
     keys_df = keys_df.iloc[::-1].reset_index(drop=True)
-    options = {f"{r.get('exam_name') or r['key_id']} · {r.get('date','')}": r['key_id'] for _, r in keys_df.iterrows()}
-    selected_label = st.selectbox("Select an exam to manage", list(options.keys()), key="mentor_edit_exam_select")
-    key_id = options[selected_label]
-    key = sh.get_answer_key_by_id(key_id)
-    if not key:
-        st.error("This exam could not be loaded.")
-        return
-    st.markdown(f"## {key.get('exam_name') or key_id}")
-    st.caption(f"{key.get('date','')} · {key.get('total_questions',0)} questions · {key.get('duration_minutes',0)} minutes")
-    view_col, edit_col = st.columns(2, gap="small")
-    with view_col:
-        if st.button("👁️ View Answer Key", use_container_width=True, key="view_existing_key"):
-            st.session_state["edit_exam_subview"] = "view"
-    with edit_col:
-        if st.button("✏️ Edit Answer Key", type="primary", use_container_width=True, key="edit_existing_key"):
-            st.session_state["edit_exam_subview"] = "edit"
-            st.session_state["edit_exam_key_page"] = 0
-    subview = st.session_state.get("edit_exam_subview", "view")
-    if subview == "edit":
-        _render_answer_key_editor(key)
-    else:
-        show_pdf = st.session_state.get("view_existing_pdf", False)
-        if st.button("📄 " + ("Hide Question Paper" if show_pdf else "View Question Paper"), use_container_width=True, key="view_existing_pdf_btn"):
-            st.session_state["view_existing_pdf"] = not show_pdf
-            st.rerun()
-        if st.session_state.get("view_existing_pdf"):
-            try:
-                pdf_bytes = sh.get_question_pdf_bytes(key.get("question_pdf_file_id"))
-                if pdf_bytes:
-                    _render_question_pdf(pdf_bytes, None, key_id)
-                else: st.info("Question PDF is unavailable.")
-            except Exception: st.info("Question PDF is unavailable.")
-        _render_answer_key_readonly(key)
+    for idx, (_, row) in enumerate(keys_df.iterrows()):
+        key_id = str(row.get("key_id", ""))
+        name = str(row.get("exam_name") or key_id)
+        exam_date = str(row.get("date", ""))
+        total = int(row.get("total_questions") or 0)
+        duration = int(row.get("duration_minutes") or 0)
+        with st.container(key=f"mentor_exam_card_{idx}"):
+            st.markdown(
+                f"<div class='mentor-exam-card'><div class='name'>{name}</div>"
+                f"<div class='meta'>{exam_date} &nbsp;·&nbsp; {total} MCQs &nbsp;·&nbsp; {duration} min</div></div>",
+                unsafe_allow_html=True,
+            )
+            b1, b2 = st.columns([1, 1], gap="small")
+            with b1:
+                if st.button("✏️ Edit Answer Key", type="primary", use_container_width=True, key=f"mentor_edit_exam_{key_id}_{idx}"):
+                    st.session_state["mentor_edit_key_id"] = key_id
+                    st.session_state["edit_exam_key_page"] = 0
+                    st.session_state["edit_exam_show_pdf"] = False
+                    st.rerun()
+            with b2:
+                if st.button("📄 Question Paper", use_container_width=True, key=f"mentor_view_pdf_{key_id}_{idx}"):
+                    st.session_state["mentor_view_pdf_key_id"] = key_id
+                    st.rerun()
+
+            if st.session_state.get("mentor_view_pdf_key_id") == key_id:
+                if st.button("Hide PDF", key=f"mentor_hide_pdf_{key_id}_{idx}"):
+                    st.session_state.pop("mentor_view_pdf_key_id", None)
+                    st.rerun()
+                try:
+                    pdf_bytes = sh.get_question_pdf_bytes(row.get("question_pdf_file_id"))
+                    if pdf_bytes:
+                        _render_question_pdf(pdf_bytes, None, key_id)
+                    else:
+                        st.info("Question PDF is unavailable.")
+                except Exception:
+                    st.info("Question PDF is unavailable.")
+
+            st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
 
 
 def _render_create_exam_form():
