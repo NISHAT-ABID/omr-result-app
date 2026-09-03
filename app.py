@@ -2392,6 +2392,118 @@ def inject_global_css():
             [data-testid="stMetricValue"] { font-size: 1.35rem !important; }
         }
 
+
+        /* ================================================================
+           FINAL MOBILE LOGIN FIX — intentionally last in the main CSS.
+           ================================================================ */
+        @media (max-width: 700px) {
+            /* Login card: one clean vertical flow on phones. */
+            [class*="st-key-auth_card_login"] {
+                width: 100% !important;
+                max-width: 100% !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                overflow: hidden !important;
+                border-radius: 18px !important;
+                box-sizing: border-box !important;
+            }
+
+            /* Stack the card's two main columns only. */
+            [class*="st-key-auth_card_login"] > div[data-testid="stVerticalBlock"] > div[data-testid="stHorizontalBlock"],
+            [class*="st-key-auth_card_login"] > div[data-testid="stHorizontalBlock"] {
+                display: flex !important;
+                flex-direction: column !important;
+                flex-wrap: nowrap !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                gap: 0 !important;
+            }
+            [class*="st-key-auth_card_login"] > div[data-testid="stVerticalBlock"] > div[data-testid="stHorizontalBlock"] > div[data-testid="column"],
+            [class*="st-key-auth_card_login"] > div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                flex: 0 0 100% !important;
+                box-sizing: border-box !important;
+            }
+
+            /* Compact welcome panel. */
+            [class*="st-key-auth_card_login"] .mv-auth-side {
+                width: 100% !important;
+                min-height: 0 !important;
+                padding: 22px 18px 18px !important;
+                border-right: 0 !important;
+                border-bottom: 1px solid var(--mv-border) !important;
+                box-sizing: border-box !important;
+            }
+            [class*="st-key-auth_card_login"] .mv-auth-side-icon-wrap { width: 90px !important; height: 90px !important; margin-bottom: 10px !important; }
+            [class*="st-key-auth_card_login"] .mv-auth-ring.r1 { width: 90px !important; height: 90px !important; }
+            [class*="st-key-auth_card_login"] .mv-auth-ring.r2 { width: 66px !important; height: 66px !important; }
+            [class*="st-key-auth_card_login"] .mv-auth-icon-box { width: 48px !important; height: 48px !important; font-size: 20px !important; }
+            [class*="st-key-auth_card_login"] .mv-auth-side-title { font-size: 20px !important; }
+            [class*="st-key-auth_card_login"] .mv-auth-side-text { max-width: 100% !important; }
+
+            /* Full-width form with stable padding. */
+            [class*="st-key-auth_card_login"] [class*="st-key-auth_form_login"] {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                margin: 0 !important;
+                padding: 18px 14px 12px !important;
+                box-sizing: border-box !important;
+            }
+            [class*="st-key-auth_card_login"] [data-testid="stForm"] { width: 100% !important; max-width: 100% !important; min-width: 0 !important; }
+
+            /* Phone row: force exactly two usable parts. */
+            [class*="st-key-login_phone_row"] { width: 100% !important; max-width: 100% !important; min-width: 0 !important; }
+            [class*="st-key-login_phone_row"] div[data-testid="stVerticalBlock"] {
+                display: flex !important;
+                flex-direction: row !important;
+                align-items: flex-end !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                gap: 8px !important;
+            }
+            [class*="st-key-login_phone_row"] div[data-testid="stVerticalBlock"] > div:first-child {
+                flex: 0 0 142px !important;
+                width: 142px !important;
+                min-width: 142px !important;
+                max-width: 142px !important;
+            }
+            [class*="st-key-login_phone_row"] div[data-testid="stVerticalBlock"] > div:last-child {
+                flex: 1 1 0 !important;
+                width: auto !important;
+                min-width: 0 !important;
+                max-width: none !important;
+            }
+            [class*="st-key-login_phone_row"] [data-baseweb="select"],
+            [class*="st-key-login_phone_row"] [data-baseweb="select"] > div,
+            [class*="st-key-login_phone_row"] input { width: 100% !important; min-width: 0 !important; box-sizing: border-box !important; }
+
+            /* The remember/forgot row remains horizontal. */
+            [class*="st-key-auth_card_login"] [data-testid="stForm"] div[data-testid="stHorizontalBlock"] {
+                display: flex !important;
+                flex-direction: row !important;
+                flex-wrap: nowrap !important;
+                align-items: center !important;
+                width: 100% !important;
+                gap: 8px !important;
+            }
+            [class*="st-key-auth_card_login"] [data-testid="stForm"] div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+                flex: 1 1 0 !important;
+                width: auto !important;
+                min-width: 0 !important;
+            }
+            [class*="st-key-auth_card_login"] .stFormSubmitButton > button { width: 100% !important; min-height: 46px !important; }
+            [class*="st-key-auth_bottom_links"] { margin-top: 12px !important; }
+        }
+        @media (max-width: 420px) {
+            [class*="st-key-login_phone_row"] div[data-testid="stVerticalBlock"] > div:first-child {
+                flex-basis: 128px !important; width: 128px !important; min-width: 128px !important; max-width: 128px !important;
+            }
+        }
+
         </style>
         """,
         unsafe_allow_html=True,
