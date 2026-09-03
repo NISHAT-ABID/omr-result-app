@@ -494,215 +494,24 @@ def inject_global_css():
         .mv-auth-form-side, [class*="st-key-auth_form_"] { padding: 18px 20px 2px; }
 
         /* ---- Responsive auth layout -----------------------------------------
-           Desktop (>900px): keep the original two-column design.
-           Phones/tablets (<=900px): stack the decorative lock/welcome block
-           above the form and make BOTH blocks use the full available width.
-           This intentionally changes LOOK ONLY; no auth logic/features change. */
+           Desktop (>900px): original two-column card.
+           Mobile/tablet (<=900px): the lock/welcome block is FULL WIDTH first,
+           then the login form is FULL WIDTH underneath it.  This is layout-only.
+           No authentication or feature logic is changed.
+        */
         @media (max-width: 900px) {
-            .mv-hero.mv-hero-compact {
-                padding: 22px 16px 16px !important;
-                margin: -1rem -1rem 16px !important;
-            }
-
-            .mv-hero.mv-hero-compact h1 {
-                font-size: 26px !important;
-                line-height: 1.15 !important;
-            }
-
-            /* Full-width outer auth card. */
-            [class*="st-key-auth_card_"] {
+            /* Let the auth card use the complete available viewport width. */
+            [class*="st-key-auth_card_login"] {
                 width: 100% !important;
                 max-width: 100% !important;
                 box-sizing: border-box !important;
+                margin: 0 !important;
                 padding: 8px 10px 18px !important;
-                margin: 0 0 14px !important;
                 overflow: visible !important;
             }
 
-            /* IMPORTANT: Streamlit's columns keep their desktop flex-basis
-               unless every relevant flex/width property is reset. */
-            [class*="st-key-auth_card_"] div[data-testid="stHorizontalBlock"] {
-                display: flex !important;
-                flex-direction: column !important;
-                flex-wrap: nowrap !important;
-                width: 100% !important;
-                max-width: 100% !important;
-                min-width: 0 !important;
-                gap: 0 !important;
-                align-items: stretch !important;
-            }
-
-            [class*="st-key-auth_card_"] div[data-testid="column"] {
-                display: block !important;
-                flex: 0 0 100% !important;
-                width: 100% !important;
-                max-width: 100% !important;
-                min-width: 0 !important;
-                box-sizing: border-box !important;
-            }
-
-            [class*="st-key-auth_card_"] div[data-testid="column"] > div,
-            [class*="st-key-auth_card_"] div[data-testid="column"] > div > div {
-                width: 100% !important;
-                max-width: 100% !important;
-                min-width: 0 !important;
-                box-sizing: border-box !important;
-            }
-
-            /* Lock / welcome section on top. */
-            [class*="st-key-auth_card_"] .mv-auth-side {
-                width: 100% !important;
-                min-height: 205px !important;
-                height: auto !important;
-                box-sizing: border-box !important;
-                border-right: none !important;
-                border-bottom: 1px solid var(--mv-border) !important;
-                padding: 26px 18px 24px !important;
-            }
-
-            [class*="st-key-auth_card_"] .mv-auth-side-icon-wrap {
-                width: 128px !important;
-                height: 128px !important;
-                margin-bottom: 18px !important;
-            }
-
-            [class*="st-key-auth_card_"] .mv-auth-ring.r1 {
-                width: 128px !important;
-                height: 128px !important;
-            }
-
-            [class*="st-key-auth_card_"] .mv-auth-ring.r2 {
-                width: 94px !important;
-                height: 94px !important;
-            }
-
-            [class*="st-key-auth_card_"] .mv-auth-icon-box {
-                width: 58px !important;
-                height: 58px !important;
-                border-radius: 17px !important;
-                font-size: 23px !important;
-            }
-
-            [class*="st-key-auth_card_"] .mv-auth-side-title {
-                font-size: 21px !important;
-                margin-bottom: 7px !important;
-            }
-
-            [class*="st-key-auth_card_"] .mv-auth-side-text {
-                font-size: 13px !important;
-                max-width: 260px !important;
-                line-height: 1.5 !important;
-            }
-
-            /* Form BELOW the lock and genuinely full width. */
-            [class*="st-key-auth_card_"] [class*="st-key-auth_form_"] {
-                display: block !important;
-                width: 100% !important;
-                max-width: 100% !important;
-                min-width: 0 !important;
-                box-sizing: border-box !important;
-                padding: 22px 14px 4px !important;
-            }
-
-            [class*="st-key-auth_card_"] [data-testid="stForm"] {
-                display: block !important;
-                width: 100% !important;
-                max-width: 100% !important;
-                min-width: 0 !important;
-                box-sizing: border-box !important;
-                padding: 18px 16px !important;
-            }
-
-            /* Inputs / country selector / login button fill the form width. */
-            [class*="st-key-auth_card_"] [data-testid="stForm"] input,
-            [class*="st-key-auth_card_"] [data-testid="stForm"] textarea,
-            [class*="st-key-auth_card_"] [data-testid="stForm"] [data-baseweb="select"],
-            [class*="st-key-auth_card_"] [data-testid="stForm"] [data-baseweb="select"] > div {
-                width: 100% !important;
-                max-width: 100% !important;
-                box-sizing: border-box !important;
-            }
-
-            [class*="st-key-auth_card_"] input,
-            [class*="st-key-auth_card_"] div[data-baseweb="select"] > div {
-                min-height: 46px !important;
-            }
-
-            [class*="st-key-auth_card_"] .stButton > button,
-            [class*="st-key-auth_card_"] .stFormSubmitButton > button {
-                min-height: 42px !important;
-            }
-
-            /* Remember + Forgot stay on one row inside the now-full-width form. */
-            [class*="st-key-auth_card_"] [data-testid="stForm"] div[data-testid="stHorizontalBlock"] {
-                flex-direction: row !important;
-                flex-wrap: nowrap !important;
-                align-items: center !important;
-                gap: 8px !important;
-            }
-
-            [class*="st-key-auth_card_"] [data-testid="stForm"] div[data-testid="stHorizontalBlock"] div[data-testid="column"] {
-                flex: 1 1 0 !important;
-                width: auto !important;
-                min-width: 0 !important;
-                max-width: none !important;
-            }
-
-            /* Bottom navigation links use the full page width. */
-            .st-key-auth_bottom_links {
-                width: 100% !important;
-                max-width: 100% !important;
-                margin-top: 18px !important;
-            }
-
-            .st-key-auth_bottom_links div[data-testid="stHorizontalBlock"] {
-                display: grid !important;
-                grid-template-columns: 1fr 1fr !important;
-                gap: 8px !important;
-                align-items: center !important;
-            }
-
-            .st-key-auth_bottom_links div[data-testid="column"] {
-                width: 100% !important;
-                min-width: 0 !important;
-                max-width: 100% !important;
-            }
-
-            .st-key-auth_signup_link .stButton > button:not([kind="primary"]),
-            .st-key-auth_mentor_link .stButton > button:not([kind="primary"]) {
-                width: 100% !important;
-                min-height: 38px !important;
-                padding: 6px 4px !important;
-                white-space: normal !important;
-            }
-        }
-
-        /* =====================================================================
-           MOBILE AUTH — FINAL LAYOUT FIX
-           Desktop stays unchanged. On <=900px, the auth columns themselves
-           become full-width blocks. Streamlit sometimes writes a min-width and
-           flex-basis on column wrappers, so all of those are explicitly reset.
-           ===================================================================== */
-        @media (max-width: 900px) {
-            /* The auth card must occupy the complete available page width. */
-            [data-testid="stVerticalBlock"]:has(> [data-testid="stHorizontalBlock"]) [class*="st-key-auth_card_"] {
-                width: 100% !important;
-                max-width: 100% !important;
-                box-sizing: border-box !important;
-            }
-
-            [class*="st-key-auth_card_"] {
-                width: 100vw !important;
-                max-width: 100% !important;
-                margin-left: 0 !important;
-                margin-right: 0 !important;
-                box-sizing: border-box !important;
-                overflow: visible !important;
-            }
-
-            /* Kill Streamlit's desktop column sizing completely. */
-            [class*="st-key-auth_card_"] > div[data-testid="stHorizontalBlock"],
-            [class*="st-key-auth_card_"] div[data-testid="stHorizontalBlock"] {
+            /* CRITICAL: reset Streamlit's desktop column sizing. */
+            [class*="st-key-auth_card_login"] div[data-testid="stHorizontalBlock"] {
                 display: flex !important;
                 flex-direction: column !important;
                 flex-wrap: nowrap !important;
@@ -713,102 +522,166 @@ def inject_global_css():
                 gap: 0 !important;
             }
 
-            [class*="st-key-auth_card_"] div[data-testid="column"] {
+            [class*="st-key-auth_card_login"] div[data-testid="column"] {
                 display: block !important;
                 flex: 0 0 100% !important;
                 flex-grow: 0 !important;
                 flex-shrink: 0 !important;
                 flex-basis: 100% !important;
                 width: 100% !important;
-                max-width: 100% !important;
                 min-width: 0 !important;
+                max-width: 100% !important;
                 box-sizing: border-box !important;
             }
 
-            [class*="st-key-auth_card_"] div[data-testid="column"] > div,
-            [class*="st-key-auth_card_"] div[data-testid="column"] > div > div,
-            [class*="st-key-auth_card_"] div[data-testid="column"] > div > div > div {
+            [class*="st-key-auth_card_login"] div[data-testid="column"] > div,
+            [class*="st-key-auth_card_login"] div[data-testid="column"] > div > div,
+            [class*="st-key-auth_card_login"] div[data-testid="column"] > div > div > div {
                 width: 100% !important;
                 max-width: 100% !important;
                 min-width: 0 !important;
                 box-sizing: border-box !important;
             }
 
-            /* TOP: lock + welcome. */
-            [class*="st-key-auth_card_"] .mv-auth-side {
+            /* ================= TOP: LOCK / WELCOME ================= */
+            [class*="st-key-auth_card_login"] .mv-auth-side {
+                display: flex !important;
                 width: 100% !important;
-                height: auto !important;
+                max-width: 100% !important;
                 min-height: 245px !important;
-                padding: 28px 16px 26px !important;
+                height: auto !important;
                 margin: 0 !important;
+                padding: 28px 16px 26px !important;
+                box-sizing: border-box !important;
                 border-right: none !important;
                 border-bottom: 1px solid var(--mv-border) !important;
-                box-sizing: border-box !important;
+                align-items: center !important;
+                justify-content: center !important;
             }
 
-            /* BOTTOM: login form. */
-            [class*="st-key-auth_card_"] [class*="st-key-auth_form_"] {
+            [class*="st-key-auth_card_login"] .mv-auth-side-icon-wrap {
+                width: 128px !important;
+                height: 128px !important;
+                margin-bottom: 18px !important;
+            }
+
+            [class*="st-key-auth_card_login"] .mv-auth-ring.r1 {
+                width: 128px !important;
+                height: 128px !important;
+            }
+
+            [class*="st-key-auth_card_login"] .mv-auth-ring.r2 {
+                width: 94px !important;
+                height: 94px !important;
+            }
+
+            [class*="st-key-auth_card_login"] .mv-auth-icon-box {
+                width: 58px !important;
+                height: 58px !important;
+                border-radius: 17px !important;
+                font-size: 23px !important;
+            }
+
+            [class*="st-key-auth_card_login"] .mv-auth-side-title {
+                font-size: 21px !important;
+                margin-bottom: 7px !important;
+            }
+
+            [class*="st-key-auth_card_login"] .mv-auth-side-text {
+                font-size: 13px !important;
+                max-width: 270px !important;
+                line-height: 1.5 !important;
+            }
+
+            /* ================= BOTTOM: LOGIN FORM ================= */
+            [class*="st-key-auth_card_login"] [class*="st-key-auth_form_login"] {
+                display: block !important;
                 width: 100% !important;
                 max-width: 100% !important;
                 min-width: 0 !important;
-                padding: 24px 14px 8px !important;
                 margin: 0 !important;
+                padding: 24px 14px 6px !important;
                 box-sizing: border-box !important;
             }
 
-            [class*="st-key-auth_card_"] [data-testid="stForm"],
-            [class*="st-key-auth_card_"] [data-testid="stForm"] > div {
+            [class*="st-key-auth_card_login"] [data-testid="stForm"],
+            [class*="st-key-auth_card_login"] [data-testid="stForm"] > div {
+                display: block !important;
                 width: 100% !important;
                 max-width: 100% !important;
                 min-width: 0 !important;
                 box-sizing: border-box !important;
             }
 
-            /* Phone field: keep country code + number as one full-width field. */
-            [class*="st-key-auth_card_"] div[class*="_phone_row"] {
+            /* Phone row = one full-width field. */
+            [class*="st-key-auth_card_login"] div[class*="_phone_row"] {
+                display: flex !important;
+                flex-direction: row !important;
                 width: 100% !important;
                 max-width: 100% !important;
+                min-width: 0 !important;
                 box-sizing: border-box !important;
             }
 
-            [class*="st-key-auth_card_"] div[class*="_phone_row"] > div:first-child {
-                flex: 0 0 145px !important;
-                width: 145px !important;
-                min-width: 145px !important;
+            [class*="st-key-auth_card_login"] div[class*="_phone_row"] > div:first-child {
+                flex: 0 0 150px !important;
+                width: 150px !important;
+                min-width: 150px !important;
+                max-width: 150px !important;
             }
 
-            [class*="st-key-auth_card_"] div[class*="_phone_row"] > div:last-child {
+            [class*="st-key-auth_card_login"] div[class*="_phone_row"] > div:last-child {
                 flex: 1 1 auto !important;
                 width: auto !important;
                 min-width: 0 !important;
+                max-width: none !important;
             }
 
-            /* Password + phone inputs should actually use the available width. */
-            [class*="st-key-auth_card_"] input,
-            [class*="st-key-auth_card_"] [data-baseweb="select"],
-            [class*="st-key-auth_card_"] [data-baseweb="select"] > div {
-                box-sizing: border-box !important;
+            [class*="st-key-auth_card_login"] input,
+            [class*="st-key-auth_card_login"] [data-baseweb="select"],
+            [class*="st-key-auth_card_login"] [data-baseweb="select"] > div {
+                width: 100% !important;
                 max-width: 100% !important;
+                box-sizing: border-box !important;
             }
 
-            /* Remember/Forgot row remains horizontal, but each side gets space. */
-            [class*="st-key-auth_card_"] [data-testid="stForm"] > div[data-testid="stHorizontalBlock"] {
+            /* Password and Log In stay comfortably wide. */
+            [class*="st-key-auth_card_login"] [data-testid="stForm"] input {
+                min-height: 46px !important;
+            }
+
+            [class*="st-key-auth_card_login"] [data-testid="stForm"] .stFormSubmitButton > button,
+            [class*="st-key-auth_card_login"] [data-testid="stForm"] .stButton > button {
+                width: 100% !important;
+                min-height: 44px !important;
+            }
+
+            /* Remember + Forgot stay side-by-side, using the full width. */
+            [class*="st-key-auth_card_login"] [data-testid="stForm"] div[data-testid="stHorizontalBlock"] {
                 display: flex !important;
                 flex-direction: row !important;
                 flex-wrap: nowrap !important;
+                align-items: center !important;
                 width: 100% !important;
                 gap: 10px !important;
             }
 
-            [class*="st-key-auth_card_"] [data-testid="stForm"] > div[data-testid="stHorizontalBlock"] div[data-testid="column"] {
+            [class*="st-key-auth_card_login"] [data-testid="stForm"] div[data-testid="stHorizontalBlock"] div[data-testid="column"] {
                 flex: 1 1 0 !important;
                 flex-basis: 0 !important;
                 width: auto !important;
                 max-width: none !important;
+                min-width: 0 !important;
+            }
+
+            /* Bottom Sign Up / Mentor links also use the complete width. */
+            .st-key-auth_bottom_links {
+                width: 100% !important;
+                max-width: 100% !important;
             }
         }
 
-        /* Desktop only: preserve the original two-column auth card. */
+        /* Desktop: original two-column layout remains untouched. */
         @media (min-width: 901px) {
             .mv-auth-side {
                 border-right: 1px solid var(--mv-border);
