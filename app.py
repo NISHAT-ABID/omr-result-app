@@ -492,9 +492,164 @@ def inject_global_css():
             max-width: 220px; line-height: 1.5;
         }
         .mv-auth-form-side, [class*="st-key-auth_form_"] { padding: 18px 20px 2px; }
-        @media (max-width: 900px) {
-            .mv-auth-side { border-right: none; border-bottom: 1px solid var(--mv-border); padding: 18px 16px; }
-            .mv-auth-form-side, [class*="st-key-auth_form_"] { padding: 14px 14px 2px; }
+
+        /* ---- Mobile auth layout ------------------------------------------------
+           Desktop stays EXACTLY as before.
+           On phones the auth card becomes a comfortable vertical stack:
+             1) lock / welcome block on top
+             2) full-width login form underneath
+           The previous mobile CSS only changed the border/padding; it did not
+           force Streamlit's column row to become a single column, so the two
+           halves stayed side-by-side and everything became cramped. */
+        @media (max-width: 767px) {
+            .mv-hero.mv-hero-compact {
+                padding: 22px 16px 16px !important;
+                margin: -1rem -1rem 16px !important;
+            }
+
+            .mv-hero.mv-hero-compact h1 {
+                font-size: 26px !important;
+                line-height: 1.15 !important;
+            }
+
+            [class*="st-key-auth_card_"] {
+                width: 100% !important;
+                max-width: 100% !important;
+                box-sizing: border-box !important;
+                padding: 8px 8px 18px !important;
+                margin: 0 0 14px !important;
+                overflow: visible !important;
+            }
+
+            /* Force the two Streamlit columns into one vertical stack.
+               This is the actual fix for the compressed phone screenshot. */
+            [class*="st-key-auth_card_"] div[data-testid="stHorizontalBlock"] {
+                display: grid !important;
+                grid-template-columns: minmax(0, 1fr) !important;
+                width: 100% !important;
+                gap: 0 !important;
+                align-items: stretch !important;
+            }
+
+            [class*="st-key-auth_card_"] div[data-testid="column"] {
+                width: 100% !important;
+                min-width: 0 !important;
+                max-width: 100% !important;
+                flex: none !important;
+                box-sizing: border-box !important;
+            }
+
+            /* Lock / welcome section: give it the breathing room it has on
+               desktop instead of squeezing it into half the phone width. */
+            [class*="st-key-auth_card_"] .mv-auth-side {
+                width: 100% !important;
+                min-height: 205px !important;
+                box-sizing: border-box !important;
+                border-right: none !important;
+                border-bottom: 1px solid var(--mv-border) !important;
+                padding: 26px 18px 24px !important;
+            }
+
+            [class*="st-key-auth_card_"] .mv-auth-side-icon-wrap {
+                width: 128px !important;
+                height: 128px !important;
+                margin-bottom: 18px !important;
+            }
+
+            [class*="st-key-auth_card_"] .mv-auth-ring.r1 {
+                width: 128px !important;
+                height: 128px !important;
+            }
+
+            [class*="st-key-auth_card_"] .mv-auth-ring.r2 {
+                width: 94px !important;
+                height: 94px !important;
+            }
+
+            [class*="st-key-auth_card_"] .mv-auth-icon-box {
+                width: 58px !important;
+                height: 58px !important;
+                border-radius: 17px !important;
+                font-size: 23px !important;
+            }
+
+            [class*="st-key-auth_card_"] .mv-auth-side-title {
+                font-size: 21px !important;
+                margin-bottom: 7px !important;
+            }
+
+            [class*="st-key-auth_card_"] .mv-auth-side-text {
+                font-size: 13px !important;
+                max-width: 260px !important;
+                line-height: 1.5 !important;
+            }
+
+            /* Form becomes a full-width section below the lock. */
+            [class*="st-key-auth_card_"] .mv-auth-form-side,
+            [class*="st-key-auth_card_"] [class*="st-key-auth_form_"] {
+                width: 100% !important;
+                box-sizing: border-box !important;
+                padding: 22px 14px 4px !important;
+            }
+
+            [class*="st-key-auth_card_"] [data-testid="stForm"] {
+                width: 100% !important;
+                box-sizing: border-box !important;
+                padding: 18px 16px !important;
+            }
+
+            /* Keep the phone field and all inputs comfortably sized rather
+               than inheriting any narrow desktop-column width. */
+            [class*="st-key-auth_card_"] input,
+            [class*="st-key-auth_card_"] div[data-baseweb="select"] > div {
+                min-height: 46px !important;
+            }
+
+            [class*="st-key-auth_card_"] .stButton > button,
+            [class*="st-key-auth_card_"] .stFormSubmitButton > button {
+                min-height: 42px !important;
+            }
+
+            /* The two secondary links stay side-by-side like desktop, but
+               use the full card width and remain easy to tap. */
+            .st-key-auth_bottom_links {
+                width: 100% !important;
+                margin-top: 18px !important;
+            }
+
+            .st-key-auth_bottom_links div[data-testid="stHorizontalBlock"] {
+                display: grid !important;
+                grid-template-columns: 1fr 1fr !important;
+                gap: 8px !important;
+                align-items: center !important;
+            }
+
+            .st-key-auth_bottom_links div[data-testid="column"] {
+                width: 100% !important;
+                min-width: 0 !important;
+                max-width: 100% !important;
+            }
+
+            .st-key-auth_signup_link .stButton > button:not([kind="primary"]),
+            .st-key-auth_mentor_link .stButton > button:not([kind="primary"]) {
+                width: 100% !important;
+                min-height: 38px !important;
+                padding: 6px 4px !important;
+                white-space: normal !important;
+            }
+        }
+
+        /* Tablets: keep the existing two-column auth design, only remove
+           the right divider where the available width is getting tighter. */
+        @media (min-width: 768px) and (max-width: 900px) {
+            .mv-auth-side {
+                border-right: none;
+                border-bottom: 1px solid var(--mv-border);
+                padding: 18px 16px;
+            }
+            .mv-auth-form-side, [class*="st-key-auth_form_"] {
+                padding: 14px 14px 2px;
+            }
         }
 
         .mv-remember-row {
