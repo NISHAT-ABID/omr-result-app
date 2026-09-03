@@ -5164,12 +5164,47 @@ def render_answer_key_tab():
             work_df["exam_name"].fillna("").astype(str).str.strip() == selected_exam
         ]
 
-    # Newest first by default; preserve existing row order as fallback.
-    if "date" in work_df.columns:
-        work_df["_sort_date"] = pd.to_datetime(work_df["date"], errors="coerce")
-        work_df = work_df.sort_values("_sort_date", ascending=(sort_newest == "Oldest"), na_position="last")
+    # Robust date sorting. Google Sheets can return dates in mixed formats, and
+    # pd.to_datetime() may turn some of them into NaT. Keep the sheet row order
+    # as a deterministic fallback so Newest/Oldest can never look identical.
+    work_df["_original_order"] = range(len(work_df))
+    date_columns = [
+        c for c in ("date", "created_at", "timestamp", "start_dt", "end_dt")
+        if c in work_df.columns
+    ]
+
+    parsed_date = pd.Series(pd.NaT, index=work_df.index, dtype="datetime64[ns]")
+    for col in date_columns:
+        values = work_df[col].astype(str).str.strip()
+        parsed = pd.to_datetime(values, errors="coerce", dayfirst=True)
+        parsed_date = parsed_date.fillna(parsed)
+
+    work_df["_sort_date"] = parsed_date
+    if work_df["_sort_date"].notna().any():
+        # Valid dates are primary; original sheet order breaks ties.
+        if sort_newest == "Newest":
+            work_df = work_df.sort_values(
+                ["_sort_date", "_original_order"],
+                ascending=[False, False],
+                na_position="last",
+                kind="mergesort",
+            )
+        else:
+            work_df = work_df.sort_values(
+                ["_sort_date", "_original_order"],
+                ascending=[True, True],
+                na_position="last",
+                kind="mergesort",
+            )
     else:
-        work_df = work_df.iloc[::-1] if sort_newest == "Newest" else work_df
+        # If the sheet has no parseable dates, assume rows were appended in
+        # creation order: last row = newest.
+        work_df = work_df.sort_values(
+            "_original_order",
+            ascending=(sort_newest == "Oldest"),
+            kind="mergesort",
+        )
+
     work_df = work_df.reset_index(drop=True)
 
     page_size = 10
