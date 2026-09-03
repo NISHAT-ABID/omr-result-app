@@ -2234,6 +2234,164 @@ def inject_global_css():
             .stApp .stTextInput input, .stApp .stSelectbox, .stApp textarea { font-size: 13px !important; }
             .stApp [data-testid="stMarkdownContainer"] p { overflow-wrap:anywhere; }
         }
+
+
+        /* ==================================================================
+           FINAL PROFESSIONAL VISUAL POLISH
+           Simple, consistent and lightweight. Presentation only.
+           ================================================================== */
+        .stApp {
+            background:
+                radial-gradient(circle at 50% -20%, rgba(38,171,140,.055), transparent 34%),
+                var(--mv-bg) !important;
+        }
+
+        /* Clear typography hierarchy */
+        .stApp, .stApp p, .stApp span, .stApp label, .stApp li {
+            color: var(--mv-ink);
+        }
+        .stApp h1, .stApp h2, .stApp h3 {
+            font-family: var(--serif) !important;
+            color: var(--mv-ink) !important;
+            letter-spacing: -.018em;
+            font-weight: 600 !important;
+        }
+        .stApp h4, .stApp h5, .stApp h6 {
+            color: var(--mv-ink) !important;
+            font-weight: 700 !important;
+        }
+        .stApp [data-testid="stCaptionContainer"],
+        .stApp small { color: var(--mv-muted) !important; }
+
+        /* Keep content airy without making the layout oversized */
+        .block-container {
+            max-width: 1180px !important;
+            padding-top: 1.6rem !important;
+            padding-bottom: 2.6rem !important;
+        }
+        [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"] {
+            margin-bottom: .1rem;
+        }
+
+        /* One calm card language across the app */
+        [class*="st-key-card_"],
+        [class*="st-key-acard_"],
+        [class*="st-key-profile_"],
+        [class*="st-key-auth_card"],
+        .mentor-create-card, .mentor-edit-head,
+        .mentor-exam-hero, .mv-compact-row {
+            border-color: rgba(122,167,157,.20) !important;
+            box-shadow: 0 10px 26px rgba(0,0,0,.12) !important;
+        }
+
+        /* Buttons: clear primary action, quiet secondary actions */
+        .stButton > button,
+        .stDownloadButton > button {
+            border-radius: 10px !important;
+            font-weight: 600 !important;
+            letter-spacing: .005em;
+            transition: transform .12s ease, border-color .12s ease, background-color .12s ease !important;
+        }
+        .stButton > button:hover,
+        .stDownloadButton > button:hover {
+            transform: translateY(-1px);
+        }
+        .stButton > button[kind="secondary"],
+        .stDownloadButton > button {
+            background: rgba(255,255,255,.018) !important;
+            border-color: rgba(122,167,157,.26) !important;
+            color: #DCE9E4 !important;
+        }
+        .stButton > button[kind="secondary"]:hover,
+        .stDownloadButton > button:hover {
+            border-color: rgba(38,171,140,.58) !important;
+            background: rgba(38,171,140,.075) !important;
+        }
+
+        /* Inputs and selectors */
+        .stTextInput input, .stTextArea textarea,
+        [data-baseweb="input"] input {
+            color: #EDF5F2 !important;
+            background: #0A1718 !important;
+            border-color: rgba(122,167,157,.26) !important;
+        }
+        .stTextInput input:focus, .stTextArea textarea:focus,
+        [data-baseweb="input"]:focus-within {
+            border-color: rgba(38,171,140,.80) !important;
+            box-shadow: 0 0 0 3px rgba(38,171,140,.10) !important;
+        }
+        [data-baseweb="select"] > div {
+            background: #0A1718 !important;
+            border-color: rgba(122,167,157,.26) !important;
+            color: #EDF5F2 !important;
+        }
+        .stTextInput label, .stTextArea label,
+        .stSelectbox label, .stDateInput label {
+            color: #C4D2CD !important;
+            font-size: .84rem !important;
+            font-weight: 600 !important;
+        }
+
+        /* Tabs and expanders: restrained, readable */
+        [data-baseweb="tab-list"] {
+            gap: 4px !important;
+            border-bottom: 1px solid rgba(122,167,157,.16) !important;
+        }
+        [data-baseweb="tab"] {
+            border-radius: 9px 9px 0 0 !important;
+            color: var(--mv-muted) !important;
+            font-weight: 600 !important;
+        }
+        [data-baseweb="tab"][aria-selected="true"] {
+            color: var(--mv-primary) !important;
+            background: rgba(38,171,140,.07) !important;
+        }
+        [data-testid="stExpander"] {
+            border-color: rgba(122,167,157,.20) !important;
+            border-radius: 12px !important;
+            background: rgba(255,255,255,.012) !important;
+        }
+
+        /* Tables and metrics */
+        [data-testid="stMetric"] {
+            padding: 2px 0 !important;
+        }
+        [data-testid="stMetricLabel"] { color: var(--mv-muted) !important; }
+        [data-testid="stMetricValue"] { color: var(--mv-ink) !important; }
+        [data-testid="stDataFrame"] {
+            border: 1px solid rgba(122,167,157,.18) !important;
+            border-radius: 12px !important;
+            overflow: hidden !important;
+        }
+
+        /* Alerts should read clearly but stay visually calm */
+        [data-testid="stAlert"] {
+            border-radius: 12px !important;
+            border: 1px solid rgba(122,167,157,.20) !important;
+        }
+
+        /* Logo gets presence without turning into a decorative block */
+        .mv-logo-shell {
+            background: linear-gradient(145deg,#ffffff,#eef8f5) !important;
+            border-color: rgba(232,171,68,.92) !important;
+            box-shadow: 0 7px 18px rgba(0,0,0,.22), 0 0 0 3px rgba(38,171,140,.09) !important;
+        }
+
+        /* Mobile: compact and clean, not cramped */
+        @media (max-width: 700px) {
+            .block-container {
+                padding: 1rem .72rem 2rem !important;
+            }
+            .stApp h1 { font-size: 1.7rem !important; }
+            .stApp h2 { font-size: 1.35rem !important; }
+            .stApp h3 { font-size: 1.12rem !important; }
+            .stButton > button, .stDownloadButton > button {
+                min-height: 40px !important;
+                font-size: .9rem !important;
+            }
+            [data-testid="stMetricValue"] { font-size: 1.35rem !important; }
+        }
+
         </style>
         """,
         unsafe_allow_html=True,
