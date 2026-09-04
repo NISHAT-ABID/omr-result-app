@@ -4913,7 +4913,10 @@ def _render_review_issues_view(review_rows, total_q):
 
 
 def _render_interactive_omr_review(img_bgr, grid_points, detected_answers, final_answers, double_qs, radius):
-    """Show the student's original OMR beside an editable Digital OMR."""
+    """Show the student's original OMR and editable Digital OMR.
+
+    Desktop stays side-by-side. On phones the two panels stack full-width.
+    """
     total_q = len(final_answers)
     review_rows = _build_review_state(final_answers, detected_answers)
 
@@ -4926,7 +4929,7 @@ def _render_interactive_omr_review(img_bgr, grid_points, detected_answers, final
         <div class='digital-omr-title'>
             <div>
                 <div class='digital-omr-title-main'>🖥️ OMR Review</div>
-                <div class='digital-omr-sub'>Your scanned sheet on the left · editable Digital OMR on the right</div>
+                <div class='digital-omr-sub'>Your scanned sheet · editable Digital OMR</div>
             </div>
         </div>
     """, unsafe_allow_html=True)
@@ -4945,36 +4948,52 @@ def _render_interactive_omr_review(img_bgr, grid_points, detected_answers, final
         label_visibility="collapsed",
     )
 
-    left, right = st.columns([0.92, 1.55], gap="medium")
-    with left:
-        st.markdown("<div class='omr-photo-card'><div class='omr-photo-label'>📷 Original OMR</div>", unsafe_allow_html=True)
-        original_bytes = st.session_state.get("submit_original_bytes")
-        if original_bytes:
-            try:
-                original_img = ImageOps.exif_transpose(Image.open(io.BytesIO(original_bytes)).convert("RGB"))
-                st.image(original_img, use_container_width=True)
-            except Exception:
-                st.image(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB), use_container_width=True)
-        else:
-            st.image(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB), use_container_width=True)
-        st.caption("This is the exact photo you submitted. The Digital OMR is what will be submitted after your corrections.")
-        st.markdown("</div>", unsafe_allow_html=True)
+    with st.container(key="omr_review_panels"):
+        left, right = st.columns([0.92, 1.55], gap="medium")
 
-    with right:
-        st.markdown("<div class='digital-omr-shell'>", unsafe_allow_html=True)
-        st.markdown(
-            "<div style='font-size:12px;color:var(--mv-muted);margin-bottom:10px;'>"
-            "Tap a bubble to edit. A selected bubble is the final answer."
-            "</div>",
-            unsafe_allow_html=True,
-        )
-        if view == "🖥️ All Questions":
-            _render_normal_omr_view(review_rows, total_q)
-        else:
-            _render_review_issues_view(review_rows, total_q)
-        st.markdown("</div>", unsafe_allow_html=True)
+        with left:
+            st.markdown(
+                "<div class='omr-photo-card'><div class='omr-photo-label'>📷 Original OMR</div>",
+                unsafe_allow_html=True,
+            )
+            original_bytes = st.session_state.get("submit_original_bytes")
+            if original_bytes:
+                try:
+                    original_img = ImageOps.exif_transpose(
+                        Image.open(io.BytesIO(original_bytes)).convert("RGB")
+                    )
+                    st.image(original_img, use_container_width=True)
+                except Exception:
+                    st.image(
+                        cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB),
+                        use_container_width=True,
+                    )
+            else:
+                st.image(
+                    cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB),
+                    use_container_width=True,
+                )
+            st.caption(
+                "This is the exact photo you submitted. The Digital OMR is what will be submitted after your corrections."
+            )
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        with right:
+            st.markdown("<div class='digital-omr-shell'>", unsafe_allow_html=True)
+            st.markdown(
+                "<div style='font-size:12px;color:var(--mv-muted);margin-bottom:10px;'>"
+                "Tap a bubble to edit. A selected bubble is the final answer."
+                "</div>",
+                unsafe_allow_html=True,
+            )
+            if view == "🖥️ All Questions":
+                _render_normal_omr_view(review_rows, total_q)
+            else:
+                _render_review_issues_view(review_rows, total_q)
+            st.markdown("</div>", unsafe_allow_html=True)
 
     return review_rows
+
 
 def page_tests_results():
     sid = st.session_state["student_id"]
@@ -5487,21 +5506,24 @@ def render_leaderboard_rows(df, mode, sid=None, key_suffix="student"):
             icon = _rank_icon(rank) if rank <= 3 else f"#{rank}"
             badge_class = _rank_class(rank)
             avatar_html = render_avatar(row["student_id"], row["student"], size=26, font_size=11)
+            name_text = str(row["student"])
             name_html = (
-                f"<span style='display:inline-flex; align-items:center; gap:7px;'>"
-                f"{avatar_html}<span>{row['student']}{' (You)' if is_me else ''}</span></span>"
+                f"<span style='display:inline-flex; align-items:center; gap:7px; min-width:0;'>"
+                f"{avatar_html}<span>{name_text}{' (You)' if is_me else ''}</span></span>"
             )
 
             if mode == "Overall":
                 trend = row.get("trend")
                 trend_html = "<span style='opacity:.4;'>—</span>"
+                trend_value = "—"
                 if trend is not None and pd.notna(trend):
                     arrow = "↑" if trend >= 0 else "↓"
                     color = "#22c55e" if trend >= 0 else "#ef4444"
                     trend_html = f"<span style='color:{color}; font-weight:700;'>{arrow} {abs(trend)}%</span>"
-                st.markdown(
-                    f"""
-                    <div class="{css_class}">
+                    trend_value = f"{arrow} {abs(trend)}%"
+
+                desktop_html = f"""
+                    <div class="{css_class} lb-desktop">
                         <span class="rank-badge {badge_class}">{icon}</span>
                         <span style="flex:1.5; font-weight:{'700' if is_me else '500'};">{name_html}</span>
                         <span style="flex:0.8; opacity:.85;">Tests: <b>{int(row['exams_taken'])}</b></span>
@@ -5510,22 +5532,53 @@ def render_leaderboard_rows(df, mode, sid=None, key_suffix="student"):
                         <span style="flex:0.9; opacity:.7;">Acc: {row['accuracy']}%</span>
                         <span style="flex:0.8; text-align:right;">{trend_html}</span>
                     </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
+                """
+
+                mobile_html = f"""
+                    <div class="lb-mobile-card {'me' if is_me else ''}">
+                        <div class="lb-mobile-top">
+                            <span class="lb-mobile-rank {badge_class}">{icon}</span>
+                            <span class="lb-mobile-name">{name_html}</span>
+                            <span class="lb-mobile-primary"><b>{row['avg_percent']}%</b><small>Avg</small></span>
+                        </div>
+                        <div class="lb-mobile-stats">
+                            <div class="lb-mobile-stat"><small>Tests</small><b>{int(row['exams_taken'])}</b></div>
+                            <div class="lb-mobile-stat"><small>Best</small><b>{row['best_score']}</b></div>
+                            <div class="lb-mobile-stat"><small>Avg</small><b>{row['avg_percent']}%</b></div>
+                            <div class="lb-mobile-stat"><small>Acc</small><b>{row['accuracy']}%</b></div>
+                            <div class="lb-mobile-stat"><small>Trend</small><span>{trend_value}</span></div>
+                        </div>
+                    </div>
+                """
+                st.markdown(desktop_html + mobile_html, unsafe_allow_html=True)
+
             else:
                 accuracy_val = row.get("accuracy", "-")
-                st.markdown(
-                    f"""
-                    <div class="{css_class}">
+
+                desktop_html = f"""
+                    <div class="{css_class} lb-desktop">
                         <span class="rank-badge {badge_class}">{icon}</span>
                         <span style="flex:1; font-weight:{'700' if is_me else '500'};">{name_html}</span>
                         <span>Score: <b>{row['marks']}</b></span>
                         <span style="opacity:.7;">Accuracy: {accuracy_val}%</span>
                     </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
+                """
+
+                mobile_html = f"""
+                    <div class="lb-mobile-card {'me' if is_me else ''}">
+                        <div class="lb-mobile-top">
+                            <span class="lb-mobile-rank {badge_class}">{icon}</span>
+                            <span class="lb-mobile-name">{name_html}</span>
+                            <span class="lb-mobile-primary"><b>{row['marks']}</b><small>Score</small></span>
+                        </div>
+                        <div class="lb-mobile-stats lb-mobile-test-stats">
+                            <div class="lb-mobile-stat"><small>Score</small><b>{row['marks']}</b></div>
+                            <div class="lb-mobile-stat"><small>Accuracy</small><b>{accuracy_val}%</b></div>
+                        </div>
+                    </div>
+                """
+                st.markdown(desktop_html + mobile_html, unsafe_allow_html=True)
+
 
 def render_leaderboard(sid=None, key_suffix="student"):
     """Shared leaderboard renderer. sid=None -> mentor view (no personal
@@ -5728,9 +5781,17 @@ def page_profile():
     if not my_results.empty:
         totals = pd.to_numeric(my_results["total"], errors="coerce").replace(0, np.nan)
         marks = pd.to_numeric(my_results["marks"], errors="coerce")
+        correct_source = my_results["correct"] if "correct" in my_results.columns else pd.Series(0, index=my_results.index)
+        correct_vals = pd.to_numeric(correct_source, errors="coerce").fillna(0)
         avg_pct = round((marks / totals).mean() * 100, 1) if totals.notna().any() else 0.0
+        highest_score = round(float(marks.max()), 2) if marks.notna().any() else 0.0
+        lowest_score = round(float(marks.min()), 2) if marks.notna().any() else 0.0
+        accuracy_pct = _safe_pct(correct_vals.sum(), totals.sum())
     else:
         avg_pct = 0.0
+        highest_score = 0.0
+        lowest_score = 0.0
+        accuracy_pct = 0.0
     rank, out_of = cached_rank(sid)
 
     st.markdown("""
@@ -5772,6 +5833,60 @@ def page_profile():
     .mvc-metric-number { color:var(--mv-ink); font-family:var(--mono); font-size:22px; font-weight:850; margin-top:11px; line-height:1; }
     .mvc-metric-label { color:var(--mv-muted); font-size:11px; font-weight:700; margin-top:5px; line-height:1.25; }
     .mvc-metric-link { color:var(--mv-primary); font-size:10.5px; font-weight:750; margin-top:9px; }
+    .mvc-metric-clickable, .mvc-metric-performance { min-height:150px; }
+    .mvc-performance-title { margin-top:11px; }
+    .mvc-performance-grid {
+        display:grid; grid-template-columns:repeat(3,minmax(0,1fr));
+        gap:7px; margin-top:10px;
+    }
+    .mvc-performance-grid > div {
+        min-width:0; padding:7px 5px; border-radius:9px;
+        background:rgba(255,255,255,.025); border:1px solid var(--mv-border);
+        text-align:center;
+    }
+    .mvc-performance-grid span {
+        display:block; color:var(--mv-muted); font-size:8.5px;
+        line-height:1.15; white-space:nowrap;
+    }
+    .mvc-performance-grid b {
+        display:block; color:var(--mv-ink); font-family:var(--mono);
+        font-size:13px; margin-top:3px; white-space:nowrap;
+    }
+
+    /* Transparent hit-area: the visual card itself is the clickable target. */
+    [class*="st-key-profile_metric_"] { position:relative; min-width:0; }
+    [class*="st-key-profile_metric_"] .mvc-metric { height:100%; }
+    [class*="st-key-profile_metric_"] .stButton {
+        position:absolute !important; inset:0 !important;
+        z-index:5 !important; margin:0 !important;
+    }
+    [class*="st-key-profile_metric_"] .stButton > button {
+        width:100% !important; height:100% !important; min-height:100% !important;
+        border:0 !important; background:transparent !important;
+        color:transparent !important; box-shadow:none !important;
+        padding:0 !important; cursor:pointer !important;
+    }
+    [class*="st-key-profile_metric_"] .stButton > button:hover {
+        background:rgba(38,171,140,.045) !important;
+        border:1px solid var(--mv-primary) !important;
+        box-shadow:0 8px 22px rgba(38,171,140,.10) !important;
+        transform:none !important;
+    }
+    [class*="st-key-profile_metric_"] .stButton > button:focus-visible {
+        outline:2px solid var(--mv-primary) !important;
+        outline-offset:2px !important;
+    }
+
+    div[data-testid="stHorizontalBlock"]:has(.st-key-profile_metric_0) {
+        display:grid !important;
+        grid-template-columns:repeat(4,minmax(0,1fr)) !important;
+        gap:10px !important;
+        width:100% !important;
+    }
+    div[data-testid="stHorizontalBlock"]:has(.st-key-profile_metric_0) > div[data-testid="column"] {
+        min-width:0 !important;
+        width:100% !important;
+    }
 
     .mvc-profile-grid { display:grid; grid-template-columns:minmax(0,1.2fr) minmax(0,.8fr); gap:18px; }
     .mvc-subhead { color:var(--mv-ink); font-size:14px; font-weight:850; margin-bottom:11px; }
@@ -5801,6 +5916,15 @@ def page_profile():
         .mvc-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
         .mvc-metric { padding:13px 11px; }
         .mvc-metric-number { font-size:20px; }
+        .mvc-metric-clickable, .mvc-metric-performance { min-height:145px; }
+        .mvc-performance-grid { gap:5px; }
+        .mvc-performance-grid > div { padding:6px 3px; }
+        .mvc-performance-grid span { font-size:8px; }
+        .mvc-performance-grid b { font-size:12px; }
+        div[data-testid="stHorizontalBlock"]:has(.st-key-profile_metric_0) {
+            grid-template-columns:repeat(2,minmax(0,1fr)) !important;
+            gap:8px !important;
+        }
         .mvc-profile-grid { grid-template-columns:1fr; gap:14px; }
         .mvc-section { padding:14px; border-radius:15px; }
         .mvc-info-list { grid-template-columns:1fr 1fr; gap:5px; }
@@ -5833,27 +5957,89 @@ def page_profile():
             f'<div class="mvc-account {"off" if disabled else ""}">{"● Disabled" if disabled else "● Active"}</div>'
             '</div>', unsafe_allow_html=True)
 
+
         # --------------------------------------------------------------
-        # SECTION 1 — data/analysis first, as requested.
+        # SECTION 1 — requested 4-box performance overview.
+        # The first three boxes are themselves clickable; no extra nav row.
         # --------------------------------------------------------------
         st.markdown(
             '<div class="mvc-section">'
             '<div class="mvc-section-head"><div><h3>📊 Performance Overview</h3>'
-            '<p>Your exam activity at a glance</p></div></div>'
-            '<div class="mvc-metrics">'
-            f'<div class="mvc-metric"><div class="mvc-metric-top"><div class="mvc-metric-icon" style="background:var(--mv-primary-soft)">📋</div></div><div class="mvc-metric-number">{tests_completed}</div><div class="mvc-metric-label">Tests Completed</div><div class="mvc-metric-link">View Results →</div></div>'
-            f'<div class="mvc-metric"><div class="mvc-metric-top"><div class="mvc-metric-icon" style="background:var(--mv-blue-soft)">📈</div></div><div class="mvc-metric-number">{avg_pct}%</div><div class="mvc-metric-label">Average Score</div><div class="mvc-metric-link">View Analysis →</div></div>'
-            f'<div class="mvc-metric"><div class="mvc-metric-top"><div class="mvc-metric-icon" style="background:var(--mv-accent-soft)">🏆</div></div><div class="mvc-metric-number">{("#" + str(rank)) if rank else "—"}</div><div class="mvc-metric-label">Leaderboard Rank</div><div class="mvc-metric-link">View Leaderboard →</div></div>'
-            f'<div class="mvc-metric"><div class="mvc-metric-top"><div class="mvc-metric-icon" style="background:var(--mv-purple-soft)">📚</div></div><div class="mvc-metric-number">{tests_completed}</div><div class="mvc-metric-label">Total Exams</div><div class="mvc-metric-link">View Results →</div></div>'
-            '</div></div>', unsafe_allow_html=True)
+            '<p>Your exam activity at a glance</p></div></div>',
+            unsafe_allow_html=True,
+        )
 
-        # Real buttons sit below the HTML metrics, preserving navigation.
-        nav_cols = st.columns(4, gap="small")
-        nav_targets = [("Results", "tests"), ("Analysis", "analysis"), ("Leaderboard", "leaderboard"), ("Results", "tests")]
-        for i, (label, target) in enumerate(nav_targets):
-            with nav_cols[i]:
-                if st.button(label, key=f"profile_clean_nav_{i}", use_container_width=True):
-                    go_to(target)
+        perf_cols = st.columns(4, gap="small")
+        perf_cards = [
+            {
+                "icon": "📋",
+                "bg": "var(--mv-primary-soft)",
+                "number": tests_completed,
+                "label": "Exams Completed",
+                "arrow": "View Results →",
+                "target": "tests",
+            },
+            {
+                "icon": "🏆",
+                "bg": "var(--mv-accent-soft)",
+                "number": (f"#{rank}" if rank else "—"),
+                "label": "Rank",
+                "arrow": "View Leaderboard →",
+                "target": "leaderboard",
+            },
+            {
+                "icon": "📈",
+                "bg": "var(--mv-blue-soft)",
+                "number": f"{avg_pct}%",
+                "label": "Average Score",
+                "arrow": "Result Analysis →",
+                "target": "analysis",
+            },
+        ]
+
+        for idx, card in enumerate(perf_cards):
+            with perf_cols[idx]:
+                with st.container(key=f"profile_metric_{idx}"):
+                    st.markdown(
+                        f'''
+                        <div class="mvc-metric mvc-metric-clickable">
+                            <div class="mvc-metric-top">
+                                <div class="mvc-metric-icon" style="background:{card["bg"]}">{card["icon"]}</div>
+                            </div>
+                            <div class="mvc-metric-number">{card["number"]}</div>
+                            <div class="mvc-metric-label">{card["label"]}</div>
+                            <div class="mvc-metric-link">{card["arrow"]}</div>
+                        </div>
+                        ''',
+                        unsafe_allow_html=True,
+                    )
+                    if st.button(
+                        card["arrow"],
+                        key=f"profile_metric_action_{idx}",
+                        use_container_width=True,
+                    ):
+                        go_to(card["target"])
+
+        with perf_cols[3]:
+            with st.container(key="profile_metric_3"):
+                st.markdown(
+                    f'''
+                    <div class="mvc-metric mvc-metric-performance">
+                        <div class="mvc-metric-top">
+                            <div class="mvc-metric-icon" style="background:var(--mv-purple-soft)">📊</div>
+                        </div>
+                        <div class="mvc-metric-label mvc-performance-title">Performance</div>
+                        <div class="mvc-performance-grid">
+                            <div><span>Highest</span><b>{highest_score:g}</b></div>
+                            <div><span>Lowest</span><b>{lowest_score:g}</b></div>
+                            <div><span>Accuracy</span><b>{accuracy_pct}%</b></div>
+                        </div>
+                    </div>
+                    ''',
+                    unsafe_allow_html=True,
+                )
+
+        st.markdown('</div>', unsafe_allow_html=True)
 
         # --------------------------------------------------------------
         # SECTION 2 — Profile update + Password + Security, fewer cards.
@@ -6094,6 +6280,184 @@ def _inject_bubble_grid_css():
             [class*="st-key-answer_row_"] [data-testid="stRadio"] {
                 width: 100% !important;
             }
+        }
+        /* ================================================================
+           REQUESTED MOBILE UI FIXES — 2026-09-04
+           Desktop remains unchanged; narrow-phone layout gets the fixes below.
+           ================================================================ */
+
+        /* OMR review: never squeeze Original OMR + Digital OMR into
+           half-width columns on a phone. Stack them full-width. */
+        .st-key-omr_review_panels {
+            width:100% !important;
+            max-width:100% !important;
+            min-width:0 !important;
+        }
+        @media (max-width:767px) {
+            .st-key-omr_review_panels,
+            .st-key-omr_review_panels > div,
+            .st-key-omr_review_panels div[data-testid="stHorizontalBlock"] {
+                width:100% !important;
+                max-width:100% !important;
+                min-width:0 !important;
+                box-sizing:border-box !important;
+            }
+            .st-key-omr_review_panels div[data-testid="stHorizontalBlock"] {
+                display:grid !important;
+                grid-template-columns:minmax(0,1fr) !important;
+                gap:12px !important;
+            }
+            .st-key-omr_review_panels div[data-testid="column"] {
+                width:100% !important;
+                max-width:100% !important;
+                min-width:0 !important;
+                flex:none !important;
+                box-sizing:border-box !important;
+                padding:0 !important;
+            }
+            .st-key-omr_review_panels .omr-photo-card,
+            .st-key-omr_review_panels .digital-omr-shell {
+                width:100% !important;
+                max-width:100% !important;
+                box-sizing:border-box !important;
+            }
+            .st-key-omr_review_panels .omr-photo-card {
+                position:static !important;
+                padding:10px !important;
+                border-radius:15px !important;
+            }
+            .st-key-omr_review_panels .omr-photo-card img {
+                display:block !important;
+                width:100% !important;
+                max-width:100% !important;
+                max-height:520px !important;
+                object-fit:contain !important;
+                object-position:center top !important;
+            }
+            .st-key-omr_review_panels .digital-omr-shell {
+                padding:10px !important;
+                border-radius:15px !important;
+            }
+        }
+
+        /* Leaderboard: mobile uses readable cards instead of the compressed
+           7-column grid. Important values are never ellipsized. */
+        .lb-mobile-card { display:none; }
+        .lb-mobile-name,
+        .lb-mobile-name > span {
+            min-width:0;
+            max-width:100%;
+        }
+        .lb-mobile-name > span:last-child {
+            white-space:normal !important;
+            overflow:visible !important;
+            text-overflow:clip !important;
+            overflow-wrap:anywhere !important;
+        }
+        @media (max-width:767px) {
+            .st-key-leaderboard_table_student .lb-desktop,
+            .st-key-leaderboard_table_mentor .lb-desktop {
+                display:none !important;
+            }
+            .st-key-leaderboard_table_student .lb-mobile-card,
+            .st-key-leaderboard_table_mentor .lb-mobile-card {
+                display:block !important;
+                width:100% !important;
+                max-width:100% !important;
+                min-width:0 !important;
+                box-sizing:border-box !important;
+                padding:10px 9px !important;
+                margin:0 0 7px !important;
+                border:1px solid var(--mv-border) !important;
+                border-radius:12px !important;
+                background:rgba(127,127,127,.035) !important;
+                overflow:visible !important;
+            }
+            .lb-mobile-top {
+                display:grid !important;
+                grid-template-columns:38px minmax(0,1fr) auto !important;
+                align-items:center !important;
+                gap:8px !important;
+                width:100% !important;
+            }
+            .lb-mobile-rank {
+                display:flex !important;
+                align-items:center !important;
+                justify-content:center !important;
+                min-width:38px !important;
+                font-size:12px !important;
+                font-weight:850 !important;
+            }
+            .lb-mobile-name {
+                font-size:13px !important;
+                line-height:1.25 !important;
+                font-weight:750 !important;
+                white-space:normal !important;
+                overflow:visible !important;
+                text-overflow:clip !important;
+                overflow-wrap:anywhere !important;
+            }
+            .lb-mobile-name > span {
+                white-space:normal !important;
+                overflow:visible !important;
+                text-overflow:clip !important;
+                overflow-wrap:anywhere !important;
+            }
+            .lb-mobile-primary {
+                text-align:right !important;
+                white-space:nowrap !important;
+                font-family:var(--mono) !important;
+            }
+            .lb-mobile-primary b {
+                display:block !important;
+                font-size:14px !important;
+                line-height:1.05 !important;
+                color:var(--mv-ink) !important;
+            }
+            .lb-mobile-primary small {
+                display:block !important;
+                margin-top:2px !important;
+                font:700 8px var(--sans) !important;
+                color:var(--mv-muted) !important;
+                text-transform:uppercase !important;
+                letter-spacing:.06em !important;
+            }
+            .lb-mobile-stats {
+                display:grid !important;
+                grid-template-columns:repeat(5,minmax(0,1fr)) !important;
+                gap:4px !important;
+                margin-top:9px !important;
+                padding-top:8px !important;
+                border-top:1px solid var(--mv-border) !important;
+            }
+            .lb-mobile-stat {
+                min-width:0 !important;
+                text-align:center !important;
+            }
+            .lb-mobile-stat small {
+                display:block !important;
+                color:var(--mv-muted) !important;
+                font:700 8px var(--sans) !important;
+                line-height:1.1 !important;
+            }
+            .lb-mobile-stat b,
+            .lb-mobile-stat span {
+                display:block !important;
+                color:var(--mv-ink) !important;
+                font:700 10px var(--mono) !important;
+                line-height:1.25 !important;
+                white-space:nowrap !important;
+            }
+            .lb-mobile-test-stats {
+                grid-template-columns:repeat(2,minmax(0,1fr)) !important;
+            }
+        }
+        @media (max-width:380px) {
+            .lb-mobile-name { font-size:12px !important; }
+            .lb-mobile-stats { gap:2px !important; }
+            .lb-mobile-stat small { font-size:7px !important; }
+            .lb-mobile-stat b,
+            .lb-mobile-stat span { font-size:9px !important; }
         }
         </style>
         """,
