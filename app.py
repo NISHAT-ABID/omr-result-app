@@ -4458,11 +4458,24 @@ def render_omr_review(rows):
 
 
 
-def _grid_points_json_safe(grid_points):
-    """Convert Q->A/B/C/D point tuples to JSON-safe lists."""
+def _grid_points_json_safe(grid_points, image_size=None):
+    """Convert Q->A/B/C/D point tuples to JSON-safe lists.
+
+    image_size records the exact pixel coordinate space used by calibration.
+    This metadata is used only when a past submitted OMR is displayed again,
+    so its saved grid can be mapped back onto the original uploaded photo.
+    """
     out = {}
     for q, opts in (grid_points or {}).items():
         out[str(q)] = {str(o): [float(pt[0]), float(pt[1])] for o, pt in (opts or {}).items() if _coord_pair(pt)}
+    if image_size:
+        try:
+            out["_meta"] = {
+                "image_width": int(image_size[0]),
+                "image_height": int(image_size[1]),
+            }
+        except Exception:
+            pass
     return out
 
 
@@ -4592,6 +4605,7 @@ def _load_result_omr_context(result_row, key_row):
         grid_points = {
             int(q): {o: tuple(pt) for o, pt in opts.items()}
             for q, opts in grid_json.items()
+            if str(q) != "_meta" and isinstance(opts, dict)
         }
         radius = omr_scanner.compute_bubble_radius(photo_bgr)
         return omr_bytes, grid_points, (photo_bgr, radius)
@@ -5544,7 +5558,13 @@ def page_omr_submit():
                                             result["omr_original_answers"] = dict(detected)
                                             result["omr_final_answers"] = dict(final_answers)
                                             result["omr_double_touch"] = list(double_qs)
-                                            result["omr_grid"] = _grid_points_json_safe(grid_points)
+                                            # Save the exact calibration-image dimensions with the grid.
+                                            # This is used ONLY by the Past Exam submitted-OMR display
+                                            # to map coordinates back onto the original uploaded photo.
+                                            result["omr_grid"] = _grid_points_json_safe(
+                                                grid_points,
+                                                image_size=(img_bgr.shape[1], img_bgr.shape[0]),
+                                            )
                                             neg_enabled = sh._to_bool(active_now.get("negative_marking", False))
                                             if neg_enabled:
                                                 neg_per_wrong = max(0.0, float(active_now.get("negative_marks_value", 0.0) or 0.0))
@@ -8139,6 +8159,62 @@ def _render_mentor_review_workspace(result_row, key_row):
             st.error(f"Could not save mentor review: {e}")
 
 
+def _draw_student_correct_answer_glow(img_bgr, grid_points, correct_answers, source_size=None):
+    """Highlight only the correct answer on the student's past OMR photo.
+
+    The saved grid is created on the resized calibration image, while the past
+    exam page displays the original uploaded photo.  Scale the saved grid from
+    its calibration coordinate space to the original photo before drawing.
+    """
+    canvas = img_bgr.copy()
+    dst_h, dst_w = canvas.shape[:2]
+
+    sx = sy = 1.0
+    if source_size:
+        try:
+            src_w, src_h = float(source_size[0]), float(source_size[1])
+            if src_w > 0 and src_h > 0:
+                sx = dst_w / src_w
+                sy = dst_h / src_h
+        except Exception:
+            sx = sy = 1.0
+
+    scale = max(0.65, min(3.0, (sx + sy) / 2.0))
+    halo_r = max(14, int(round(25 * scale)))
+    core_r = max(4, int(round(6 * scale)))
+
+    # Separate layers keep the original student ink visible underneath a
+    # restrained, translucent green glow.
+    halo = np.zeros_like(canvas)
+    core = np.zeros_like(canvas)
+
+    for q, opts in (grid_points or {}).items():
+        try:
+            qn = int(q)
+        except Exception:
+            continue
+        correct = _normalise_answer_value(correct_answers.get(qn, correct_answers.get(str(qn))))
+        if correct not in opts:
+            continue
+        try:
+            raw_x, raw_y = opts[correct]
+            x = int(round(float(raw_x) * sx))
+            y = int(round(float(raw_y) * sy))
+        except Exception:
+            continue
+        if not (0 <= x < dst_w and 0 <= y < dst_h):
+            continue
+
+        cv2.circle(halo, (x, y), halo_r, (75, 235, 125), -1, cv2.LINE_AA)
+        cv2.circle(core, (x, y), core_r, (130, 255, 170), -1, cv2.LINE_AA)
+
+    blur_size = max(11, int(round(halo_r * 0.95)) * 2 + 1)
+    halo_blur = cv2.GaussianBlur(halo, (blur_size, blur_size), 0)
+    canvas = cv2.addWeighted(canvas, 1.0, halo_blur, 0.28, 0)
+    canvas = cv2.addWeighted(canvas, 1.0, core, 0.46, 0)
+    return cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
+
+
 def render_result_detail(result_row, key_row, mentor_mode=False):
     exam_name = key_row.get("exam_name") or result_row["key_id"]
     st.markdown(f"### {exam_name}")
@@ -8180,11 +8256,30 @@ def render_result_detail(result_row, key_row, mentor_mode=False):
             omr_bytes, grid_points, image_ctx = _load_result_omr_context(result_row, key_row)
             if image_ctx:
                 photo_bgr, radius = image_ctx
-                final = json.loads(result_row.get("omr_final_answers_json") or "{}")
-                original = json.loads(result_row.get("omr_original_answers_json") or "{}")
-                overlay = _draw_result_review_overlay(photo_bgr, grid_points, final, original, _answer_key_map(key_row, total), radius)
-                st.image(overlay, caption="Green = correct answer · Red = your wrong answer · Purple = multiple marks. Original ink remains visible.", use_container_width=True)
-                with st.expander("View original OMR without analysis overlay"):
+                try:
+                    grid_json = json.loads(result_row.get("omr_grid_json") or "{}")
+                except Exception:
+                    grid_json = {}
+                meta = grid_json.get("_meta", {}) if isinstance(grid_json, dict) else {}
+                source_size = None
+                if isinstance(meta, dict):
+                    try:
+                        source_size = (int(meta["image_width"]), int(meta["image_height"]))
+                    except Exception:
+                        source_size = None
+
+                # Student Past Exam view: do NOT reuse the Mentor analysis
+                # overlay. Only the correct key is highlighted, and its saved
+                # calibration coordinates are transformed to the original
+                # submitted-photo dimensions first.
+                overlay = _draw_student_correct_answer_glow(
+                    photo_bgr,
+                    grid_points,
+                    _answer_key_map(key_row, total),
+                    source_size=source_size,
+                )
+                st.image(overlay, caption="Correct answers highlighted on your original OMR", use_container_width=True)
+                with st.expander("View original OMR without highlight"):
                     st.image(cv2.cvtColor(photo_bgr, cv2.COLOR_BGR2RGB), use_container_width=True)
             else:
                 st.info("Submitted OMR photo is unavailable.")
