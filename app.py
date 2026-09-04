@@ -3128,6 +3128,112 @@ def inject_global_css():
                 white-space:nowrap !important;
             }
         }
+
+        /* ================================================================
+           FINAL MOBILE LEADERBOARD — readable PC-style table
+           Desktop is untouched. Phone only.
+           ================================================================ */
+        @media (max-width: 767px) {
+            .st-key-leaderboard_table_student,
+            .st-key-leaderboard_table_mentor {
+                width:100% !important;
+                max-width:100% !important;
+                min-width:0 !important;
+                overflow:visible !important;
+                box-sizing:border-box !important;
+            }
+
+            .st-key-leaderboard_table_student .lb-row,
+            .st-key-leaderboard_table_mentor .lb-row {
+                display:grid !important;
+                grid-template-columns:28px minmax(0,1fr) 36px 42px 44px 42px 32px !important;
+                align-items:center !important;
+                width:100% !important;
+                max-width:100% !important;
+                min-width:0 !important;
+                box-sizing:border-box !important;
+                gap:3px !important;
+                padding:9px 5px !important;
+                margin-bottom:6px !important;
+                overflow:hidden !important;
+                white-space:nowrap !important;
+            }
+
+            .st-key-leaderboard_table_student .lb-row > span,
+            .st-key-leaderboard_table_mentor .lb-row > span {
+                min-width:0 !important;
+                width:auto !important;
+                max-width:100% !important;
+                flex:none !important;
+                overflow:hidden !important;
+                text-overflow:ellipsis !important;
+                white-space:nowrap !important;
+                font-size:10px !important;
+                line-height:1.15 !important;
+            }
+
+            .st-key-leaderboard_table_student .lb-row > span:nth-child(1),
+            .st-key-leaderboard_table_mentor .lb-row > span:nth-child(1) {
+                text-align:center !important;
+                font-size:10.5px !important;
+                font-weight:800 !important;
+            }
+
+            .st-key-leaderboard_table_student .lb-row > span:nth-child(2),
+            .st-key-leaderboard_table_mentor .lb-row > span:nth-child(2) {
+                text-align:left !important;
+                font-size:11px !important;
+                font-weight:750 !important;
+            }
+
+            .st-key-leaderboard_table_student .lb-row > span:nth-child(n+3),
+            .st-key-leaderboard_table_mentor .lb-row > span:nth-child(n+3) {
+                text-align:center !important;
+                font-size:9.5px !important;
+                font-weight:650 !important;
+            }
+
+            .st-key-leaderboard_table_student .lb-row > span:nth-child(2) > span,
+            .st-key-leaderboard_table_mentor .lb-row > span:nth-child(2) > span {
+                display:inline-flex !important;
+                align-items:center !important;
+                gap:5px !important;
+                min-width:0 !important;
+                max-width:100% !important;
+                overflow:hidden !important;
+                text-overflow:ellipsis !important;
+                white-space:nowrap !important;
+            }
+
+            .st-key-leaderboard_table_student .lb-row > span:nth-child(2) img,
+            .st-key-leaderboard_table_mentor .lb-row > span:nth-child(2) img {
+                width:23px !important;
+                height:23px !important;
+                flex:0 0 23px !important;
+            }
+
+            .st-key-leaderboard_table_student .lb-row.me {
+                box-shadow:0 4px 14px rgba(38,171,140,.10) !important;
+            }
+        }
+
+        @media (max-width: 380px) {
+            .st-key-leaderboard_table_student .lb-row,
+            .st-key-leaderboard_table_mentor .lb-row {
+                grid-template-columns:26px minmax(0,1fr) 33px 39px 41px 39px 29px !important;
+                gap:2px !important;
+                padding:8px 3px !important;
+            }
+            .st-key-leaderboard_table_student .lb-row > span,
+            .st-key-leaderboard_table_mentor .lb-row > span {
+                font-size:9px !important;
+            }
+            .st-key-leaderboard_table_student .lb-row > span:nth-child(2),
+            .st-key-leaderboard_table_mentor .lb-row > span:nth-child(2) {
+                font-size:10px !important;
+            }
+        }
+
 </style>
         """,
         unsafe_allow_html=True,
@@ -5818,7 +5924,272 @@ def page_profile():
         .mv-pv-stat-number { font-size:21px; }
         .mv-pv-stat-label { font-size:11px; }
     }
-    </style>
+    
+
+    /* ================================================================
+       FINAL PROFILE MOBILE REBUILD
+       The Profile page gets the full phone width and a clean 2x2 stats
+       grid. Desktop remains unchanged.
+       ================================================================ */
+    @media (max-width: 767px) {
+        .st-key-profile_v2_shell {
+            width:100% !important;
+            max-width:100% !important;
+            min-width:0 !important;
+            margin:0 !important;
+            padding:0 !important;
+            box-sizing:border-box !important;
+        }
+
+        .st-key-profile_v2_shell > div[data-testid="stVerticalBlock"] {
+            width:100% !important;
+            max-width:100% !important;
+            min-width:0 !important;
+        }
+
+        .st-key-profile_v2_hero {
+            width:100% !important;
+            max-width:100% !important;
+            margin:4px 0 14px !important;
+            padding:0 !important;
+        }
+
+        .st-key-profile_v2_hero div[data-testid="stHorizontalBlock"] {
+            display:grid !important;
+            grid-template-columns:82px minmax(0,1fr) !important;
+            grid-template-rows:auto auto !important;
+            gap:6px 14px !important;
+            width:100% !important;
+            max-width:100% !important;
+            min-width:0 !important;
+            padding:20px !important;
+            box-sizing:border-box !important;
+            border:1px solid rgba(38,171,140,.28) !important;
+            border-radius:22px !important;
+            background:linear-gradient(145deg,rgba(38,171,140,.13),rgba(20,35,38,.88)) !important;
+            box-shadow:0 12px 30px rgba(0,0,0,.18) !important;
+        }
+
+        .st-key-profile_v2_hero div[data-testid="column"] {
+            width:100% !important;
+            max-width:100% !important;
+            min-width:0 !important;
+            padding:0 !important;
+        }
+
+        .st-key-profile_v2_hero div[data-testid="column"]:nth-child(1) {
+            grid-column:1 !important;
+            grid-row:1 / span 2 !important;
+            display:flex !important;
+            align-items:center !important;
+            justify-content:center !important;
+        }
+
+        .st-key-profile_v2_hero div[data-testid="column"]:nth-child(2) {
+            grid-column:2 !important;
+            grid-row:1 !important;
+        }
+
+        .st-key-profile_v2_hero div[data-testid="column"]:nth-child(3) {
+            grid-column:2 !important;
+            grid-row:2 !important;
+        }
+
+        .st-key-profile_v2_hero .mv-pv-name {
+            font-size:25px !important;
+            line-height:1.05 !important;
+            white-space:nowrap !important;
+            overflow:hidden !important;
+            text-overflow:ellipsis !important;
+        }
+
+        .st-key-profile_v2_hero .mv-pv-role { margin-top:7px !important; }
+
+        .st-key-profile_v2_hero .mv-pv-status {
+            display:inline-flex !important;
+            width:auto !important;
+            padding:6px 10px !important;
+            border-radius:999px !important;
+            font-size:10px !important;
+        }
+
+        .st-key-profile_v2_stats {
+            width:100% !important;
+            max-width:100% !important;
+            min-width:0 !important;
+            margin:0 0 14px !important;
+            padding:0 !important;
+            box-sizing:border-box !important;
+        }
+
+        .st-key-profile_v2_stats div[data-testid="stHorizontalBlock"] {
+            display:grid !important;
+            grid-template-columns:repeat(2,minmax(0,1fr)) !important;
+            gap:10px !important;
+            width:100% !important;
+            max-width:100% !important;
+            min-width:0 !important;
+        }
+
+        .st-key-profile_v2_stats div[data-testid="column"] {
+            width:100% !important;
+            max-width:100% !important;
+            min-width:0 !important;
+            padding:0 !important;
+        }
+
+        .st-key-profile_v2_stats .mv-pv-stat {
+            width:100% !important;
+            min-width:0 !important;
+            min-height:116px !important;
+            padding:14px 8px 10px !important;
+            border-radius:17px !important;
+            display:flex !important;
+            flex-direction:column !important;
+            align-items:center !important;
+            justify-content:center !important;
+            overflow:hidden !important;
+            box-sizing:border-box !important;
+        }
+
+        .st-key-profile_v2_stats .mv-pv-stat-icon {
+            width:40px !important;
+            height:40px !important;
+            margin-bottom:7px !important;
+            flex:0 0 auto !important;
+        }
+
+        .st-key-profile_v2_stats .mv-pv-stat-number {
+            font-size:22px !important;
+            line-height:1.1 !important;
+            white-space:nowrap !important;
+            overflow:hidden !important;
+            text-overflow:ellipsis !important;
+        }
+
+        .st-key-profile_v2_stats .mv-pv-stat-label {
+            width:100% !important;
+            margin-top:5px !important;
+            font-size:11px !important;
+            line-height:1.2 !important;
+            text-align:center !important;
+            white-space:normal !important;
+            overflow:hidden !important;
+        }
+
+        .st-key-profile_v2_stats [class*="st-key-profile_v2_stat_btn_"] {
+            width:100% !important;
+            min-width:0 !important;
+            padding:0 !important;
+        }
+
+        .st-key-profile_v2_stats [class*="st-key-profile_v2_stat_btn_"] .stButton,
+        .st-key-profile_v2_stats [class*="st-key-profile_v2_stat_btn_"] button {
+            width:100% !important;
+        }
+
+        .st-key-profile_v2_stats [class*="st-key-profile_v2_stat_btn_"] button {
+            min-height:28px !important;
+            font-size:10.5px !important;
+            padding:2px 3px !important;
+            white-space:nowrap !important;
+        }
+
+        .st-key-profile_v2_main {
+            width:100% !important;
+            max-width:100% !important;
+            min-width:0 !important;
+            padding:0 !important;
+            margin:0 !important;
+        }
+
+        .st-key-profile_v2_main div[data-testid="stHorizontalBlock"] {
+            display:grid !important;
+            grid-template-columns:minmax(0,1fr) !important;
+            gap:0 !important;
+            width:100% !important;
+            max-width:100% !important;
+            min-width:0 !important;
+        }
+
+        .st-key-profile_v2_main div[data-testid="column"] {
+            width:100% !important;
+            max-width:100% !important;
+            min-width:0 !important;
+            padding:0 !important;
+        }
+
+        .st-key-profile_v2_info,
+        .st-key-profile_v2_password,
+        .st-key-profile_v2_security,
+        .st-key-profile_v2_actions,
+        .st-key-profile_v2_mentor {
+            width:100% !important;
+            max-width:100% !important;
+            min-width:0 !important;
+            box-sizing:border-box !important;
+            padding:16px !important;
+            margin-bottom:12px !important;
+            border-radius:18px !important;
+        }
+
+        .st-key-profile_v2_info .mv-pv-info-grid {
+            display:grid !important;
+            grid-template-columns:1fr 1fr !important;
+            gap:8px !important;
+            width:100% !important;
+        }
+
+        .st-key-profile_v2_info .mv-pv-info {
+            min-width:0 !important;
+            padding:11px 9px !important;
+            gap:8px !important;
+            border-radius:13px !important;
+        }
+
+        .st-key-profile_v2_info .mv-pv-info-icon {
+            width:32px !important;
+            height:32px !important;
+            flex:0 0 32px !important;
+            font-size:14px !important;
+        }
+
+        .st-key-profile_v2_info .mv-pv-info-label { font-size:9px !important; }
+        .st-key-profile_v2_info .mv-pv-info-value { font-size:12px !important; }
+
+        .st-key-profile_v2_mentor {
+            padding:0 !important;
+            background:transparent !important;
+            border:0 !important;
+        }
+
+        .st-key-profile_v2_mentor .mv-pv-footer {
+            padding:16px !important;
+            border-radius:18px !important;
+        }
+
+        .st-key-profile_v2_mentor .stButton > button {
+            min-height:42px !important;
+        }
+    }
+
+    @media (max-width:380px) {
+        .st-key-profile_v2_hero div[data-testid="stHorizontalBlock"] {
+            grid-template-columns:72px minmax(0,1fr) !important;
+            gap:5px 10px !important;
+            padding:16px !important;
+        }
+        .st-key-profile_v2_hero .mv-pv-name { font-size:23px !important; }
+        .st-key-profile_v2_stats div[data-testid="stHorizontalBlock"] { gap:8px !important; }
+        .st-key-profile_v2_stats .mv-pv-stat {
+            min-height:108px !important;
+            padding:12px 6px 9px !important;
+        }
+        .st-key-profile_v2_stats .mv-pv-stat-label { font-size:10px !important; }
+        .st-key-profile_v2_info .mv-pv-info-grid { grid-template-columns:1fr !important; }
+    }
+
+</style>
     """, unsafe_allow_html=True)
 
     with st.container(key="profile_v2_shell"):
