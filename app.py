@@ -5709,6 +5709,12 @@ def render_profile_stats_strip(stats):
 
 
 def page_profile():
+    """Premium Profile page.
+
+    Intentionally uses a fresh set of Streamlit container keys so the old
+    profile CSS cannot leak into this layout. Desktop and mobile are both
+    designed from the same semantic structure; CSS only changes the grid.
+    """
     sid = st.session_state["student_id"]
     student = sh.get_student_by_id(sid)
     name = student["name"]
@@ -5716,247 +5722,292 @@ def page_profile():
     birth_date_val = (student.get("birth_date") or "").strip()
     gender_val = (student.get("gender") or "").strip()
 
-    # ---- Stats used in the strip beside the header: tests completed,
-    # average score, overall leaderboard rank - all derived from data
-    # already being cached elsewhere in the app, so this adds no extra
-    # Google Sheets calls. ----
     results = cached_results()
     my_results = results[results["student_id"] == sid] if not results.empty else results
     tests_completed = len(my_results)
     if not my_results.empty:
-        avg_pct = round((my_results["marks"] / my_results["total"]).mean() * 100, 1)
+        totals = pd.to_numeric(my_results["total"], errors="coerce").replace(0, np.nan)
+        marks = pd.to_numeric(my_results["marks"], errors="coerce")
+        avg_pct = round((marks / totals).mean() * 100, 1) if totals.notna().any() else 0.0
     else:
         avg_pct = 0.0
-    rank, _out_of = cached_rank(sid)
+    rank, out_of = cached_rank(sid)
 
-    # Responsive profile hero shell: one DOM container lets CSS control the
-    # desktop two-column presentation and the phone single-column presentation
-    # without relying on Streamlit's inline column flex-basis.
-    with st.container(key="profile_hero_shell"):
-        with st.container(key="card_profile_header"):
-            st.markdown(
-                f"""
-                <div style='display:flex; align-items:center; gap:16px; margin-bottom:14px; flex-wrap:wrap;'>
-                    {_profile_hero_avatar_html(render_avatar(sid, name, size=64, font_size=24), "#26AB8C")}
-                    <div>
-                        <div style='font-family:var(--serif); font-weight:600; font-size:23px; color:var(--mv-ink); line-height:1.2;'>{name}</div>
-                        <div style='display:flex; align-items:center; gap:8px; margin-top:4px;'>
-                            <span style='font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--mv-muted); font-weight:700;'>Student</span>
-                            <span style='font-size:11px; padding:2px 10px; border-radius:999px; background:var(--mv-primary-soft); color:var(--mv-primary); font-weight:700;'>✓ Verified</span>
-                        </div>
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+    # Fresh, isolated Profile design. No desktop/mobile layout is inherited
+    # from the older profile cards.
+    st.markdown("""
+    <style>
+    /* ================================================================
+       MED VENTURE — PROFILE V2
+       A clean dashboard layout. All selectors are scoped to .mv-profile-v2
+       so the rest of the application is untouched.
+       ================================================================ */
+    .mv-profile-v2 { width:100%; max-width:1180px; margin:0 auto; }
+    .mv-profile-v2 * { box-sizing:border-box; }
 
-        # ---- Stats strip: Tests Completed / Average Score / Leaderboard
-        # Rank / Total Exams, each with a "View X →" shortcut into the page
-        # that actually shows that data. ----
-        with st.container(key="card_profile_stats"):
-            cols = st.columns(4)
-            stats = [
-            {"icon": "📋", "icon_bg": "var(--mv-primary-soft)", "number": tests_completed,
-             "label": "Tests Completed", "link_text": "View Results →", "go_to_page": "tests"},
-            {"icon": "📈", "icon_bg": "var(--mv-blue-soft)", "number": f"{avg_pct}%",
-             "label": "Average Score", "link_text": "View Analysis →", "go_to_page": "analysis"},
-            {"icon": "🏆", "icon_bg": "var(--mv-accent-soft)", "number": (f"#{rank}" if rank else "—"),
-             "label": "Leaderboard Rank", "link_text": "View Leaderboard →", "go_to_page": "leaderboard"},
-                {"icon": "📚", "icon_bg": "var(--mv-purple-soft)", "number": tests_completed,
-                 "label": "Total Exams", "link_text": "View Results →", "go_to_page": "tests"},
-            ]
-            for idx, (col, stat) in enumerate(zip(cols, stats)):
-                with col:
-                    st.markdown(_profile_stat_card_html(stat["icon"], stat["icon_bg"], stat["number"], stat["label"]), unsafe_allow_html=True)
-                    target_page = stat.get("go_to_page")
-                    if target_page:
-                        if st.button(stat["link_text"], key=f"profile_stat_mobile_safe_{idx}_{target_page}", use_container_width=True):
-                            if target_page.startswith("mentor:"):
-                                st.session_state["mentor_page"] = target_page.split("mentor:", 1)[1]
-                                st.session_state.pop("mentor_analysis_sid", None)
-                                st.session_state.pop("mentor_analysis_view_key_id", None)
-                                go_to("mentor")
-                            else:
-                                go_to(target_page)
-                    else:
-                        st.markdown(f"<div style='font-size:12.5px; color:var(--mv-primary); font-weight:600; margin-top:4px;'>{stat.get('caption', '')}</div>", unsafe_allow_html=True)
+    .mv-pv-hero {
+        display:grid; grid-template-columns:auto 1fr auto; align-items:center;
+        gap:20px; padding:24px 26px; margin:8px 0 18px;
+        background:linear-gradient(135deg, rgba(38,171,140,.12), rgba(20,35,38,.72));
+        border:1px solid rgba(38,171,140,.28); border-radius:24px;
+        box-shadow:0 14px 36px rgba(0,0,0,.16);
+    }
+    .mv-pv-avatar { display:flex; align-items:center; justify-content:center; }
+    .mv-pv-name { font-family:var(--serif); font-size:30px; font-weight:650; line-height:1.05; color:var(--mv-ink); }
+    .mv-pv-role { margin-top:7px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+    .mv-pv-role span { font-size:11px; font-weight:800; letter-spacing:.09em; text-transform:uppercase; color:var(--mv-muted); }
+    .mv-pv-verified { padding:5px 10px; border-radius:999px; background:rgba(38,171,140,.15); color:var(--mv-primary); letter-spacing:0 !important; text-transform:none !important; }
+    .mv-pv-status { padding:9px 13px; border-radius:13px; background:rgba(38,171,140,.10); color:var(--mv-primary); font-size:12px; font-weight:800; text-align:center; }
+    .mv-pv-status.off { background:rgba(242,67,74,.11); color:#f2434a; }
 
-    left_col, right_col = st.columns([1.7, 1], gap="medium")
+    .mv-pv-stats { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin-bottom:18px; }
+    .mv-pv-stat { min-width:0; padding:18px 14px; border:1px solid var(--mv-border); border-radius:18px; background:var(--mv-surface); text-align:center; }
+    .mv-pv-stat-icon { width:42px; height:42px; margin:0 auto 9px; display:flex; align-items:center; justify-content:center; border-radius:13px; font-size:19px; }
+    .mv-pv-stat-number { font-family:var(--mono); font-size:23px; font-weight:800; color:var(--mv-ink); line-height:1.1; }
+    .mv-pv-stat-label { margin-top:5px; font-size:11.5px; color:var(--mv-muted); font-weight:650; line-height:1.25; }
 
-    # ---- Left: Profile Information (view mode / edit mode) ----
-    with left_col:
-        with st.container(key="card_profile_info"):
-            hcol1, hcol2 = st.columns([2.4, 1.3])
-            with hcol1:
-                st.markdown("##### 👤 Profile Information")
-            with hcol2:
-                edit_open = st.session_state.get("profile_edit_open", False)
-                if st.button("✖ Cancel" if edit_open else "✏️ Update Profile",
-                             key="profile_toggle_edit_btn", use_container_width=True):
-                    st.session_state["profile_edit_open"] = not edit_open
-                    st.rerun()
+    .mv-pv-main { display:grid; grid-template-columns:minmax(0,1.45fr) minmax(300px,.85fr); gap:18px; align-items:start; }
+    .mv-pv-card { padding:20px; border:1px solid var(--mv-border); border-radius:20px; background:var(--mv-surface); margin-bottom:18px; box-shadow:0 8px 24px rgba(0,0,0,.08); }
+    .mv-pv-card-title { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px; }
+    .mv-pv-card-title h3 { margin:0; color:var(--mv-ink); font-size:17px; font-weight:800; }
+    .mv-pv-card-title p { margin:3px 0 0; color:var(--mv-muted); font-size:12px; }
+    .mv-pv-info-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+    .mv-pv-info { display:flex; align-items:center; gap:11px; padding:13px; border:1px solid var(--mv-border); border-radius:14px; background:rgba(255,255,255,.018); min-width:0; }
+    .mv-pv-info-icon { width:36px; height:36px; flex:0 0 36px; border-radius:11px; display:flex; align-items:center; justify-content:center; font-size:16px; }
+    .mv-pv-info-label { font-size:10.5px; color:var(--mv-muted); font-weight:700; text-transform:uppercase; letter-spacing:.06em; }
+    .mv-pv-info-value { margin-top:2px; color:var(--mv-ink); font-size:13.5px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
-            if not st.session_state.get("profile_edit_open"):
-                fcol1, fcol2 = st.columns(2)
-                with fcol1:
-                    st.markdown(_profile_info_row("📞", "Phone", sh.format_bd_phone(student["phone"]), "var(--mv-primary-soft)"), unsafe_allow_html=True)
-                    st.markdown(_profile_info_row("🚻", "Gender", gender_val or "N/A", "var(--mv-blue-soft)"), unsafe_allow_html=True)
-                with fcol2:
-                    st.markdown(_profile_info_row("🎂", "Birth Date", birth_date_val or "N/A", "var(--mv-accent-soft)"), unsafe_allow_html=True)
-                    st.markdown(_profile_info_row("🎓", "Role", "STUDENT", "var(--mv-purple-soft)"), unsafe_allow_html=True)
-            else:
-                # ---- Edit mode: Name / Birth Date / Gender only. Phone is
-                # intentionally NOT offered here at all - it's the
-                # student's login identity, so there's simply no field for
-                # it in this form (nothing to explain to the student,
-                # nothing for them to accidentally try to change). ----
-                new_name = st.text_input("Full name", value=name, key="profile_edit_name_input")
+    .mv-pv-status-list { display:grid; gap:9px; }
+    .mv-pv-status-item { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 13px; border-radius:13px; background:rgba(255,255,255,.025); }
+    .mv-pv-status-item .label { color:var(--mv-muted); font-size:12px; font-weight:650; }
+    .mv-pv-pill { padding:5px 10px; border-radius:999px; font-size:11px; font-weight:800; }
+    .mv-pv-pill.good { background:rgba(38,171,140,.13); color:var(--mv-primary); }
+    .mv-pv-pill.bad { background:rgba(242,67,74,.13); color:#f2434a; }
 
-                bcol1, bcol2 = st.columns(2)
-                with bcol1:
-                    want_birth_date = st.checkbox(
-                        "Add / update birth date", value=bool(birth_date_val),
-                        key="profile_edit_bd_toggle",
-                    )
-                    new_birth_date = None
-                    if want_birth_date:
-                        try:
-                            default_bd_val = (
-                                datetime.strptime(birth_date_val, "%Y-%m-%d").date()
-                                if birth_date_val else date(2005, 1, 1)
-                            )
-                        except Exception:
-                            default_bd_val = date(2005, 1, 1)
-                        new_birth_date = st.date_input(
-                            "Birth date", value=default_bd_val, key="profile_edit_bd_input",
-                            min_value=date(1950, 1, 1), max_value=date.today(),
-                        )
-                with bcol2:
-                    gender_idx = GENDER_OPTIONS.index(gender_val) if gender_val in GENDER_OPTIONS else 0
-                    new_gender = st.selectbox(
-                        "Gender", GENDER_OPTIONS, index=gender_idx, key="profile_edit_gender_input",
-                    )
+    .mv-pv-action { display:flex; align-items:center; gap:12px; padding:14px 15px; border:1px solid var(--mv-border); border-radius:15px; margin-bottom:10px; }
+    .mv-pv-action-icon { width:38px; height:38px; border-radius:12px; display:flex; align-items:center; justify-content:center; background:var(--mv-primary-soft); font-size:17px; flex:0 0 38px; }
+    .mv-pv-action-copy { flex:1; min-width:0; }
+    .mv-pv-action-copy b { color:var(--mv-ink); font-size:13.5px; }
+    .mv-pv-action-copy span { display:block; margin-top:2px; color:var(--mv-muted); font-size:11.5px; }
 
-                st.caption("📞 Your phone number is your login ID, so it can't be changed here.")
+    .mv-pv-footer { display:grid; grid-template-columns:1fr auto; align-items:center; gap:16px; padding:18px 20px; border:1px solid rgba(38,171,140,.22); border-radius:20px; background:linear-gradient(135deg,rgba(38,171,140,.10),rgba(38,171,140,.035)); }
+    .mv-pv-footer-copy b { color:var(--mv-ink); font-size:14px; }
+    .mv-pv-footer-copy span { display:block; color:var(--mv-muted); font-size:11.5px; margin-top:3px; }
 
-                if st.button("💾 Save Changes", type="primary", use_container_width=True, key="profile_save_btn"):
-                    cleaned_name = new_name.strip()
-                    if not cleaned_name:
-                        st.error("Name cannot be empty.")
-                    else:
-                        with st.spinner("Updating your profile..."):
-                            try:
-                                if cleaned_name != name:
-                                    sh.update_student_name(sid, cleaned_name)
-                                    st.session_state["student_name"] = cleaned_name
-                                sh.update_student_extra_profile(
-                                    sid,
-                                    birth_date=(new_birth_date.strftime("%Y-%m-%d") if want_birth_date and new_birth_date else ""),
-                                    gender=(new_gender if new_gender != "Not specified" else ""),
-                                )
-                                clear_all_caches()
-                            except ValueError as e:
-                                st.error(str(e))
-                            else:
-                                st.session_state["profile_edit_open"] = False
-                                st.success("Profile updated!")
-                                st.rerun()
+    /* Streamlit buttons inside this page */
+    .mv-profile-v2 .stButton > button { border-radius:11px !important; min-height:38px !important; font-weight:750 !important; }
+    .mv-profile-v2 .mv-pv-stat-btn .stButton > button { border:0 !important; background:transparent !important; color:var(--mv-primary) !important; min-height:26px !important; font-size:11.5px !important; padding:0 !important; }
 
-        # ---- Change Password lives right under Profile Information (in
-        # the same left column) instead of as its own full-width section
-        # below both columns - that used to leave a large empty gap here
-        # whenever the right column (Account Status + Log Out) ended up
-        # taller than this one, since the two columns aren't forced to
-        # match height. Putting it here fills that gap naturally. ----
-        with st.container(key="card_profile_changepw"):
-            pw_open = st.session_state.get("profile_changepw_open", False)
-            if st.button(f"🔑  Change Password {'▾' if pw_open else '▸'}",
-                         key="profile_changepw_toggle_btn", use_container_width=True):
-                st.session_state["profile_changepw_open"] = not pw_open
-                st.rerun()
-            st.caption("Update your password regularly to keep your account secure.")
+    @media (max-width: 850px) {
+        .mv-profile-v2 { width:100%; max-width:none; }
+        .mv-pv-hero { grid-template-columns:auto 1fr; padding:18px; gap:14px; border-radius:20px; }
+        .mv-pv-status { grid-column:1 / -1; text-align:left; }
+        .mv-pv-name { font-size:25px; }
+        .mv-pv-stats { grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+        .mv-pv-stat { padding:15px 10px; }
+        .mv-pv-main { grid-template-columns:1fr; gap:0; }
+        .mv-pv-info-grid { grid-template-columns:1fr; }
+        .mv-pv-card { padding:16px; border-radius:17px; }
+        .mv-pv-footer { grid-template-columns:1fr; }
+    }
+    @media (max-width: 480px) {
+        .mv-profile-v2 { margin-left:0; margin-right:0; }
+        .mv-pv-hero { padding:16px; margin-top:4px; }
+        .mv-pv-avatar .mv-avatar-glow-ring { transform:scale(.9); transform-origin:left center; }
+        .mv-pv-name { font-size:23px; }
+        .mv-pv-stat-number { font-size:21px; }
+        .mv-pv-stat-label { font-size:11px; }
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
-            if pw_open:
-                # Plain widgets (no st.form) so the strength bar updates live while
-                # typing, instead of only appearing after the button is clicked.
-                cur_pw = st.text_input("Current password", type="password", key="prof_cur_pw")
-                new_pw1 = st.text_input("New password", type="password", key="prof_new_pw1")
-                if new_pw1:
-                    score, label, _tips = sh.password_strength(new_pw1)
-                    colors = ["#ef4444", "#ef4444", "#f59e0b", "#10b981", "#059669"]
+    with st.container(key="profile_v2_shell"):
+        st.markdown('<div class="mv-profile-v2">', unsafe_allow_html=True)
+
+        # HERO
+        with st.container(key="profile_v2_hero"):
+            h1, h2, h3 = st.columns([.72, 2.8, .9], gap="small")
+            with h1:
+                st.markdown(
+                    f'<div class="mv-pv-avatar">{_profile_hero_avatar_html(render_avatar(sid, name, size=76, font_size=28), "#26AB8C")}</div>',
+                    unsafe_allow_html=True,
+                )
+            with h2:
+                st.markdown(
+                    f'<div class="mv-pv-name">{name}</div>'
+                    f'<div class="mv-pv-role"><span>Student</span><span class="mv-pv-verified">✓ Verified</span></div>',
+                    unsafe_allow_html=True,
+                )
+            with h3:
+                cls = "mv-pv-status" if not disabled else "mv-pv-status off"
+                st.markdown(f'<div class="{cls}">● {"Active account" if not disabled else "Account disabled"}</div>', unsafe_allow_html=True)
+
+        # STATS — native buttons preserve all existing navigation behavior.
+        stats = [
+            ("📋", "var(--mv-primary-soft)", tests_completed, "Tests Completed", "View Results →", "tests"),
+            ("📈", "var(--mv-blue-soft)", f"{avg_pct}%", "Average Score", "View Analysis →", "analysis"),
+            ("🏆", "var(--mv-accent-soft)", f"#{rank}" if rank else "—", "Leaderboard Rank", "View Leaderboard →", "leaderboard"),
+            ("📚", "var(--mv-purple-soft)", tests_completed, "Total Exams", "View Results →", "tests"),
+        ]
+        with st.container(key="profile_v2_stats"):
+            stat_cols = st.columns(4, gap="small")
+            for i, (icon, bg, number, label, link_text, target) in enumerate(stats):
+                with stat_cols[i]:
                     st.markdown(
-                        f"<div class='strength-bar'><div class='strength-fill' "
-                        f"style='width:{(score+1)*20}%; background:{colors[score]};'></div></div>"
-                        f"<small>Password strength: <b>{label}</b></small>",
+                        f'<div class="mv-pv-stat">'
+                        f'<div class="mv-pv-stat-icon" style="background:{bg};">{icon}</div>'
+                        f'<div class="mv-pv-stat-number">{number}</div>'
+                        f'<div class="mv-pv-stat-label">{label}</div></div>',
                         unsafe_allow_html=True,
                     )
-                new_pw2 = st.text_input("Confirm new password", type="password", key="prof_new_pw2")
-                change_submitted = st.button("Update Password", type="primary")
+                    with st.container(key=f"profile_v2_stat_btn_{i}"):
+                        if st.button(link_text, key=f"profile_v2_nav_{i}", use_container_width=True):
+                            go_to(target)
 
-                if change_submitted:
-                    try:
-                        sh.authenticate_student(student["phone"], cur_pw)
-                    except ValueError:
-                        st.error("Current password is incorrect.")
+        # MAIN CONTENT
+        with st.container(key="profile_v2_main"):
+            left, right = st.columns([1.45, .85], gap="medium")
+
+            with left:
+                # Profile Information
+                with st.container(key="profile_v2_info"):
+                    edit_open = st.session_state.get("profile_edit_open", False)
+                    st.markdown(
+                        '<div class="mv-pv-card-title"><div><h3>👤 Profile Information</h3>'
+                        '<p>Your personal account details</p></div></div>',
+                        unsafe_allow_html=True,
+                    )
+                    if st.button("✖ Cancel" if edit_open else "✏️ Edit Profile", key="profile_v2_edit", use_container_width=True):
+                        st.session_state["profile_edit_open"] = not edit_open
+                        st.rerun()
+
+                    if not edit_open:
+                        info = [
+                            ("📞", "Phone", sh.format_bd_phone(student["phone"]), "var(--mv-primary-soft)"),
+                            ("🚻", "Gender", gender_val or "N/A", "var(--mv-blue-soft)"),
+                            ("🎂", "Birth Date", birth_date_val or "N/A", "var(--mv-accent-soft)"),
+                            ("🎓", "Role", "STUDENT", "var(--mv-purple-soft)"),
+                        ]
+                        st.markdown(
+                            '<div class="mv-pv-info-grid">' + ''.join(
+                                f'<div class="mv-pv-info"><div class="mv-pv-info-icon" style="background:{bg};">{ic}</div>'
+                                f'<div><div class="mv-pv-info-label">{lab}</div><div class="mv-pv-info-value">{val}</div></div></div>'
+                                for ic, lab, val, bg in info
+                            ) + '</div>', unsafe_allow_html=True)
                     else:
-                        _, _, tips = sh.password_strength(new_pw1)
-                        if tips:
-                            st.error("New password is too weak: " + ", ".join(tips))
-                        elif new_pw1 != new_pw2:
-                            st.error("New passwords don't match.")
-                        else:
-                            with st.spinner("Updating..."):
-                                sh.change_student_password(sid, new_pw1)
-                                clear_all_caches()
-                            st.success("Password updated. Please log in again.")
-                            for k in ("student_id", "student_name", "session_version", "role"):
-                                st.session_state.pop(k, None)
-                            st.rerun()
+                        new_name = st.text_input("Full name", value=name, key="profile_v2_name")
+                        b1, b2 = st.columns(2)
+                        with b1:
+                            want_bd = st.checkbox("Add / update birth date", value=bool(birth_date_val), key="profile_v2_bd_toggle")
+                            new_bd = None
+                            if want_bd:
+                                try:
+                                    default_bd = datetime.strptime(birth_date_val, "%Y-%m-%d").date() if birth_date_val else date(2005,1,1)
+                                except Exception:
+                                    default_bd = date(2005,1,1)
+                                new_bd = st.date_input("Birth date", value=default_bd, min_value=date(1950,1,1), max_value=date.today(), key="profile_v2_bd")
+                        with b2:
+                            gender_idx = GENDER_OPTIONS.index(gender_val) if gender_val in GENDER_OPTIONS else 0
+                            new_gender = st.selectbox("Gender", GENDER_OPTIONS, index=gender_idx, key="profile_v2_gender")
+                        st.caption("📞 Your phone number is your login ID, so it can't be changed here.")
+                        if st.button("💾 Save Changes", type="primary", use_container_width=True, key="profile_v2_save"):
+                            cleaned = new_name.strip()
+                            if not cleaned:
+                                st.error("Name cannot be empty.")
+                            else:
+                                with st.spinner("Updating your profile..."):
+                                    try:
+                                        if cleaned != name:
+                                            sh.update_student_name(sid, cleaned)
+                                            st.session_state["student_name"] = cleaned
+                                        sh.update_student_extra_profile(
+                                            sid,
+                                            birth_date=(new_bd.strftime("%Y-%m-%d") if want_bd and new_bd else ""),
+                                            gender=(new_gender if new_gender != "Not specified" else ""),
+                                        )
+                                        clear_all_caches()
+                                    except ValueError as e:
+                                        st.error(str(e))
+                                    else:
+                                        st.session_state["profile_edit_open"] = False
+                                        st.success("Profile updated!")
+                                        st.rerun()
 
-    # ---- Right: Account Status + Log Out ----
-    with right_col:
-        with st.container(key="card_profile_status"):
-            st.markdown("##### 🛡️ Account Status")
-            st.markdown(
-                _profile_status_pill_html("Account Status", "Disabled" if disabled else "Active", not disabled)
-                + _profile_status_pill_html("Block Status", "Blocked" if disabled else "Not Blocked", not disabled),
-                unsafe_allow_html=True,
-            )
+                # Change Password
+                with st.container(key="profile_v2_password"):
+                    pw_open = st.session_state.get("profile_changepw_open", False)
+                    st.markdown(
+                        '<div class="mv-pv-card-title"><div><h3>🔐 Password & Security</h3>'
+                        '<p>Keep your account protected with a strong password</p></div></div>',
+                        unsafe_allow_html=True,
+                    )
+                    if st.button("Change Password ▾" if pw_open else "Change Password →", key="profile_v2_pw_toggle", use_container_width=True):
+                        st.session_state["profile_changepw_open"] = not pw_open
+                        st.rerun()
+                    if pw_open:
+                        cur_pw = st.text_input("Current password", type="password", key="profile_v2_cur_pw")
+                        new_pw1 = st.text_input("New password", type="password", key="profile_v2_new_pw1")
+                        if new_pw1:
+                            score, label, tips = sh.password_strength(new_pw1)
+                            colors = ["#ef4444", "#ef4444", "#f59e0b", "#10b981", "#059669"]
+                            st.markdown(
+                                f'<div class="strength-bar"><div class="strength-fill" style="width:{(score+1)*20}%;background:{colors[score]};"></div></div>'
+                                f'<small>Password strength: <b>{label}</b></small>', unsafe_allow_html=True)
+                        new_pw2 = st.text_input("Confirm new password", type="password", key="profile_v2_new_pw2")
+                        if st.button("Update Password", type="primary", use_container_width=True, key="profile_v2_pw_save"):
+                            try:
+                                sh.authenticate_student(student["phone"], cur_pw)
+                            except ValueError:
+                                st.error("Current password is incorrect.")
+                            else:
+                                _, _, tips = sh.password_strength(new_pw1)
+                                if tips:
+                                    st.error("New password is too weak: " + ", ".join(tips))
+                                elif new_pw1 != new_pw2:
+                                    st.error("New passwords don't match.")
+                                else:
+                                    with st.spinner("Updating..."):
+                                        sh.change_student_password(sid, new_pw1)
+                                        clear_all_caches()
+                                    st.success("Password updated. Please log in again.")
+                                    for k in ("student_id", "student_name", "session_version", "role"):
+                                        st.session_state.pop(k, None)
+                                    st.rerun()
 
-        with st.container(key="card_profile_logout"):
-            st.markdown(
-                "<div style='display:flex; align-items:center; gap:10px;'>"
-                "<div class='mv-logout-icon'>🚪</div>"
-                "<span style='font-weight:700; font-size:15px; color:var(--mv-ink);'>Log Out</span>"
-                "</div>",
-                unsafe_allow_html=True,
-            )
-            st.caption("Sign out from your account securely.")
-            if st.button("Log Out", use_container_width=True, key="profile_logout_btn_new"):
-                for k in ("student_id", "student_name", "session_version", "role"):
-                    st.session_state.pop(k, None)
-                go_to("home")
+            with right:
+                # Account Security
+                with st.container(key="profile_v2_security"):
+                    st.markdown(
+                        '<div class="mv-pv-card-title"><div><h3>🛡️ Account Security</h3>'
+                        '<p>Current account state</p></div></div>', unsafe_allow_html=True)
+                    account_good = not disabled
+                    st.markdown(
+                        '<div class="mv-pv-status-list">'
+                        f'<div class="mv-pv-status-item"><span class="label">Account Status</span><span class="mv-pv-pill {"good" if account_good else "bad"}">{"Active" if account_good else "Disabled"}</span></div>'
+                        f'<div class="mv-pv-status-item"><span class="label">Block Status</span><span class="mv-pv-pill {"good" if account_good else "bad"}">{"Not Blocked" if account_good else "Blocked"}</span></div>'
+                        '</div>', unsafe_allow_html=True)
 
-    # ---- Mentor Login lives here so the student nav stays a clean,
-    # consistent set of items everywhere. Icon chip + title/description
-    # on the left, a compact button on the right - matches the reference
-    # design instead of the earlier plain text-above-full-width-button. ----
-    with st.container(key="card_profile_mentor"):
-        text_col, btn_col = st.columns([3.2, 1.3])
-        with text_col:
+                # Account actions
+                with st.container(key="profile_v2_actions"):
+                    st.markdown(
+                        '<div class="mv-pv-card-title"><div><h3>⚙️ Account Actions</h3>'
+                        '<p>Quick account controls</p></div></div>', unsafe_allow_html=True)
+                    st.markdown('<div class="mv-pv-action"><div class="mv-pv-action-icon">🚪</div><div class="mv-pv-action-copy"><b>Sign out</b><span>End your current session securely.</span></div></div>', unsafe_allow_html=True)
+                    if st.button("Log Out", key="profile_v2_logout", use_container_width=True):
+                        for k in ("student_id", "student_name", "session_version", "role"):
+                            st.session_state.pop(k, None)
+                        go_to("home")
+
+        # Mentor CTA
+        with st.container(key="profile_v2_mentor"):
             st.markdown(
-                "<div style='display:flex; align-items:center; gap:14px;'>"
-                "<div class='mv-mentor-cta-icon'>🎓</div>"
-                "<div>"
-                "<div style='font-weight:700; font-size:15px; color:var(--mv-ink);'>Are you a mentor?</div>"
-                "<div style='font-size:12.5px; color:var(--mv-muted); margin-top:2px;'>"
-                "Join our mentor community and help others achieve their goals.</div>"
-                "</div></div>",
-                unsafe_allow_html=True,
-            )
-        with btn_col:
-            if st.button("👨‍🏫 Mentor Login", use_container_width=True, key="profile_mentor_login_btn"):
+                '<div class="mv-pv-footer"><div class="mv-pv-footer-copy">'
+                '<b>🎓 Are you a mentor?</b><span>Switch to the Mentor panel to manage exams and students.</span>'
+                '</div></div>', unsafe_allow_html=True)
+            if st.button("Mentor Login →", key="profile_v2_mentor_login", use_container_width=True):
                 go_to("mentor")
+
+        st.markdown('</div>', unsafe_allow_html=True)
 
 
 # =========================================================================
