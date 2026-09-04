@@ -136,7 +136,7 @@ RESULTS_HEADER = [
     # lightweight metadata so the result can reopen the exact submitted photo.
     "omr_photo_file_id", "omr_photo_name",
     "omr_original_answers_json", "omr_final_answers_json", "omr_double_touch_json",
-    "review_status", "review_note", "reviewed_at",
+    "omr_grid_json", "review_status", "review_note", "reviewed_at",
 ]
 
 CONFIG_HEADER = ["config_key", "config_value"]
@@ -1392,6 +1392,7 @@ def _result_row_values(student_id, student_name, key_id, result):
     original_answers_json = json.dumps(result.get("omr_original_answers", {}), ensure_ascii=False)
     final_answers_json = json.dumps(result.get("omr_final_answers", {}), ensure_ascii=False)
     double_touch_json = json.dumps(result.get("omr_double_touch", []), ensure_ascii=False)
+    grid_json = json.dumps(result.get("omr_grid", {}), ensure_ascii=False)
 
     return [
         timestamp, student_id, student_name, key_id,
@@ -1402,7 +1403,7 @@ def _result_row_values(student_id, student_name, key_id, result):
         False, wrong_details_json, skipped_json,
         str(result.get("omr_photo_file_id", "") or ""),
         str(result.get("omr_photo_name", "") or ""),
-        original_answers_json, final_answers_json, double_touch_json,
+        original_answers_json, final_answers_json, double_touch_json, grid_json,
         result.get("review_status", ""), result.get("review_note", ""), result.get("reviewed_at", ""),
     ]
 
@@ -1481,66 +1482,53 @@ def append_result_if_not_submitted(student_id, student_name, key_id, result, omr
 
 
 def update_result(student_id, key_id, new_correct=None, new_wrong_count=None,
-                   new_skipped=None, new_wrong=None):
-    """
-    Mentor result edit using Correct/Wrong/Skipped as the source of truth.
-
-    Marks are ALWAYS recalculated from those counts; there is intentionally no
-    manual marks override anymore. The per-question wrong/skipped JSON is
-    preserved unless a new question list is explicitly supplied, because
-    count-only editing cannot safely invent which individual questions changed.
-    """
+                   new_skipped=None, new_wrong=None, new_final_answers=None,
+                   new_double_touch=None, review_note=None):
+    """Mentor result edit; supports legacy counts and question-level answer review."""
     ws = _cached_worksheet("Results")
     values = _with_retry(ws.get_all_values)
-    if not values:
-        raise ValueError("Result not found.")
-    header = values[0]
-    row_idx = None
-    current = None
+    if not values: raise ValueError("Result not found.")
+    header = values[0]; row_idx = None; current = None
     for i, row in enumerate(values[1:], start=2):
-        rec = dict(zip(header, row))
+        rec = dict(zip(header, row + [""] * max(0, len(header)-len(row))))
         if str(rec.get("student_id", "")) == str(student_id) and str(rec.get("key_id", "")) == str(key_id):
-            row_idx = i
-            current = rec
-            break
-    if not row_idx:
-        raise ValueError("Result not found.")
-
+            row_idx, current = i, rec; break
+    if not row_idx: raise ValueError("Result not found.")
     total = _to_int(current.get("total"), 0)
-    correct = _to_int(new_correct if new_correct is not None else current.get("correct"), 0)
-    wrong_count = _to_int(new_wrong_count if new_wrong_count is not None else current.get("wrong_count"), 0)
-    skipped = _to_int(new_skipped if new_skipped is not None else current.get("skipped"), 0)
-
-    if min(correct, wrong_count, skipped) < 0:
-        raise ValueError("Correct, Wrong and Skipped cannot be negative.")
-    if correct + wrong_count + skipped != total:
-        raise ValueError(f"Correct + Wrong + Skipped must equal {total}.")
-
-    negative_marking = _to_bool(current.get("negative_marking", False))
-    negative_value = _to_float(current.get("negative_value"), 0.0)
-    marks = round(correct - (wrong_count * negative_value if negative_marking else 0.0), 2)
-    answered = correct + wrong_count
-    accuracy = round((correct / answered) * 100, 2) if answered else 0.0
-
-    updates = {
-        "correct": correct,
-        "wrong_count": wrong_count,
-        "skipped": skipped,
-        "answered": answered,
-        "marks": marks,
-        "accuracy": accuracy,
-        "edited_by_mentor": True,
-    }
-    if new_wrong is not None:
-        updates["wrong"] = ",".join(str(q) for q in new_wrong)
-
-    for col, val in updates.items():
-        if col not in header:
-            continue
-        col_idx = header.index(col) + 1
-        col_letter = gspread.utils.rowcol_to_a1(1, col_idx).rstrip("1")
-        _with_retry(ws.update, f"{col_letter}{row_idx}", [[val]], value_input_option=RAW)
-    clear_data_caches()
+    neg = _to_bool(current.get("negative_marking", False)); negval = _to_float(current.get("negative_value"), 0.0)
+    if new_final_answers is not None:
+        try: answers = json.loads(new_final_answers) if isinstance(new_final_answers, str) else dict(new_final_answers)
+        except Exception: raise ValueError("Invalid final answer data.")
+        dt = sorted(set(int(q) for q in (new_double_touch or [])))
+        for q in dt: answers[str(q)] = "MULTI"
+        normalized = {}
+        for q in range(1, total + 1):
+            v = answers.get(str(q), answers.get(q)); v = None if v is None else str(v).upper()
+            normalized[str(q)] = v if v in ("A","B","C","D","MULTI") else None
+        correct = _to_int(new_correct if new_correct is not None else current.get("correct"), 0)
+        wrong = _to_int(new_wrong_count if new_wrong_count is not None else current.get("wrong_count"), 0)
+        skipped = _to_int(new_skipped if new_skipped is not None else current.get("skipped"), 0)
+        updates = {"omr_final_answers_json": json.dumps(normalized, ensure_ascii=False),
+                   "omr_double_touch_json": json.dumps(dt, ensure_ascii=False), "edited_by_mentor": True,
+                   "correct": correct, "wrong_count": wrong, "skipped": skipped, "answered": correct+wrong,
+                   "marks": round(correct-(wrong*negval if neg else 0.0),2),
+                   "accuracy": round((correct/(correct+wrong))*100,2) if correct+wrong else 0.0}
+        if new_wrong is not None: updates["wrong"] = ",".join(str(q) for q in new_wrong)
+        if review_note is not None:
+            updates.update({"review_status":"reviewed", "review_note":str(review_note), "reviewed_at":now_bd().strftime("%Y-%m-%d %H:%M:%S")})
+    else:
+        correct = _to_int(new_correct if new_correct is not None else current.get("correct"),0)
+        wrong = _to_int(new_wrong_count if new_wrong_count is not None else current.get("wrong_count"),0)
+        skipped = _to_int(new_skipped if new_skipped is not None else current.get("skipped"),0)
+        if min(correct,wrong,skipped)<0 or correct+wrong+skipped!=total: raise ValueError(f"Correct + Wrong + Skipped must equal {total}.")
+        updates={"correct":correct,"wrong_count":wrong,"skipped":skipped,"answered":correct+wrong,
+                 "marks":round(correct-(wrong*negval if neg else 0.0),2),"accuracy":round((correct/(correct+wrong))*100,2) if correct+wrong else 0.0,"edited_by_mentor":True}
+        if new_wrong is not None: updates["wrong"]=",".join(str(q) for q in new_wrong)
+    for col,val in updates.items():
+        if col in header:
+            c=header.index(col)+1; letter=gspread.utils.rowcol_to_a1(1,c).rstrip("1")
+            _with_retry(ws.update,f"{letter}{row_idx}",[[val]],value_input_option=RAW)
+    clear_data_caches(); return True
 
 
 def get_all_results_df():
