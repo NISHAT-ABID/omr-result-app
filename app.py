@@ -8260,6 +8260,69 @@ def main():
             color: var(--mv-ink);
             font-weight: 900;
         }
+
+        /* ================================================================
+           FINAL MOBILE OMR FULLSCREEN OVERRIDE — 2026-09-04 v11
+           OMR review uses the complete phone content width. Desktop untouched.
+           ================================================================ */
+        @media (max-width: 767px) {
+            /* Let the OMR review escape any inherited centered/narrow width. */
+            div[data-testid="stHorizontalBlock"]:has(.omr-photo-card) {
+                width: calc(100vw - 20px) !important;
+                max-width: calc(100vw - 20px) !important;
+                min-width: 0 !important;
+                margin-left: 0 !important;
+                margin-right: 0 !important;
+                padding: 0 !important;
+                display: grid !important;
+                grid-template-columns: minmax(0, 1fr) !important;
+                gap: 12px !important;
+            }
+
+            div[data-testid="stHorizontalBlock"]:has(.omr-photo-card) > div[data-testid="column"],
+            div[data-testid="stHorizontalBlock"]:has(.omr-photo-card) > div[data-testid="stColumn"] {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                flex: none !important;
+                flex-basis: auto !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                box-sizing: border-box !important;
+                grid-column: 1 / -1 !important;
+            }
+
+            div[data-testid="stHorizontalBlock"]:has(.omr-photo-card) .omr-photo-card,
+            div[data-testid="stHorizontalBlock"]:has(.omr-photo-card) .digital-omr-shell {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                margin-left: 0 !important;
+                margin-right: 0 !important;
+                box-sizing: border-box !important;
+            }
+
+            /* Streamlit's image wrapper can otherwise retain a narrower inline width. */
+            div[data-testid="stHorizontalBlock"]:has(.omr-photo-card) .omr-photo-card [data-testid="stImage"],
+            div[data-testid="stHorizontalBlock"]:has(.omr-photo-card) .omr-photo-card [data-testid="stImage"] > div,
+            div[data-testid="stHorizontalBlock"]:has(.omr-photo-card) .omr-photo-card [data-testid="stImage"] figure,
+            div[data-testid="stHorizontalBlock"]:has(.omr-photo-card) .omr-photo-card img {
+                display: block !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                height: auto !important;
+                margin: 0 !important;
+                box-sizing: border-box !important;
+            }
+
+            /* Remove the last bit of desktop-style horizontal breathing room. */
+            div[data-testid="stHorizontalBlock"]:has(.omr-photo-card) + *,
+            .omr-photo-card + * {
+                max-width: 100% !important;
+            }
+        }
+
 </style>
     """, unsafe_allow_html=True)
 
