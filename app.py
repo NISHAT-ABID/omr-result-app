@@ -14,6 +14,7 @@ Run with: streamlit run app.py
 
 import random
 import io
+import json
 from datetime import datetime, date, time as dtime, timedelta
 
 import cv2
@@ -26,7 +27,7 @@ from PIL import Image, ImageOps
 # ================= FINAL OMR REVIEW BUILD =================
 # Original OMR photo + full Digital OMR + immutable double-touch audit +
 # compact mobile tables. Existing exam/OMR features are intentionally preserved.
-OMR_REVIEW_BUILD = "2026-08-31-final"
+OMR_REVIEW_BUILD = "2026-09-04-review-overlay-v2"
 from streamlit_image_coordinates import streamlit_image_coordinates
 
 import omr_scanner
@@ -3705,30 +3706,109 @@ def render_omr_review(rows):
         )
 
 
+
+def _grid_points_json_safe(grid_points):
+    """Convert Q->A/B/C/D point tuples to JSON-safe lists."""
+    out = {}
+    for q, opts in (grid_points or {}).items():
+        out[str(q)] = {str(o): [float(pt[0]), float(pt[1])] for o, pt in (opts or {}).items() if _coord_pair(pt)}
+    return out
+
+
+def _draw_omr_answer_overlay(img_bgr, grid_points, answers, correct_answers=None, *, show_labels=True):
+    """Draw detected/final/correct answer markers directly on the submitted photo."""
+    canvas = img_bgr.copy()
+    correct_answers = correct_answers or {}
+    for q, opts in (grid_points or {}).items():
+        try:
+            qn = int(q)
+        except Exception:
+            continue
+        final = _normalise_answer_value(answers.get(qn, answers.get(str(qn))))
+        correct = _normalise_answer_value(correct_answers.get(qn, correct_answers.get(str(qn))))
+        # Correct key: green ring. Final answer: blue ring. MULTI: red rings.
+        if correct in opts:
+            x, y = map(int, opts[correct])
+            cv2.circle(canvas, (x, y), 14, (60, 210, 90), 3)
+            if show_labels:
+                cv2.putText(canvas, "KEY", (x+16, y-12), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (60,210,90), 1, cv2.LINE_AA)
+        if final == "MULTI":
+            for opt, pt in opts.items():
+                x, y = map(int, pt)
+                cv2.circle(canvas, (x, y), 17, (60, 70, 230), 3)
+            if show_labels:
+                # Put the issue label near the first option point.
+                first = next(iter(opts.values()))
+                cv2.putText(canvas, f"Q{qn} DOUBLE", (int(first[0])+18, int(first[1])+18),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.40, (60,70,230), 1, cv2.LINE_AA)
+        elif final in opts:
+            x, y = map(int, opts[final])
+            cv2.circle(canvas, (x, y), 18, (230, 150, 40), 3)
+            if show_labels:
+                cv2.putText(canvas, f"Q{qn} {final}", (x+16, y+16),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.40, (230,150,40), 1, cv2.LINE_AA)
+    return cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
+
+
+def _answer_key_map(key_row, total):
+    """Build a simple Q->correct-option map, honoring per-question rules."""
+    rules = {}
+    try:
+        raw = key_row.get("answer_rules_json", "{}")
+        rules = json.loads(raw) if raw else {}
+    except Exception:
+        rules = {}
+    key_string = str(key_row.get("answer_string", "") or "")
+    out = {}
+    for q in range(1, total + 1):
+        rule = rules.get(str(q), {}) or {}
+        accepted = [str(x).upper() for x in rule.get("accepted", []) if str(x).upper() in "ABCD"]
+        out[q] = accepted[0] if accepted else (key_string[q-1].upper() if q <= len(key_string) and key_string[q-1].upper() in "ABCD" else None)
+    return out
+
+
 def _render_readonly_digital_omr(result_row, key_row):
-    """Read-only digital OMR for completed results. Mentor/student cannot edit here."""
-    import json as _json
+    """Read-only Digital OMR showing final answer, correct answer and status."""
     total = int(result_row.get("total", 0) or 0)
     try:
-        final = _json.loads(result_row.get("omr_final_answers_json") or "{}")
+        final = json.loads(result_row.get("omr_final_answers_json") or "{}")
     except Exception:
         final = {}
     try:
-        original = _json.loads(result_row.get("omr_original_answers_json") or "{}")
+        original = json.loads(result_row.get("omr_original_answers_json") or "{}")
     except Exception:
         original = {}
     if not final:
         final = original
+    correct_map = _answer_key_map(key_row, total)
+
     cols = st.columns(2 if total > 40 else 1, gap="small")
     chunk = (total + 1)//2 if total > 40 else total
     ranges = [(1, chunk), (chunk+1, total)] if total > 40 else [(1,total)]
     for col,(start,end) in zip(cols,ranges):
         with col:
             for q in range(start,end+1):
-                ans = final.get(str(q), final.get(q))
-                ans = _normalise_answer_value(ans)
-                bubbles = " ".join(f"<span class='digital-bubble {'selected' if ans == o else ''}'>{o}</span>" for o in 'ABCD')
-                st.markdown(f"<div class='mv-compact-row'><b>Q{q:02d}</b>&nbsp;&nbsp;{bubbles}</div>", unsafe_allow_html=True)
+                ans = _normalise_answer_value(final.get(str(q), final.get(q)))
+                correct = _normalise_answer_value(correct_map.get(q))
+                if ans == "MULTI":
+                    status, cls = "DOUBLE TOUCH", "d-double"
+                elif ans is None:
+                    status, cls = "SKIPPED", "d-skip"
+                elif correct and ans == correct:
+                    status, cls = "CORRECT", "d-ok"
+                else:
+                    status, cls = "WRONG", "d-bad"
+                bubbles = " ".join(
+                    f"<span class='digital-bubble {'selected' if ans == o else ''} {'key' if correct == o else ''}'>{o}</span>"
+                    for o in 'ABCD'
+                )
+                st.markdown(
+                    f"<div class='digital-q-review-line'><div><b>Q{q:02d}</b> {bubbles}</div>"
+                    f"<span class='digital-status {cls}'>{status}</span>"
+                    f"<div class='digital-your'>Your: <b>{'Multiple' if ans == 'MULTI' else (ans or 'Skipped')}</b>"
+                    f" · Correct: <b>{correct or '—'}</b></div></div>",
+                    unsafe_allow_html=True
+                )
 
 
 def render_result_detail(result_row, key_row, mentor_mode=False):
@@ -3748,28 +3828,92 @@ def render_result_detail(result_row, key_row, mentor_mode=False):
     if sh._to_bool(result_row.get("edited_by_mentor", False)):
         st.caption("ℹ️ This result was reviewed by your mentor.")
 
-    # Mentor can review the submitted scan and record a yes/no cheating decision,
-    # but cannot change the student's answer from this profile/result page.
-    double_qs = []
-    try:
-        double_qs = _json.loads(result_row.get("omr_double_touch_json") or "[]")
-    except Exception:
-        double_qs = []
-    if mentor_mode and double_qs:
-        status = str(result_row.get("review_status", "") or "")
-        st.markdown("#### ⚠️ Review Needed")
-        st.caption(f"Scanner flagged Q{', Q'.join(map(str, double_qs))} for multiple marking. The student's submitted OMR is shown below for review.")
-        rc1, rc2 = st.columns(2)
-        with rc1:
-            if st.button("YES — Cheating", type="primary", use_container_width=True, key=f"cheat_yes_{result_row['student_id']}_{result_row['key_id']}"):
-                sh.set_result_review(result_row['student_id'], result_row['key_id'], "confirmed_cheating", "Mentor confirmed cheating / invalid marking.")
-                clear_all_caches(); st.rerun()
-        with rc2:
-            if st.button("NO — Clear Review", use_container_width=True, key=f"cheat_no_{result_row['student_id']}_{result_row['key_id']}"):
-                sh.set_result_review(result_row['student_id'], result_row['key_id'], "cleared", "Mentor reviewed and cleared the flag.")
-                clear_all_caches(); st.rerun()
-        if status:
-            st.info(f"Current review status: **{status.replace('_',' ').title()}**")
+    # Mentor gets question-level OMR review controls. Student remains view-only.
+    if mentor_mode:
+        try:
+            final_answers = json.loads(result_row.get("omr_final_answers_json") or "{}")
+        except Exception:
+            final_answers = {}
+        try:
+            original_answers = json.loads(result_row.get("omr_original_answers_json") or "{}")
+        except Exception:
+            original_answers = {}
+        try:
+            scanner_doubles = set(int(q) for q in json.loads(result_row.get("omr_double_touch_json") or "[]"))
+        except Exception:
+            scanner_doubles = set()
+
+        st.markdown("#### 🔎 Mentor OMR Review")
+        st.caption("Review each question independently. Confirm a real double-touch, clear a false flag, or mark a missed double-touch manually. Final answers below are the source of truth.")
+        total_review = int(result_row.get("total", 0) or 0)
+        correct_map = _answer_key_map(key_row, total_review)
+        draft_key = f"mentor_review_draft_{result_row['student_id']}_{result_row['key_id']}"
+        if draft_key not in st.session_state:
+            st.session_state[draft_key] = {str(q): final_answers.get(str(q), final_answers.get(q)) for q in range(1,total_review+1)}
+        dt_key = f"mentor_review_double_{result_row['student_id']}_{result_row['key_id']}"
+        if dt_key not in st.session_state:
+            st.session_state[dt_key] = set(scanner_doubles)
+
+        for q in range(1, total_review + 1):
+            cur = _normalise_answer_value(st.session_state[draft_key].get(str(q)))
+            if cur == "MULTI":
+                cur = None
+            c1,c2,c3,c4 = st.columns([0.7, 2.0, 1.25, 1.1], gap="small")
+            with c1:
+                st.markdown(f"**Q{q:02d}**")
+            with c2:
+                opts=["Skipped","A","B","C","D"]
+                current_idx=opts.index(cur if cur in opts else "Skipped") if (cur in opts or cur is None) else 0
+                picked=st.selectbox("Final answer", opts, index=current_idx, key=f"mentor_ans_{result_row['student_id']}_{result_row['key_id']}_{q}", label_visibility="collapsed")
+                st.session_state[draft_key][str(q)] = None if picked=="Skipped" else picked
+            with c3:
+                checked = q in st.session_state[dt_key]
+                new_checked=st.checkbox("Double touch", value=checked, key=f"mentor_dt_{result_row['student_id']}_{result_row['key_id']}_{q}")
+                if new_checked: st.session_state[dt_key].add(q)
+                else: st.session_state[dt_key].discard(q)
+            with c4:
+                ca=correct_map.get(q)
+                fa=st.session_state[draft_key].get(str(q))
+                if q in st.session_state[dt_key]:
+                    st.markdown("**⚠ DOUBLE**")
+                elif fa is None:
+                    st.markdown("Skipped")
+                elif ca and fa == ca:
+                    st.markdown("**✓ Correct**")
+                else:
+                    st.markdown("**✗ Wrong**")
+
+        if st.button("💾 Save Mentor Review", type="primary", use_container_width=True, key=f"save_mentor_omr_{result_row['student_id']}_{result_row['key_id']}"):
+            saved_answers = dict(st.session_state[draft_key])
+            doubles = set(st.session_state[dt_key])
+            for q in doubles:
+                saved_answers[str(q)] = "MULTI"
+
+            correct_n=wrong_n=skipped_n=0
+            wrong_qs=[]; skipped_qs=[]; wrong_details={}
+            for q in range(1,total_review+1):
+                ans=_normalise_answer_value(saved_answers.get(str(q)))
+                ca=_normalise_answer_value(correct_map.get(q))
+                if ans == "MULTI":
+                    wrong_n += 1; wrong_qs.append(q)
+                    wrong_details[str(q)]={"given":"Multiple","correct":ca or ""}
+                elif ans is None:
+                    skipped_n += 1; skipped_qs.append(q)
+                elif ca and ans == ca:
+                    correct_n += 1
+                else:
+                    wrong_n += 1; wrong_qs.append(q)
+                    wrong_details[str(q)]={"given":ans,"correct":ca or ""}
+            try:
+                sh.apply_mentor_answer_review(
+                    result_row["student_id"], result_row["key_id"], saved_answers, sorted(doubles),
+                    correct_n, wrong_n, skipped_n, wrong_qs, wrong_details, skipped_qs,
+                    note="Mentor reviewed question-level OMR decisions."
+                )
+                st.session_state.pop(draft_key, None); st.session_state.pop(dt_key, None)
+                clear_all_caches(); st.success("✅ Mentor review saved. Final answers and score updated."); st.rerun()
+            except Exception as e:
+                st.error(f"Could not save mentor review: {e}")
 
     answer_string = key_row["answer_string"]
 
@@ -3803,11 +3947,20 @@ def render_result_detail(result_row, key_row, mentor_mode=False):
 
     omr_photo_id = str(result_row.get("omr_photo_file_id", "") or "")
     if omr_photo_id:
-        with st.expander("📷 View Submitted OMR Photo"):
+        with st.expander("📷 View Submitted OMR Photo + Answer Overlay", expanded=False):
             try:
                 omr_bytes = sh.get_student_omr_image_bytes(omr_photo_id)
                 if omr_bytes:
-                    st.image(omr_bytes, caption="Original OMR photo submitted by you", use_container_width=True)
+                    try:
+                        pil = ImageOps.exif_transpose(Image.open(io.BytesIO(omr_bytes)).convert("RGB"))
+                        photo_bgr = cv2.cvtColor(np.array(pil), cv2.COLOR_RGB2BGR)
+                        grid_json = json.loads(result_row.get("omr_grid_json") or "{}")
+                        grid_points = {int(q): {o: tuple(pt) for o,pt in opts.items()} for q,opts in grid_json.items()}
+                        final_ans = json.loads(result_row.get("omr_final_answers_json") or "{}")
+                        overlay = _draw_omr_answer_overlay(photo_bgr, grid_points, final_ans, _answer_key_map(key_row, int(result_row.get("total",0) or 0)))
+                        st.image(overlay, caption="Final answer overlay: blue = final answer · green = correct key · red = confirmed double-touch", use_container_width=True)
+                    except Exception:
+                        st.image(omr_bytes, caption="Original OMR photo submitted by you", use_container_width=True)
                 else:
                     st.info("Submitted OMR photo is unavailable.")
             except Exception:
@@ -4324,7 +4477,7 @@ def page_tests_results():
                     if not st.session_state.get("submit_review_ready"):
                         st.markdown("#### 🎯 Calibrate Your Sheet")
                         st.caption(
-                            f"Tap the exact CENTER of these {total_points} bubbles on YOUR photo above, in order (a top AND bottom point for every question block, so the reading stays accurate even if the sheet is a little curved, folded, or tilted in the photo)."
+                            f"Your photo will open in a calibration popup. Tap the exact CENTER of these {total_points} bubbles in order (a top AND bottom point for every question block, so the reading stays accurate even if the sheet is a little curved, folded, or tilted in the photo)."
                         )
                         if len(calib_points) < total_points:
                             step = points_info[len(calib_points)]
@@ -4332,13 +4485,16 @@ def page_tests_results():
                                 f"<span class='calib-step-badge'>Step {len(calib_points) + 1} of {total_points}</span> &nbsp; Now tap: **{step['full']}**",
                                 unsafe_allow_html=True,
                             )
-                            coords = streamlit_image_coordinates(display_pil, key=f"submit_calib_img_{file_sig}")
-                            if coords is not None:
-                                pt = (coords["x"], coords["y"])
-                                if not calib_points or calib_points[-1] != pt:
-                                    calib_points.append(pt)
-                                    st.session_state["submit_calib_points"] = calib_points
-                                    st.rerun()
+                            @st.dialog("🎯 Calibrate OMR Photo", width="large")
+                            def _calibration_dialog():
+                                st.caption(f"Step {len(calib_points) + 1} of {total_points}: tap the exact center of **{step['full']}**.")
+                                coords = streamlit_image_coordinates(display_pil, key=f"submit_calib_dialog_{file_sig}_{len(calib_points)}")
+                                if coords is not None:
+                                    pt = (coords["x"], coords["y"])
+                                    if not calib_points or calib_points[-1] != pt:
+                                        st.session_state["submit_calib_points"] = calib_points + [pt]
+                                        st.rerun()
+                            _calibration_dialog()
                         else:
                             st.success(f"✅ All {total_points} points marked!")
                             calibration = {info["key"]: pt for info, pt in zip(points_info, calib_points)}
@@ -4415,6 +4571,7 @@ def page_tests_results():
                                         result["omr_original_answers"] = dict(detected)
                                         result["omr_final_answers"] = dict(final_answers)
                                         result["omr_double_touch"] = list(double_qs)
+                                        result["omr_grid"] = _grid_points_json_safe(grid_points)
                                         neg_enabled = sh._to_bool(active_now.get("negative_marking", False))
                                         if neg_enabled:
                                             neg_per_wrong = max(0.0, float(active_now.get("negative_marks_value", 0.0) or 0.0))
