@@ -2878,6 +2878,174 @@ def inject_global_css():
             }
         }
 
+
+        /* ================================================================
+           FINAL PHONE PROFILE REDESIGN
+           Important: the Profile hero is created by st.columns([1.3,2.4]).
+           Streamlit can keep the horizontal block's calculated width even
+           after its children are changed to 100%. The previous mobile
+           patches therefore left the whole hero sitting in roughly half
+           the viewport. This rule deliberately makes THAT OUTER BLOCK
+           escape the centered Streamlit content width and occupy the
+           complete physical phone viewport.
+           Desktop is not affected.
+           ================================================================ */
+        @media (max-width: 767px) {
+
+            /* Full phone canvas */
+            [data-testid="stAppViewContainer"] .main,
+            [data-testid="stAppViewContainer"] .main .block-container {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                box-sizing: border-box !important;
+            }
+
+            [data-testid="stAppViewContainer"] .main .block-container {
+                padding-left: 10px !important;
+                padding-right: 10px !important;
+            }
+
+            /* THE IMPORTANT PART:
+               select the actual outer profile hero horizontal block and
+               make it viewport-wide, not merely child-wide. */
+            div[data-testid="stHorizontalBlock"]:has(.st-key-card_profile_stats) {
+                width: calc(100vw - 20px) !important;
+                max-width: calc(100vw - 20px) !important;
+                min-width: 0 !important;
+                margin-left: 0 !important;
+                margin-right: 0 !important;
+                padding: 0 !important;
+                display: flex !important;
+                flex-direction: column !important;
+                align-items: stretch !important;
+                gap: 10px !important;
+                box-sizing: border-box !important;
+            }
+
+            /* Both outer columns become REAL full-width blocks. */
+            div[data-testid="stHorizontalBlock"]:has(.st-key-card_profile_stats)
+            > div[data-testid="column"],
+            div[data-testid="stHorizontalBlock"]:has(.st-key-card_profile_stats)
+            > div[data-testid="column"] > div[data-testid="stVerticalBlock"] {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                flex: 0 0 100% !important;
+                box-sizing: border-box !important;
+                padding-left: 0 !important;
+                padding-right: 0 !important;
+            }
+
+            /* Profile identity card */
+            div[data-testid="stHorizontalBlock"]:has(.st-key-card_profile_stats)
+            > div[data-testid="column"]:first-child {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-height: 86px !important;
+                padding: 12px 14px !important;
+                margin: 0 !important;
+                border: 1px solid var(--mv-border) !important;
+                border-radius: 18px !important;
+                background: var(--mv-surface) !important;
+                box-sizing: border-box !important;
+                display: flex !important;
+                align-items: center !important;
+                overflow: hidden !important;
+            }
+
+            /* Identity HTML should stay horizontal and never squeeze. */
+            div[data-testid="stHorizontalBlock"]:has(.st-key-card_profile_stats)
+            > div[data-testid="column"]:first-child div[style*="display:flex"] {
+                width: 100% !important;
+                min-width: 0 !important;
+                flex-wrap: nowrap !important;
+                align-items: center !important;
+                gap: 13px !important;
+            }
+
+            /* Stats card */
+            .st-key-card_profile_stats {
+                display: block !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                margin: 0 !important;
+                padding: 12px !important;
+                box-sizing: border-box !important;
+                border-radius: 18px !important;
+                overflow: hidden !important;
+            }
+
+            .st-key-card_profile_stats > div,
+            .st-key-card_profile_stats div[data-testid="stHorizontalBlock"] {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                box-sizing: border-box !important;
+            }
+
+            /* Keep stats 2 x 2 on phone */
+            .st-key-card_profile_stats > div[data-testid="stVerticalBlock"] > div[data-testid="stHorizontalBlock"],
+            .st-key-card_profile_stats div[data-testid="stHorizontalBlock"] {
+                display: grid !important;
+                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+                gap: 8px !important;
+            }
+
+            .st-key-card_profile_stats div[data-testid="column"] {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                flex: none !important;
+                padding: 8px 4px !important;
+                box-sizing: border-box !important;
+                text-align: center !important;
+                border-radius: 12px !important;
+            }
+
+            .st-key-card_profile_stats .stButton > button:not([kind="primary"]) {
+                font-size: 11px !important;
+                font-weight: 750 !important;
+                white-space: nowrap !important;
+            }
+
+            /* Second row: profile information + status are also full width */
+            div[data-testid="stHorizontalBlock"]:has(.st-key-card_profile_info) {
+                width: 100% !important;
+                max-width: 100% !important;
+                display: flex !important;
+                flex-direction: column !important;
+                gap: 10px !important;
+                margin: 0 !important;
+                box-sizing: border-box !important;
+            }
+
+            div[data-testid="stHorizontalBlock"]:has(.st-key-card_profile_info)
+            > div[data-testid="column"] {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                flex: 0 0 100% !important;
+                padding: 0 !important;
+                box-sizing: border-box !important;
+            }
+
+            /* Leaderboard typography only; no column redesign */
+            .st-key-leaderboard_table_student .lb-row > span,
+            .st-key-leaderboard_table_mentor .lb-row > span {
+                font-size: 11px !important;
+                font-weight: 700 !important;
+                line-height: 1.2 !important;
+            }
+
+            .st-key-leaderboard_table_student .lb-row > span:nth-child(1),
+            .st-key-leaderboard_table_mentor .lb-row > span:nth-child(1) {
+                font-size: 11.5px !important;
+                font-weight: 800 !important;
+            }
+        }
+
 </style>
         """,
         unsafe_allow_html=True,
