@@ -6246,7 +6246,7 @@ def page_profile():
     .mvc-performance-head { display:flex; align-items:flex-end; justify-content:space-between; gap:12px; margin-bottom:14px; }
     .mvc-performance-title { color:var(--mv-ink); font-size:14px; font-weight:900; letter-spacing:-.01em; }
     .mvc-performance-caption { color:var(--mv-muted); font-size:10px; font-weight:600; text-align:right; }
-    .mvc-performance-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
+    .mvc-performance-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
     .mvc-performance-item { min-width:0; padding:12px 10px; border:1px solid var(--mv-border); border-radius:12px; background:rgba(255,255,255,.018); }
     .mvc-performance-value { color:var(--mv-ink); font-size:18px; line-height:1.1; font-weight:900; letter-spacing:-.02em; }
     .mvc-performance-label { color:var(--mv-muted); font-size:9.5px; font-weight:750; margin-top:5px; }
