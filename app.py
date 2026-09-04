@@ -7757,58 +7757,261 @@ def page_profile():
             white-space:nowrap !important;
         }
 
-        /* Main content: one full-width stack */
+        /* ================================================================
+           PROFILE MAIN — DESKTOP 2-COLUMN / MOBILE FULL-WIDTH STACK
+           ================================================================ */
+
         div.st-key-profile_v2_main {
             width:100% !important;
             max-width:none !important;
             min-width:0 !important;
         }
 
+        /* Keep the original two-column desktop structure. */
         div.st-key-profile_v2_main div[data-testid="stHorizontalBlock"] {
-            display:flex !important;
-            flex-direction:column !important;
-            flex-wrap:nowrap !important;
             width:100% !important;
             max-width:none !important;
             min-width:0 !important;
-            gap:0 !important;
         }
 
         div.st-key-profile_v2_main div[data-testid="column"] {
-            display:block !important;
-            width:100% !important;
-            max-width:none !important;
             min-width:0 !important;
-            flex:0 0 100% !important;
             padding:0 !important;
-            margin:0 !important;
         }
 
         div.st-key-profile_v2_main .mv-pv-card {
             width:100% !important;
             max-width:none !important;
             min-width:0 !important;
-            padding:16px !important;
-            margin-bottom:12px !important;
-            border-radius:18px !important;
+            box-sizing:border-box !important;
+            padding:20px !important;
+            margin-bottom:18px !important;
+            border-radius:20px !important;
         }
 
         div.st-key-profile_v2_main .mv-pv-info-grid {
             display:grid !important;
             grid-template-columns:repeat(2,minmax(0,1fr)) !important;
             width:100% !important;
-            gap:8px !important;
+            max-width:none !important;
+            gap:10px !important;
         }
 
         div.st-key-profile_v2_main .mv-pv-info {
+            display:flex !important;
+            align-items:center !important;
             min-width:0 !important;
             width:100% !important;
-            padding:11px 9px !important;
+            box-sizing:border-box !important;
+            padding:13px !important;
         }
 
         div.st-key-profile_v2_main .mv-pv-info-value {
             min-width:0 !important;
             max-width:100% !important;
+        }
+
+        @media (max-width:767px) {
+
+            /* The actual Streamlit horizontal block is the parent of
+               Profile Information + Password/Security columns. */
+            div.st-key-profile_v2_main,
+            div.st-key-profile_v2_main > div,
+            div.st-key-profile_v2_main > div > div[data-testid="stHorizontalBlock"] {
+                width:100% !important;
+                max-width:none !important;
+                min-width:0 !important;
+                box-sizing:border-box !important;
+            }
+
+            /* IMPORTANT: use GRID on the actual Streamlit block.
+               This prevents the two original columns from retaining their
+               desktop flex-basis and becoming narrow vertical strips. */
+            div.st-key-profile_v2_main > div > div[data-testid="stHorizontalBlock"] {
+                display:grid !important;
+                grid-template-columns:minmax(0,1fr) !important;
+                grid-auto-rows:auto !important;
+                gap:0 !important;
+                align-items:start !important;
+            }
+
+            div.st-key-profile_v2_main > div > div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+                display:block !important;
+                width:100% !important;
+                max-width:none !important;
+                min-width:0 !important;
+                flex:none !important;
+                padding:0 !important;
+                margin:0 !important;
+                box-sizing:border-box !important;
+            }
+
+            /* Also catch nested Streamlit column wrappers. */
+            div.st-key-profile_v2_main div[data-testid="column"] {
+                min-width:0 !important;
+                box-sizing:border-box !important;
+            }
+
+            div.st-key-profile_v2_main .mv-pv-card {
+                display:block !important;
+                width:100% !important;
+                max-width:none !important;
+                min-width:0 !important;
+                box-sizing:border-box !important;
+                padding:17px !important;
+                margin:0 0 12px 0 !important;
+                border-radius:18px !important;
+            }
+
+            /* Profile Information */
+            div.st-key-profile_v2_info {
+                width:100% !important;
+                max-width:none !important;
+                min-width:0 !important;
+            }
+
+            div.st-key-profile_v2_info .mv-pv-card-title {
+                width:100% !important;
+                margin-bottom:12px !important;
+            }
+
+            div.st-key-profile_v2_info .mv-pv-info-grid {
+                display:grid !important;
+                grid-template-columns:repeat(2,minmax(0,1fr)) !important;
+                width:100% !important;
+                max-width:none !important;
+                gap:9px !important;
+            }
+
+            div.st-key-profile_v2_info .mv-pv-info {
+                display:flex !important;
+                align-items:center !important;
+                width:100% !important;
+                min-width:0 !important;
+                max-width:none !important;
+                box-sizing:border-box !important;
+                padding:12px 10px !important;
+                gap:9px !important;
+            }
+
+            div.st-key-profile_v2_info .mv-pv-info-icon {
+                width:34px !important;
+                height:34px !important;
+                flex:0 0 34px !important;
+                font-size:15px !important;
+            }
+
+            div.st-key-profile_v2_info .mv-pv-info-label {
+                font-size:9.5px !important;
+                line-height:1.15 !important;
+            }
+
+            div.st-key-profile_v2_info .mv-pv-info-value {
+                display:block !important;
+                width:100% !important;
+                min-width:0 !important;
+                max-width:100% !important;
+                font-size:12px !important;
+                line-height:1.25 !important;
+                white-space:nowrap !important;
+                overflow:hidden !important;
+                text-overflow:ellipsis !important;
+            }
+
+            /* Change Password card — full width, comfortable spacing */
+            div.st-key-profile_v2_password {
+                width:100% !important;
+                max-width:none !important;
+                min-width:0 !important;
+                box-sizing:border-box !important;
+            }
+
+            div.st-key-profile_v2_password .mv-pv-card-title {
+                display:block !important;
+                width:100% !important;
+                margin-bottom:12px !important;
+            }
+
+            div.st-key-profile_v2_password .mv-pv-card-title h3 {
+                font-size:16px !important;
+                line-height:1.25 !important;
+            }
+
+            div.st-key-profile_v2_password .mv-pv-card-title p {
+                font-size:11px !important;
+                line-height:1.35 !important;
+            }
+
+            div.st-key-profile_v2_password .stButton,
+            div.st-key-profile_v2_password .stButton > button {
+                width:100% !important;
+                max-width:none !important;
+            }
+
+            div.st-key-profile_v2_password .stButton > button {
+                min-height:42px !important;
+                font-size:12px !important;
+                padding:8px 12px !important;
+            }
+
+            /* When password form is open, inputs must not inherit a narrow
+               desktop column width. */
+            div.st-key-profile_v2_password div[data-baseweb="input"],
+            div.st-key-profile_v2_password input,
+            div.st-key-profile_v2_password [data-testid="stTextInput"] {
+                width:100% !important;
+                max-width:none !important;
+                min-width:0 !important;
+                box-sizing:border-box !important;
+            }
+
+            /* Security */
+            div.st-key-profile_v2_security {
+                width:100% !important;
+                max-width:none !important;
+                min-width:0 !important;
+                box-sizing:border-box !important;
+            }
+
+            div.st-key-profile_v2_security .mv-pv-status-item {
+                width:100% !important;
+                max-width:none !important;
+                min-width:0 !important;
+                box-sizing:border-box !important;
+                padding:12px !important;
+            }
+
+            /* Account actions */
+            div.st-key-profile_v2_actions {
+                width:100% !important;
+                max-width:none !important;
+                min-width:0 !important;
+                box-sizing:border-box !important;
+            }
+
+            div.st-key-profile_v2_actions .mv-pv-action {
+                width:100% !important;
+                max-width:none !important;
+                min-width:0 !important;
+                box-sizing:border-box !important;
+                padding:13px !important;
+            }
+        }
+
+        @media (max-width:380px) {
+
+            div.st-key-profile_v2_info .mv-pv-info-grid {
+                grid-template-columns:1fr !important;
+                gap:8px !important;
+            }
+
+            div.st-key-profile_v2_info .mv-pv-info {
+                padding:11px !important;
+            }
+
+            div.st-key-profile_v2_password .mv-pv-card-title h3 {
+                font-size:15px !important;
+            }
         }
 
         div.st-key-profile_v2_mentor {
