@@ -5157,8 +5157,19 @@ def _make_detection_overlay(img_bgr, grid_points, detected_answers, radius):
                 # empty rings. The relative test also adapts to phone-camera
                 # brightness/contrast, while the absolute floor avoids
                 # marking very faint paper texture.
-                threshold = max(58.0, median_dark + 22.0, max_dark * 0.52)
+                # MULTI is already confirmed by the scanner, so the overlay must
+                # show the actual dark bubbles rather than silently showing none.
+                # Use a softer adaptive threshold than the single-answer path and
+                # guarantee at least the two darkest bubbles are shown. This makes
+                # faint/uneven phone-camera marks (such as Q18) visible while still
+                # avoiding a circle around every printed option.
+                threshold = max(34.0, median_dark + 8.0, max_dark * 0.38)
                 selected_multi = [m for m in measurements if m[2] >= threshold]
+                if len(selected_multi) < 2 and len(measurements) >= 2:
+                    selected_multi = sorted(measurements, key=lambda m: m[2], reverse=True)[:2]
+                elif len(selected_multi) > 4:
+                    selected_multi = sorted(selected_multi, key=lambda m: m[2], reverse=True)[:4]
+
                 for _, center, _ in selected_multi:
                     cv2.circle(overlay, center, int(base_r * 1.65), accent_bgr, thickness, cv2.LINE_AA)
                     cv2.circle(overlay, center, int(base_r * 1.9), accent_bgr, max(1, thickness // 2), cv2.LINE_AA)
