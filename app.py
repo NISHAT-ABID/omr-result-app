@@ -8693,3 +8693,45 @@ if __name__ == "__main__":
 
 st.markdown('\n<style>\n@media (max-width: 768px) {\n  .st-key-profile_clean_profile_area .mvc-security-inline {\n    width: 100% !important;\n    display: grid !important;\n    grid-template-columns: 1fr 1fr !important;\n    gap: 8px !important;\n    padding: 9px 0 !important;\n    margin-top: 2px !important;\n    border-top: 1px solid var(--mv-border) !important;\n    border-bottom: 1px solid var(--mv-border) !important;\n  }\n  .st-key-profile_clean_profile_area .mvc-security-inline .mvc-security-row {\n    min-width: 0 !important;\n    display: flex !important;\n    align-items: center !important;\n    justify-content: space-between !important;\n    gap: 5px !important;\n    white-space: nowrap !important;\n    padding: 0 !important;\n  }\n  .st-key-profile_clean_profile_area .mvc-security-inline .mvc-security-row > span:first-child {\n    overflow: hidden !important;\n    text-overflow: ellipsis !important;\n    font-size: 10px !important;\n  }\n  .st-key-profile_clean_profile_area .mvc-security-inline .mvc-pill {\n    flex: 0 0 auto !important;\n    font-size: 9px !important;\n    padding: 3px 7px !important;\n  }\n  .st-key-profile_clean_profile_area .mvc-info-list {\n    gap: 13px !important;\n  }\n  .st-key-profile_clean_profile_area .mvc-info-list > div {\n    min-width: 0 !important;\n  }\n  .st-key-profile_clean_profile_area .mvc-info-list > div span {\n    min-width: 0 !important;\n  }\n}\n</style>\n', unsafe_allow_html=True)
 st.markdown('\n<style>\n@media (max-width: 767px) {\n    [class*="st-key-digital_omr_q_"] {\n        overflow: visible !important;\n    }\n    [class*="st-key-digital_omr_q_"] [data-testid="stHorizontalBlock"] {\n        display: grid !important;\n        grid-template-columns: 34px repeat(4, minmax(0, 1fr)) !important;\n        column-gap: 2px !important;\n        width: 100% !important;\n        min-width: 0 !important;\n        margin-bottom: 1px !important;\n        align-items: center !important;\n    }\n    [class*="st-key-digital_omr_q_"] [data-testid="column"] {\n        min-width: 0 !important;\n        width: auto !important;\n        padding: 0 1px !important;\n        margin: 0 !important;\n        overflow: visible !important;\n    }\n    [class*="st-key-digital_omr_q_"] [data-testid="column"]:first-child {\n        width: 34px !important;\n        min-width: 34px !important;\n    }\n    [class*="st-key-digital_omr_q_"] [data-testid="column"] button {\n        display: flex !important;\n        align-items: center !important;\n        justify-content: center !important;\n        width: 25px !important;\n        min-width: 25px !important;\n        max-width: 25px !important;\n        height: 25px !important;\n        min-height: 25px !important;\n        max-height: 25px !important;\n        margin: 0 auto !important;\n        padding: 0 !important;\n        font-size: 9px !important;\n        line-height: 1 !important;\n        border-radius: 50% !important;\n        box-sizing: border-box !important;\n    }\n    [class*="st-key-digital_omr_q_"] .digital-q-number,\n    [class*="st-key-digital_omr_q_"] .digital-q-number b,\n    [class*="st-key-digital_omr_q_"] .digital-q-number strong {\n        display: inline-block !important;\n        width: 34px !important;\n        min-width: 34px !important;\n        max-width: 34px !important;\n        overflow: visible !important;\n        white-space: nowrap !important;\n        text-overflow: clip !important;\n        font-size: 10px !important;\n        line-height: 25px !important;\n        text-align: left !important;\n        margin: 0 !important;\n        padding: 0 !important;\n    }\n    [class*="st-key-digital_omr_q_"] [data-testid="stMarkdownContainer"] {\n        min-width: 0 !important;\n        overflow: visible !important;\n    }\n    [class*="st-key-digital_omr_q_"] [data-testid="stMarkdownContainer"] p {\n        margin: 0 !important;\n        white-space: nowrap !important;\n        overflow: visible !important;\n    }\n    [class*="st-key-digital_omr_q_"] [data-testid="stMarkdownContainer"] > div[style*="height:14px"] {\n        height: 2px !important;\n        margin-bottom: 0 !important;\n    }\n}\n</style>\n', unsafe_allow_html=True)
+
+st.markdown('''
+<style>
+@media (max-width: 768px) {
+  /* On phones, put Account Security BELOW the complete Profile Information card. */
+  div[data-testid="stHorizontalBlock"]:has(.st-key-profile_clean_profile_area) {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    gap: 16px !important;
+  }
+  div[data-testid="stHorizontalBlock"]:has(.st-key-profile_clean_profile_area) > div[data-testid="column"] {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    flex: none !important;
+  }
+  /* Give the profile rows a little more breathing room on narrow phones. */
+  .st-key-profile_clean_profile_area .mvc-info-list {
+    grid-template-columns: 1fr !important;
+    gap: 4px !important;
+  }
+  .st-key-profile_clean_profile_area .mvc-info {
+    gap: 12px !important;
+    padding: 12px 2px !important;
+  }
+  .st-key-profile_clean_profile_area .mvc-info-value {
+    font-size: 12px !important;
+    white-space: normal !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    overflow-wrap: anywhere !important;
+  }
+  /* Security stays as one compact horizontal line. */
+  .st-key-profile_clean_profile_area .mvc-security-inline {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+  }
+}
+</style>
+''', unsafe_allow_html=True)
