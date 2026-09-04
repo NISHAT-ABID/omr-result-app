@@ -4920,9 +4920,19 @@ def _issue_rows_from_review(review_rows):
 
 
 def _render_normal_omr_view(review_rows, total_q):
-    """Render editable Digital OMR in mentor answer-key style pages."""
+    """Render Digital OMR in the same two-column/page pattern as the mentor key.
+
+    40 -> 1-20 | 21-40
+    50 -> 1-25 | 26-50
+    100 -> 1-25 | 26-50, then 51-75 | 76-100
+    """
     row_by_q = {r["q"]: r for r in review_rows}
-    page_size = 20 if total_q == 40 else 25
+
+    # Match the mentor answer-key paging: one screen/page contains two
+    # question blocks, rather than making the student scroll through a single
+    # long list.  For 100 questions this gives 1-50, then 51-100.
+    half_size = 20 if total_q == 40 else 25
+    page_size = half_size * 2 if total_q > half_size else half_size
     page_count = max(1, (total_q + page_size - 1) // page_size)
     state_key = "submit_digital_omr_page"
     current_page = max(0, min(int(st.session_state.get(state_key, 0) or 0), page_count - 1))
@@ -4932,7 +4942,7 @@ def _render_normal_omr_view(review_rows, total_q):
     end_q = min(start_q + page_size - 1, total_q)
 
     if page_count > 1:
-        nav1, nav2, nav3 = st.columns([1, 1.35, 1])
+        nav1, nav2, nav3 = st.columns([1, 1.15, 1])
         with nav1:
             if st.button("← Previous", key="digital_omr_prev_page", use_container_width=True,
                          disabled=current_page == 0):
@@ -4955,12 +4965,33 @@ def _render_normal_omr_view(review_rows, total_q):
             f"<div class='digital-omr-page-title'>Questions {start_q}–{end_q}</div>",
             unsafe_allow_html=True,
         )
-        for q in range(start_q, end_q + 1):
-            row = row_by_q[q]
-            _render_digital_question_row(
-                q=q, answer=row["given"], original=row["original_given"],
-                status=row["status"], total_q=total_q, compact=True,
-            )
+
+        # Two compact columns, exactly like the mentor answer-key layout.
+        if total_q > 20:
+            block_ranges = [(start_q, min(start_q + half_size - 1, total_q)),
+                            (start_q + half_size, min(start_q + page_size - 1, total_q))]
+            block_cols = st.columns(2, gap="small")
+            for col, (block_start, block_end) in zip(block_cols, block_ranges):
+                if block_start > block_end:
+                    continue
+                with col:
+                    st.markdown(
+                        f"<div class='digital-omr-block-title'>Q{block_start}–{block_end}</div>",
+                        unsafe_allow_html=True,
+                    )
+                    for q in range(block_start, block_end + 1):
+                        row = row_by_q[q]
+                        _render_digital_question_row(
+                            q=q, answer=row["given"], original=row["original_given"],
+                            status=row["status"], total_q=total_q, compact=True,
+                        )
+        else:
+            for q in range(start_q, end_q + 1):
+                row = row_by_q[q]
+                _render_digital_question_row(
+                    q=q, answer=row["given"], original=row["original_given"],
+                    status=row["status"], total_q=total_q, compact=True,
+                )
 
 def _render_review_issues_view(review_rows, total_q):
     """Show only unresolved questions, with live filters and Next Issue."""
@@ -5118,6 +5149,100 @@ def _make_detection_overlay(img_bgr, grid_points, detected_answers, radius):
 
 def _render_interactive_omr_review(img_bgr, grid_points, detected_answers, final_answers, double_qs, radius):
     """Show the student's original OMR and an editable Digital OMR."""
+    st.markdown("""
+<style>
+/* Desktop: keep Digital OMR from becoming an oversized wide panel. */
+@media (min-width: 768px) {
+    .digital-omr-shell {
+        width: min(100%, 690px) !important;
+        max-width: 690px !important;
+        margin-left: auto !important;
+        margin-right: auto !important;
+        padding: 10px !important;
+        border-radius: 14px !important;
+    }
+    .digital-omr-page-title {
+        margin-bottom: 5px !important;
+        padding: 6px 8px !important;
+    }
+    .digital-omr-block-title {
+        padding: 1px 5px 5px !important;
+        font-size: 10px !important;
+    }
+    [class*="st-key-digital_omr_q_"] {
+        margin-bottom: 0 !important;
+    }
+}
+
+/* Phone: two answer-key-style blocks, but each question stays compact. */
+@media (max-width: 767px) {
+    .digital-omr-shell {
+        width: 100% !important;
+        max-width: 100% !important;
+        padding: 7px !important;
+        border-radius: 12px !important;
+        overflow-x: hidden !important;
+    }
+    .digital-omr-title-main { font-size: 16px !important; }
+    .digital-omr-sub { font-size: 9px !important; }
+    .digital-omr-page-indicator { font-size: 9px !important; padding: 3px 0 !important; }
+    .digital-omr-page-title {
+        font-size: 9px !important;
+        padding: 4px 6px !important;
+        margin: 2px 0 4px !important;
+    }
+    .digital-omr-block-title {
+        font-size: 8.5px !important;
+        padding: 1px 3px 3px !important;
+    }
+    [class*="st-key-digital_omr_q_"] {
+        width: 100% !important;
+        max-width: 100% !important;
+        overflow: hidden !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+    [class*="st-key-digital_omr_q_"] [data-testid="stHorizontalBlock"] {
+        width: 100% !important;
+        max-width: 100% !important;
+        display: grid !important;
+        grid-template-columns: 30px repeat(4, minmax(0, 1fr)) !important;
+        gap: 2px !important;
+        margin: 0 !important;
+        align-items: center !important;
+    }
+    [class*="st-key-digital_omr_q_"] [data-testid="column"] {
+        min-width: 0 !important;
+        width: auto !important;
+        max-width: none !important;
+        flex: none !important;
+        padding: 0 !important;
+    }
+    [class*="st-key-digital_omr_q_"] button {
+        min-width: 22px !important;
+        width: 100% !important;
+        max-width: 30px !important;
+        min-height: 22px !important;
+        height: 22px !important;
+        font-size: 9px !important;
+        border-width: 1px !important;
+        margin: 0 auto !important;
+    }
+    [class*="st-key-digital_omr_q_"] [data-testid="stMarkdownContainer"] p {
+        font-size: 9px !important;
+        margin: 1px 0 0 !important;
+        white-space: nowrap !important;
+    }
+    [class*="st-key-digital_omr_q_"] [data-testid="stMarkdownContainer"] {
+        overflow: hidden !important;
+    }
+    [class*="st-key-digital_omr_q_"] [style*="height:14px"] {
+        height: 2px !important;
+        margin: 0 !important;
+    }
+}
+</style>
+""", unsafe_allow_html=True)
     total_q = len(final_answers)
     review_rows = _build_review_state(final_answers, detected_answers)
 
@@ -5149,7 +5274,7 @@ def _render_interactive_omr_review(img_bgr, grid_points, detected_answers, final
         label_visibility="collapsed",
     )
 
-    left, right = st.columns([0.92, 1.55], gap="medium")
+    left, right = st.columns([1.08, 1.12], gap="medium")
     with left:
         st.markdown("<div class='omr-photo-card'><div class='omr-photo-label'>📷 Original OMR · Scanner Detection</div>", unsafe_allow_html=True)
         # Show the real uploaded sheet with a transparent-style visual circle
