@@ -7041,6 +7041,27 @@ def render_answer_key_tab():
         .mentor-edit-head .name{font-size:18px}
         .mentor-exam-row .name{font-size:14px}
         .mentor-exam-row .meta{font-size:10px}
+
+        /* Mobile: keep exam details and Edit beside each other. */
+        [class*="st-key-mentor_exam_card_"] div[data-testid="stHorizontalBlock"]{
+            display:grid !important;
+            grid-template-columns:minmax(0,4.4fr) minmax(82px,1.6fr) !important;
+            gap:7px !important;
+            align-items:center !important;
+        }
+        [class*="st-key-mentor_exam_card_"] div[data-testid="column"]{
+            width:100% !important;
+            min-width:0 !important;
+            max-width:100% !important;
+        }
+        [class*="st-key-mentor_exam_card_"] .stButton > button{
+            width:100% !important;
+            min-width:0 !important;
+            min-height:38px !important;
+            padding:5px 7px !important;
+            font-size:12px !important;
+            white-space:nowrap !important;
+        }
     }
     </style>
     """, unsafe_allow_html=True)
