@@ -3048,6 +3048,104 @@ def inject_global_css():
 
 
         /* ================================================================
+           LEADERBOARD — compact table layout
+           Labels appear once in a header row; each result row contains data only.
+           ================================================================ */
+        .st-key-leaderboard_table_student .lb-header,
+        .st-key-leaderboard_table_student .lb-row,
+        .st-key-leaderboard_table_mentor .lb-header,
+        .st-key-leaderboard_table_mentor .lb-row {
+            display:grid !important;
+            grid-template-columns: 58px minmax(150px, 1fr) 58px 72px 72px 72px !important;
+            align-items:center !important;
+            gap:10px !important;
+            width:100% !important;
+            box-sizing:border-box !important;
+        }
+        .st-key-leaderboard_table_student .lb-header,
+        .st-key-leaderboard_table_mentor .lb-header {
+            padding:7px 12px !important;
+            margin-bottom:6px !important;
+            border-radius:8px !important;
+            background:rgba(18,60,57,0.08) !important;
+            border:1px solid rgba(18,60,57,0.12) !important;
+            color:var(--mv-muted) !important;
+            font-size:11px !important;
+            font-weight:800 !important;
+            text-transform:uppercase !important;
+            letter-spacing:.04em !important;
+        }
+        .st-key-leaderboard_table_student .lb-header > span,
+        .st-key-leaderboard_table_student .lb-row > span,
+        .st-key-leaderboard_table_mentor .lb-header > span,
+        .st-key-leaderboard_table_mentor .lb-row > span {
+            min-width:0 !important;
+            width:auto !important;
+            flex:none !important;
+            overflow:hidden !important;
+            text-overflow:ellipsis !important;
+            white-space:nowrap !important;
+        }
+        .st-key-leaderboard_table_student .lb-header > span:not(:nth-child(2)),
+        .st-key-leaderboard_table_student .lb-row > span:not(:nth-child(2)),
+        .st-key-leaderboard_table_mentor .lb-header > span:not(:nth-child(2)),
+        .st-key-leaderboard_table_mentor .lb-row > span:not(:nth-child(2)) {
+            text-align:center !important;
+        }
+        .st-key-leaderboard_table_student .lb-row,
+        .st-key-leaderboard_table_mentor .lb-row {
+            flex-wrap:nowrap !important;
+            padding:9px 12px !important;
+            margin-bottom:6px !important;
+        }
+
+        /* Test-wise leaderboard has only Merit / Name / Score / Acc. */
+        .st-key-leaderboard_table_student .lb-header-testwise,
+        .st-key-leaderboard_table_student .lb-row-testwise,
+        .st-key-leaderboard_table_mentor .lb-header-testwise,
+        .st-key-leaderboard_table_mentor .lb-row-testwise {
+            grid-template-columns:58px minmax(150px,1fr) 72px 72px !important;
+        }
+
+        @media (max-width:767px) {
+            .st-key-leaderboard_table_student .lb-header,
+            .st-key-leaderboard_table_student .lb-row,
+            .st-key-leaderboard_table_mentor .lb-header,
+            .st-key-leaderboard_table_mentor .lb-row {
+                grid-template-columns: 36px minmax(0,1fr) 38px 48px 48px 52px !important;
+                gap:3px !important;
+                padding-left:4px !important;
+                padding-right:4px !important;
+            }
+            .st-key-leaderboard_table_student .lb-header,
+            .st-key-leaderboard_table_mentor .lb-header {
+                padding-top:6px !important;
+                padding-bottom:6px !important;
+                font-size:8px !important;
+                letter-spacing:.02em !important;
+            }
+            .st-key-leaderboard_table_student .lb-row,
+            .st-key-leaderboard_table_mentor .lb-row {
+                padding-top:7px !important;
+                padding-bottom:7px !important;
+            }
+            .st-key-leaderboard_table_student .lb-header > span,
+            .st-key-leaderboard_table_student .lb-row > span,
+            .st-key-leaderboard_table_mentor .lb-header > span,
+            .st-key-leaderboard_table_mentor .lb-row > span {
+                font-size:9px !important;
+                line-height:1.15 !important;
+            }
+            .st-key-leaderboard_table_student .lb-header-testwise,
+            .st-key-leaderboard_table_student .lb-row-testwise,
+            .st-key-leaderboard_table_mentor .lb-header-testwise,
+            .st-key-leaderboard_table_mentor .lb-row-testwise {
+                grid-template-columns:36px minmax(0,1fr) 58px 52px !important;
+            }
+        }
+
+
+        /* ================================================================
            PROFILE HERO SHELL — structural mobile fix
            This does NOT resize Streamlit's column engine. The Python layout
            now uses one stable shell, so CSS owns the desktop/mobile layout.
@@ -5485,6 +5583,35 @@ def render_leaderboard_stats(df, mode):
 
 def render_leaderboard_rows(df, mode, sid=None, key_suffix="student"):
     with st.container(key=f"leaderboard_table_{key_suffix}"):
+        # Compact table header: labels are shown once instead of repeating
+        # "Tests / Best / Avg / Acc" on every leaderboard row.
+        if mode == "Overall":
+            st.markdown(
+                """
+                <div class="lb-header">
+                    <span>Merit</span>
+                    <span>Name</span>
+                    <span>Tests</span>
+                    <span>Best</span>
+                    <span>Avg</span>
+                    <span>Acc</span>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                """
+                <div class="lb-header lb-header-testwise">
+                    <span>Merit</span>
+                    <span>Name</span>
+                    <span>Score</span>
+                    <span>Acc</span>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
         for _, row in df.head(50).iterrows():
             rank = int(row["rank"])
             is_me = sid is not None and row["student_id"] == sid
@@ -5493,27 +5620,20 @@ def render_leaderboard_rows(df, mode, sid=None, key_suffix="student"):
             badge_class = _rank_class(rank)
             avatar_html = render_avatar(row["student_id"], row["student"], size=26, font_size=11)
             name_html = (
-                f"<span style='display:inline-flex; align-items:center; gap:7px;'>"
-                f"{avatar_html}<span>{row['student']}{' (You)' if is_me else ''}</span></span>"
+                f"<span style='display:inline-flex; align-items:center; gap:7px; min-width:0;'>"
+                f"{avatar_html}<span style='min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;'>{row['student']}{' (You)' if is_me else ''}</span></span>"
             )
 
             if mode == "Overall":
-                trend = row.get("trend")
-                trend_html = "<span style='opacity:.4;'>—</span>"
-                if trend is not None and pd.notna(trend):
-                    arrow = "↑" if trend >= 0 else "↓"
-                    color = "#22c55e" if trend >= 0 else "#ef4444"
-                    trend_html = f"<span style='color:{color}; font-weight:700;'>{arrow} {abs(trend)}%</span>"
                 st.markdown(
                     f"""
                     <div class="{css_class}">
                         <span class="rank-badge {badge_class}">{icon}</span>
-                        <span style="flex:1.5; font-weight:{'700' if is_me else '500'};">{name_html}</span>
-                        <span style="flex:0.8; opacity:.85;">Tests: <b>{int(row['exams_taken'])}</b></span>
-                        <span style="flex:0.8; opacity:.85;">Best: <b>{row['best_score']}</b></span>
-                        <span style="flex:0.9; opacity:.85;">Avg: <b>{row['avg_percent']}%</b></span>
-                        <span style="flex:0.9; opacity:.7;">Acc: {row['accuracy']}%</span>
-                        <span style="flex:0.8; text-align:right;">{trend_html}</span>
+                        <span style="font-weight:{'700' if is_me else '500'};">{name_html}</span>
+                        <span><b>{int(row['exams_taken'])}</b></span>
+                        <span><b>{row['best_score']}</b></span>
+                        <span><b>{row['avg_percent']}%</b></span>
+                        <span>{row['accuracy']}%</span>
                     </div>
                     """,
                     unsafe_allow_html=True,
@@ -5522,15 +5642,16 @@ def render_leaderboard_rows(df, mode, sid=None, key_suffix="student"):
                 accuracy_val = row.get("accuracy", "-")
                 st.markdown(
                     f"""
-                    <div class="{css_class}">
+                    <div class="{css_class} lb-row-testwise">
                         <span class="rank-badge {badge_class}">{icon}</span>
-                        <span style="flex:1; font-weight:{'700' if is_me else '500'};">{name_html}</span>
-                        <span>Score: <b>{row['marks']}</b></span>
-                        <span style="opacity:.7;">Accuracy: {accuracy_val}%</span>
+                        <span style="font-weight:{'700' if is_me else '500'};">{name_html}</span>
+                        <span><b>{row['marks']}</b></span>
+                        <span>{accuracy_val}%</span>
                     </div>
                     """,
                     unsafe_allow_html=True,
                 )
+
 
 def render_leaderboard(sid=None, key_suffix="student"):
     """Shared leaderboard renderer. sid=None -> mentor view (no personal
