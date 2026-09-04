@@ -3046,6 +3046,88 @@ def inject_global_css():
             }
         }
 
+
+        /* ================================================================
+           PROFILE HERO SHELL — structural mobile fix
+           This does NOT resize Streamlit's column engine. The Python layout
+           now uses one stable shell, so CSS owns the desktop/mobile layout.
+           ================================================================ */
+        .st-key-profile_hero_shell {
+            width:100% !important;
+            max-width:100% !important;
+            min-width:0 !important;
+            box-sizing:border-box !important;
+            display:grid !important;
+            grid-template-columns:minmax(0, 1.3fr) minmax(0, 2.4fr) !important;
+            gap:16px !important;
+            align-items:start !important;
+        }
+        .st-key-profile_hero_shell > div {
+            min-width:0 !important;
+            width:100% !important;
+            max-width:100% !important;
+        }
+        .st-key-profile_hero_shell .st-key-card_profile_header,
+        .st-key-profile_hero_shell .st-key-card_profile_stats {
+            width:100% !important;
+            max-width:100% !important;
+            min-width:0 !important;
+            box-sizing:border-box !important;
+        }
+        @media (max-width:767px) {
+            .st-key-profile_hero_shell {
+                display:grid !important;
+                grid-template-columns:minmax(0, 1fr) !important;
+                gap:12px !important;
+                width:100vw !important;
+                max-width:100vw !important;
+                margin-left:calc(50% - 50vw) !important;
+                margin-right:calc(50% - 50vw) !important;
+                padding-left:10px !important;
+                padding-right:10px !important;
+                box-sizing:border-box !important;
+            }
+            .st-key-profile_hero_shell > div {
+                width:100% !important;
+                max-width:100% !important;
+                min-width:0 !important;
+            }
+            .st-key-profile_hero_shell .st-key-card_profile_header {
+                padding:14px !important;
+                border-radius:18px !important;
+                margin:0 !important;
+            }
+            .st-key-profile_hero_shell .st-key-card_profile_stats {
+                padding:12px !important;
+                border-radius:18px !important;
+                margin:0 !important;
+                overflow:hidden !important;
+            }
+            .st-key-profile_hero_shell .st-key-card_profile_stats > div {
+                width:100% !important;
+                max-width:100% !important;
+                min-width:0 !important;
+            }
+            .st-key-profile_hero_shell .st-key-card_profile_stats div[data-testid="stHorizontalBlock"] {
+                display:grid !important;
+                grid-template-columns:repeat(2,minmax(0,1fr)) !important;
+                gap:9px !important;
+                width:100% !important;
+            }
+            .st-key-profile_hero_shell .st-key-card_profile_stats div[data-testid="column"] {
+                width:100% !important;
+                max-width:100% !important;
+                min-width:0 !important;
+                flex:none !important;
+                padding:9px 4px !important;
+                box-sizing:border-box !important;
+            }
+            .st-key-profile_hero_shell .st-key-card_profile_stats .stButton > button {
+                font-size:11px !important;
+                font-weight:700 !important;
+                white-space:nowrap !important;
+            }
+        }
 </style>
         """,
         unsafe_allow_html=True,
@@ -5647,40 +5729,57 @@ def page_profile():
         avg_pct = 0.0
     rank, _out_of = cached_rank(sid)
 
-    header_col, stats_col = st.columns([1.3, 2.4], gap="medium")
-
-    # ---- Header: avatar + name + role/verified badges ----
-    with header_col:
-        st.markdown(
-            f"""
-            <div style='display:flex; align-items:center; gap:16px; margin-bottom:14px; flex-wrap:wrap;'>
-                {_profile_hero_avatar_html(render_avatar(sid, name, size=64, font_size=24), "#26AB8C")}
-                <div>
-                    <div style='font-family:var(--serif); font-weight:600; font-size:23px; color:var(--mv-ink); line-height:1.2;'>{name}</div>
-                    <div style='display:flex; align-items:center; gap:8px; margin-top:4px;'>
-                        <span style='font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--mv-muted); font-weight:700;'>Student</span>
-                        <span style='font-size:11px; padding:2px 10px; border-radius:999px; background:var(--mv-primary-soft); color:var(--mv-primary); font-weight:700;'>✓ Verified</span>
+    # Responsive profile hero shell: one DOM container lets CSS control the
+    # desktop two-column presentation and the phone single-column presentation
+    # without relying on Streamlit's inline column flex-basis.
+    with st.container(key="profile_hero_shell"):
+        with st.container(key="card_profile_header"):
+            st.markdown(
+                f"""
+                <div style='display:flex; align-items:center; gap:16px; margin-bottom:14px; flex-wrap:wrap;'>
+                    {_profile_hero_avatar_html(render_avatar(sid, name, size=64, font_size=24), "#26AB8C")}
+                    <div>
+                        <div style='font-family:var(--serif); font-weight:600; font-size:23px; color:var(--mv-ink); line-height:1.2;'>{name}</div>
+                        <div style='display:flex; align-items:center; gap:8px; margin-top:4px;'>
+                            <span style='font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--mv-muted); font-weight:700;'>Student</span>
+                            <span style='font-size:11px; padding:2px 10px; border-radius:999px; background:var(--mv-primary-soft); color:var(--mv-primary); font-weight:700;'>✓ Verified</span>
+                        </div>
                     </div>
                 </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+                """,
+                unsafe_allow_html=True,
+            )
 
-    # ---- Stats strip: Tests Completed / Average Score / Leaderboard
-    # Rank / Total Exams, each with a "View X →" shortcut into the page
-    # that actually shows that data. ----
-    with stats_col:
-        render_profile_stats_strip([
+        # ---- Stats strip: Tests Completed / Average Score / Leaderboard
+        # Rank / Total Exams, each with a "View X →" shortcut into the page
+        # that actually shows that data. ----
+        with st.container(key="card_profile_stats"):
+            cols = st.columns(4)
+            stats = [
             {"icon": "📋", "icon_bg": "var(--mv-primary-soft)", "number": tests_completed,
              "label": "Tests Completed", "link_text": "View Results →", "go_to_page": "tests"},
             {"icon": "📈", "icon_bg": "var(--mv-blue-soft)", "number": f"{avg_pct}%",
              "label": "Average Score", "link_text": "View Analysis →", "go_to_page": "analysis"},
             {"icon": "🏆", "icon_bg": "var(--mv-accent-soft)", "number": (f"#{rank}" if rank else "—"),
              "label": "Leaderboard Rank", "link_text": "View Leaderboard →", "go_to_page": "leaderboard"},
-            {"icon": "📚", "icon_bg": "var(--mv-purple-soft)", "number": tests_completed,
-             "label": "Total Exams", "link_text": "View Results →", "go_to_page": "tests"},
-        ])
+                {"icon": "📚", "icon_bg": "var(--mv-purple-soft)", "number": tests_completed,
+                 "label": "Total Exams", "link_text": "View Results →", "go_to_page": "tests"},
+            ]
+            for idx, (col, stat) in enumerate(zip(cols, stats)):
+                with col:
+                    st.markdown(_profile_stat_card_html(stat["icon"], stat["icon_bg"], stat["number"], stat["label"]), unsafe_allow_html=True)
+                    target_page = stat.get("go_to_page")
+                    if target_page:
+                        if st.button(stat["link_text"], key=f"profile_stat_mobile_safe_{idx}_{target_page}", use_container_width=True):
+                            if target_page.startswith("mentor:"):
+                                st.session_state["mentor_page"] = target_page.split("mentor:", 1)[1]
+                                st.session_state.pop("mentor_analysis_sid", None)
+                                st.session_state.pop("mentor_analysis_view_key_id", None)
+                                go_to("mentor")
+                            else:
+                                go_to(target_page)
+                    else:
+                        st.markdown(f"<div style='font-size:12.5px; color:var(--mv-primary); font-weight:600; margin-top:4px;'>{stat.get('caption', '')}</div>", unsafe_allow_html=True)
 
     left_col, right_col = st.columns([1.7, 1], gap="medium")
 
