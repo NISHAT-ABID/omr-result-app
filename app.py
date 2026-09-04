@@ -815,18 +815,28 @@ def inject_global_css():
             text-transform: uppercase;
             padding: 2px 7px 8px;
         }
+        .digital-omr-page-indicator {
+            text-align:center; padding:7px 4px; font-size:11px;
+            color:var(--mv-muted); white-space:nowrap;
+        }
+        .digital-omr-page-title {
+            margin:2px 0 8px; padding:7px 9px; border-radius:10px;
+            background:rgba(38,171,140,.08); color:var(--mv-primary);
+            font-size:11px; font-weight:800; letter-spacing:.06em;
+            text-transform:uppercase;
+        }
         /* Streamlit buttons inside a keyed question container become the
            editable OMR bubbles. */
         [class*="st-key-digital_omr_q_"] button {
-            min-height: 31px !important;
-            height: 31px !important;
+            min-height: 27px !important;
+            height: 27px !important;
             padding: 0 !important;
             border-radius: 999px !important;
             border: 1.5px solid rgba(125,154,145,.62) !important;
             background: rgba(255,255,255,.025) !important;
             color: #b9c9c3 !important;
             font-family: var(--mono) !important;
-            font-size: 12px !important;
+            font-size: 11px !important;
             font-weight: 700 !important;
             box-shadow: none !important;
         }
@@ -4910,34 +4920,47 @@ def _issue_rows_from_review(review_rows):
 
 
 def _render_normal_omr_view(review_rows, total_q):
-    """Render the editable Digital OMR in the same block pattern as the paper."""
+    """Render editable Digital OMR in mentor answer-key style pages."""
     row_by_q = {r["q"]: r for r in review_rows}
-    physical_total = 50 if total_q in (40, 50) else 100
-    block_starts = list(range(1, physical_total + 1, 25))
-    # For a 40-question exam, Q41-50 are physically present on the paper but
-    # are intentionally not rendered because they are outside the exam.
-    block_starts = [s for s in block_starts if s <= total_q]
+    page_size = 20 if total_q == 40 else 25
+    page_count = max(1, (total_q + page_size - 1) // page_size)
+    state_key = "submit_digital_omr_page"
+    current_page = max(0, min(int(st.session_state.get(state_key, 0) or 0), page_count - 1))
+    st.session_state[state_key] = current_page
 
-    block_cols = st.columns(len(block_starts), gap="small")
-    for col, start_q in zip(block_cols, block_starts):
-        end_q = min(start_q + 24, total_q)
-        with col:
+    start_q = current_page * page_size + 1
+    end_q = min(start_q + page_size - 1, total_q)
+
+    if page_count > 1:
+        nav1, nav2, nav3 = st.columns([1, 1.35, 1])
+        with nav1:
+            if st.button("← Previous", key="digital_omr_prev_page", use_container_width=True,
+                         disabled=current_page == 0):
+                st.session_state[state_key] = current_page - 1
+                st.rerun()
+        with nav2:
             st.markdown(
-                f"<div class='digital-omr-block'><div class='digital-omr-block-title'>Questions {start_q}–{end_q}</div>",
+                f"<div class='digital-omr-page-indicator'>Questions <b>{start_q}–{end_q}</b> · "
+                f"Page <b>{current_page + 1}</b> of <b>{page_count}</b></div>",
                 unsafe_allow_html=True,
             )
-            for q in range(start_q, end_q + 1):
-                row = row_by_q[q]
-                _render_digital_question_row(
-                    q=q,
-                    answer=row["given"],
-                    original=row["original_given"],
-                    status=row["status"],
-                    total_q=total_q,
-                    compact=True,
-                )
-            st.markdown("</div>", unsafe_allow_html=True)
+        with nav3:
+            if st.button("Next →", type="primary", key="digital_omr_next_page",
+                         use_container_width=True, disabled=current_page >= page_count - 1):
+                st.session_state[state_key] = current_page + 1
+                st.rerun()
 
+    with st.container(key=f"digital_omr_page_{current_page}"):
+        st.markdown(
+            f"<div class='digital-omr-page-title'>Questions {start_q}–{end_q}</div>",
+            unsafe_allow_html=True,
+        )
+        for q in range(start_q, end_q + 1):
+            row = row_by_q[q]
+            _render_digital_question_row(
+                q=q, answer=row["given"], original=row["original_given"],
+                status=row["status"], total_q=total_q, compact=True,
+            )
 
 def _render_review_issues_view(review_rows, total_q):
     """Show only unresolved questions, with live filters and Next Issue."""
@@ -8127,6 +8150,22 @@ def main():
                 font-weight: 900;
                 letter-spacing: .04em;
             }
+
+            /* Digital OMR: compact mobile bubbles/rows. */
+            [class*="st-key-digital_omr_q_"] button {
+                min-height:23px !important; height:23px !important;
+                min-width:23px !important; width:23px !important;
+                padding:0 !important; font-size:10px !important;
+                border-width:1.2px !important;
+            }
+            [class*="st-key-digital_omr_q_"] [data-testid="stHorizontalBlock"] {
+                gap:.12rem !important; margin-bottom:-2px !important;
+            }
+            [class*="st-key-digital_omr_q_"] [data-testid="stColumn"] {
+                padding-left:2px !important; padding-right:2px !important;
+            }
+            .digital-omr-page-indicator { font-size:10px !important; padding:5px 1px !important; }
+            .digital-omr-page-title { font-size:10px !important; padding:5px 7px !important; margin-bottom:5px !important; }
 
             /* OMR review: stack Original OMR first, Digital OMR second.
                This prevents the two panels from being squeezed side-by-side. */
