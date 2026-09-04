@@ -1533,7 +1533,7 @@ def inject_global_css():
             border-radius:8px; background:rgba(255,255,255,.025); font-size:11.5px; min-width:0;
         }
         .digital-q { grid-row:1 / span 2; font-family:var(--mono); font-weight:800; color:var(--mv-ink); }
-        .digital-options { display:flex; gap:3px; min-width:0; }
+        .digital-options { display:flex; gap:5px; min-width:0; }
         .digital-bubble { width:21px; height:21px; border:1px solid rgba(148,163,184,.38); border-radius:50%;
             display:inline-flex; align-items:center; justify-content:center; font:700 9px var(--mono); color:var(--mv-muted); }
         .digital-bubble.detected { background:rgba(34,197,94,.18); border-color:rgba(34,197,94,.65); color:#86efac; }
@@ -8484,6 +8484,92 @@ def main():
             div[data-testid="stHorizontalBlock"]:has(.omr-photo-card) + *,
             .omr-photo-card + * {
                 max-width: 100% !important;
+            }
+        }
+
+
+
+        /* ================================================================
+           DIGITAL OMR OPTION BUTTONS — FINAL ROUND/COMPACT FIX v14
+           Keep the answer controls truly circular and prevent A/B/C/D from
+           being clipped on narrow phones.
+           ================================================================ */
+        [class*="st-key-digital_omr_q_"] [data-testid="stHorizontalBlock"] {
+            align-items: center !important;
+            gap: .28rem !important;
+        }
+        [class*="st-key-digital_omr_q_"] [data-testid="stColumn"] {
+            min-width: 0 !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+        }
+        [class*="st-key-digital_omr_q_"] [data-testid="stColumn"] button {
+            width: 29px !important;
+            min-width: 29px !important;
+            max-width: 29px !important;
+            height: 29px !important;
+            min-height: 29px !important;
+            max-height: 29px !important;
+            padding: 0 !important;
+            margin: 0 auto !important;
+            border-radius: 50% !important;
+            aspect-ratio: 1 / 1 !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            line-height: 1 !important;
+            overflow: visible !important;
+            white-space: nowrap !important;
+            box-sizing: border-box !important;
+        }
+        [class*="st-key-digital_omr_q_"] [data-testid="stColumn"] button p,
+        [class*="st-key-digital_omr_q_"] [data-testid="stColumn"] button span {
+            margin: 0 !important;
+            padding: 0 !important;
+            line-height: 1 !important;
+            font-size: 10px !important;
+            font-weight: 800 !important;
+            white-space: nowrap !important;
+            overflow: visible !important;
+        }
+        [class*="st-key-digital_omr_q_"] [data-testid="stColumn"]:first-child button {
+            width: 100% !important;
+            min-width: 0 !important;
+            max-width: none !important;
+            border-radius: 7px !important;
+        }
+
+        @media (max-width: 767px) {
+            /* Slightly wider breathing room between A/B/C/D, but still compact. */
+            [class*="st-key-digital_omr_q_"] [data-testid="stHorizontalBlock"] {
+                gap: .34rem !important;
+            }
+            [class*="st-key-digital_omr_q_"] [data-testid="stColumn"] {
+                padding-left: 0 !important;
+                padding-right: 0 !important;
+            }
+            [class*="st-key-digital_omr_q_"] [data-testid="stColumn"] button {
+                width: 25px !important;
+                min-width: 25px !important;
+                max-width: 25px !important;
+                height: 25px !important;
+                min-height: 25px !important;
+                max-height: 25px !important;
+                border-radius: 50% !important;
+                padding: 0 !important;
+                overflow: visible !important;
+            }
+            [class*="st-key-digital_omr_q_"] [data-testid="stColumn"] button p,
+            [class*="st-key-digital_omr_q_"] [data-testid="stColumn"] button span {
+                font-size: 9px !important;
+                line-height: 1 !important;
+                transform: none !important;
+            }
+            [class*="st-key-digital_omr_q_"] [data-testid="stColumn"]:first-child button {
+                width: 100% !important;
+                min-width: 0 !important;
+                max-width: none !important;
             }
         }
 
