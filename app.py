@@ -4885,17 +4885,8 @@ def _render_digital_question_row(q, answer, original, status, total_q, compact=F
             selected = answer == opt
             detected_here = original == opt
             with cols[idx]:
-                if detected_here:
-                    st.markdown(
-                        "<div style='height:14px;display:flex;justify-content:center;align-items:center;"
-                        "margin-bottom:2px;'>"
-                        "<span title='Detected by scanner' style='display:inline-block;width:8px;height:8px;"
-                        "border-radius:50%;background:var(--mv-accent);'></span>"
-                        "</div>",
-                        unsafe_allow_html=True,
-                    )
-                else:
-                    st.markdown("<div style='height:14px;margin-bottom:2px;'></div>", unsafe_allow_html=True)
+                # Scanner detection is shown on the Original OMR overlay, not here.
+                st.markdown("<div style='height:14px;margin-bottom:2px;'></div>", unsafe_allow_html=True)
                 st.button(
                     opt,
                     key=f"digital_omr_q{q}_{opt}",
@@ -5030,6 +5021,54 @@ def _render_review_issues_view(review_rows, total_q):
             st.divider()
 
 
+def _make_detection_overlay(img_bgr, grid_points, detected_answers, radius):
+    """Draw a single-color circle overlay on the uploaded OMR image.
+
+    The underlying marks remain fully visible; this is only a visual review
+    layer and does not modify the image used by the scanner or submission.
+    """
+    overlay = img_bgr.copy()
+    points = _extract_question_option_points(grid_points, len(detected_answers))
+
+    # Use the app accent as the single detection color.  The overlay is drawn
+    # with OpenCV on the same resized image used by the scanner, so coordinates
+    # stay aligned with the detected bubbles.
+    accent_bgr = (246, 182, 41)  # visual accent only
+    base_r = max(10, int(radius or 12))
+    thickness = max(2, int(round(base_r * 0.16)))
+
+    for q, answer in detected_answers.items():
+        answer = _normalise_answer_value(answer)
+        q_points = points.get(q)
+        if not q_points:
+            continue
+        if answer in ("A", "B", "C", "D"):
+            pt = q_points.get(answer)
+            if pt:
+                center = (int(round(pt[0])), int(round(pt[1])))
+                cv2.circle(overlay, center, int(base_r * 1.65), accent_bgr, thickness, cv2.LINE_AA)
+                cv2.circle(overlay, center, int(base_r * 1.9), accent_bgr, max(1, thickness // 2), cv2.LINE_AA)
+        elif answer == "MULTI":
+            # For a MULTI result the scanner only exposes the aggregate status.
+            # Circle every sufficiently dark bubble so the student can see which
+            # filled options triggered the multi-detection.
+            for opt, pt in q_points.items():
+                center = (int(round(pt[0])), int(round(pt[1])))
+                x, y = center
+                r = max(3, int(base_r))
+                y0, y1 = max(0, y-r), min(overlay.shape[0], y+r+1)
+                x0, x1 = max(0, x-r), min(overlay.shape[1], x+r+1)
+                if y1 <= y0 or x1 <= x0:
+                    continue
+                gray = cv2.cvtColor(overlay[y0:y1, x0:x1], cv2.COLOR_BGR2GRAY)
+                darkness = 255.0 - float(np.mean(gray))
+                if darkness >= 55.0:
+                    cv2.circle(overlay, center, int(base_r * 1.65), accent_bgr, thickness, cv2.LINE_AA)
+                    cv2.circle(overlay, center, int(base_r * 1.9), accent_bgr, max(1, thickness // 2), cv2.LINE_AA)
+
+    return overlay
+
+
 def _render_interactive_omr_review(img_bgr, grid_points, detected_answers, final_answers, double_qs, radius):
     """Show the student's original OMR and an editable Digital OMR."""
     total_q = len(final_answers)
@@ -5044,7 +5083,7 @@ def _render_interactive_omr_review(img_bgr, grid_points, detected_answers, final
         <div class='digital-omr-title'>
             <div>
                 <div class='digital-omr-title-main'>🖥️ OMR Review</div>
-                <div class='digital-omr-sub'>Original OMR on top · editable Digital OMR below</div>
+                <div class='digital-omr-sub'>Detected marks on Original OMR · editable Digital OMR below</div>
             </div>
         </div>
     """, unsafe_allow_html=True)
@@ -5063,30 +5102,18 @@ def _render_interactive_omr_review(img_bgr, grid_points, detected_answers, final
         label_visibility="collapsed",
     )
 
-    # Detection-only legend: one accent color, used only to show what the scanner
-    # originally detected. It is deliberately separate from correctness/status.
-    st.markdown(
-        "<div style='display:flex;align-items:center;gap:7px;margin:2px 0 10px 0;"
-        "font-size:12px;color:var(--mv-muted);'>"
-        "<span style='display:inline-block;width:9px;height:9px;border-radius:50%;"
-        "background:var(--mv-accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--mv-accent) 16%,transparent);'></span>"
-        "<span>Scanner detected</span>"
-        "</div>",
-        unsafe_allow_html=True,
-    )
-
     left, right = st.columns([0.92, 1.55], gap="medium")
     with left:
-        st.markdown("<div class='omr-photo-card'><div class='omr-photo-label'>📷 Original OMR</div>", unsafe_allow_html=True)
-        original_bytes = st.session_state.get("submit_original_bytes")
-        if original_bytes:
-            try:
-                original_img = ImageOps.exif_transpose(Image.open(io.BytesIO(original_bytes)).convert("RGB"))
-                st.image(original_img, use_container_width=True)
-            except Exception:
-                st.image(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB), use_container_width=True)
-        else:
-            st.image(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB), use_container_width=True)
+        st.markdown("<div class='omr-photo-card'><div class='omr-photo-label'>📷 Original OMR · Scanner Detection</div>", unsafe_allow_html=True)
+        # Show the real uploaded sheet with a transparent-style visual circle
+        # overlay. The original bubble/ink remains visible underneath and the
+        # underlying image/state is never modified.
+        detection_overlay = _make_detection_overlay(img_bgr, grid_points, detected_answers, radius)
+        st.image(
+            cv2.cvtColor(detection_overlay, cv2.COLOR_BGR2RGB),
+            use_container_width=True,
+        )
+        st.caption("The circle only shows what the scanner detected. Your original marks remain visible underneath.")
         st.markdown("</div>", unsafe_allow_html=True)
 
     with right:
