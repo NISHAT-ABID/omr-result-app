@@ -27,7 +27,7 @@ from PIL import Image, ImageOps
 # ================= FINAL OMR REVIEW BUILD =================
 # Original OMR photo + full Digital OMR + immutable double-touch audit +
 # compact mobile tables. Existing exam/OMR features are intentionally preserved.
-OMR_REVIEW_BUILD = "2026-09-04-review-overlay-v3"
+OMR_REVIEW_BUILD = "2026-09-04-calibration-flow-v4"
 from streamlit_image_coordinates import streamlit_image_coordinates
 
 import omr_scanner
@@ -5029,7 +5029,7 @@ def _render_interactive_omr_review(img_bgr, grid_points, detected_answers, final
         <div class='digital-omr-title'>
             <div>
                 <div class='digital-omr-title-main'>🖥️ OMR Review</div>
-                <div class='digital-omr-sub'>Your scanned sheet on the left · editable Digital OMR on the right</div>
+                <div class='digital-omr-sub'>Original OMR on top · editable Digital OMR below</div>
             </div>
         </div>
     """, unsafe_allow_html=True)
@@ -5165,49 +5165,68 @@ def page_tests_results():
                     total_points = len(points_info)
 
                     if not st.session_state.get("submit_review_ready"):
-                        st.markdown("#### 🎯 Calibrate Your Sheet")
-                        st.markdown(
-                            f"<div class='calib-focus-instruction'><span>📍 CLICK CENTER</span> · {total_points} points · follow the order</div>",
-                            unsafe_allow_html=True,
-                        )
+                        # Calibration is intentionally kept inside the popup only.
+                        # The main page must not show the point-selection UI.
                         if len(calib_points) < total_points:
-                            step = points_info[len(calib_points)]
-                            st.markdown(
-                                f"<span class='calib-step-badge'>Step {len(calib_points) + 1} of {total_points}</span> &nbsp; Now tap: **{step['full']}**",
-                                unsafe_allow_html=True,
-                            )
                             @st.dialog("🎯 Calibrate OMR Photo", width="large")
                             def _calibration_dialog():
-                                # Dialogs are Streamlit fragments. A fragment rerun keeps
-                                # the popup open and refreshes only this calibration step.
+                                # IMPORTANT:
+                                # st.dialog() is a Streamlit fragment. A fragment rerun
+                                # would otherwise leave the popup open after the final
+                                # click. Therefore the LAST point triggers a FULL APP
+                                # rerun, which returns to this parent flow and runs the
+                                # scanner immediately.
                                 current_points = st.session_state.get("submit_calib_points", [])
                                 current_step = len(current_points)
+
+                                # Safety guard: if another fragment rerun reaches the
+                                # dialog after completion, close it without an "All done"
+                                # dead-end message.
                                 if current_step >= total_points:
-                                    st.success(f"✅ All {total_points} points marked!")
                                     return
 
                                 current_info = points_info[current_step]
                                 st.markdown(
-                                    f"<div class='calib-dialog-focus'><span>CLICK CENTER</span><b>{current_info['full']}</b></div>",
+                                    f"<div class='calib-dialog-focus'>"
+                                    f"<span>STEP {current_step + 1}/{total_points}</span>"
+                                    f"<b>CLICK CENTER · {current_info['full']}</b>"
+                                    f"</div>",
                                     unsafe_allow_html=True,
                                 )
+
                                 coords = streamlit_image_coordinates(
                                     display_pil,
                                     key=f"submit_calib_dialog_{file_sig}_{current_step}",
                                 )
+
                                 if coords is not None:
                                     pt = (coords["x"], coords["y"])
                                     if not current_points or current_points[-1] != pt:
-                                        st.session_state["submit_calib_points"] = current_points + [pt]
-                                        st.rerun(scope="fragment")
+                                        updated_points = current_points + [pt]
+                                        st.session_state["submit_calib_points"] = updated_points
+
+                                        # Final point: leave the popup and return to the
+                                        # normal app flow so the scanner runs below.
+                                        if len(updated_points) >= total_points:
+                                            st.rerun()
+                                        else:
+                                            # Intermediate points only refresh the dialog.
+                                            st.rerun(scope="fragment")
+
                             _calibration_dialog()
                         else:
-                            st.success(f"✅ All {total_points} points marked!")
+                            # All points are already stored. This branch is reached by a
+                            # FULL rerun after the final popup click, so scanning starts
+                            # here automatically—there is no intermediate "All done" state.
                             calibration = {info["key"]: pt for info, pt in zip(points_info, calib_points)}
                             grid = omr_scanner.build_grid(calibration, total_questions=total_q)
                             radius = omr_scanner.compute_bubble_radius(img_bgr)
-                            detected = _normalise_answers(omr_scanner.read_answers(img_bgr, grid, radius=radius), total_q)
+                            detected = _normalise_answers(
+                                omr_scanner.read_answers(img_bgr, grid, radius=radius),
+                                total_q,
+                            )
                             double_qs = [q for q, a in detected.items() if a == "MULTI"]
+
                             # Keep the raw grid in state; it is used only for the interactive overlay.
                             st.session_state["submit_grid"] = grid
                             st.session_state["submit_detected_answers"] = detected
@@ -8019,6 +8038,7 @@ def main():
                 box-sizing: border-box !important;
             }
             .omr-photo-card img {
+                display: block !important;
                 width: 100% !important;
                 height: auto !important;
                 max-width: 100% !important;
@@ -8026,7 +8046,16 @@ def main():
             }
             .digital-omr-shell {
                 width: 100% !important;
+                max-width: 100% !important;
                 box-sizing: border-box !important;
+            }
+            /* On mobile the submitted photo gets the full first section;
+               Digital OMR starts only after the Original OMR section ends. */
+            div[data-testid="stHorizontalBlock"]:has(.omr-photo-card) > div[data-testid="column"]:first-child {
+                order: 1 !important;
+            }
+            div[data-testid="stHorizontalBlock"]:has(.digital-omr-shell) > div[data-testid="column"]:last-child {
+                order: 2 !important;
             }
         }
 
