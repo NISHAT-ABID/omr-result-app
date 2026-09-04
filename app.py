@@ -27,7 +27,7 @@ from PIL import Image, ImageOps
 # ================= FINAL OMR REVIEW BUILD =================
 # Original OMR photo + full Digital OMR + immutable double-touch audit +
 # compact mobile tables. Existing exam/OMR features are intentionally preserved.
-OMR_REVIEW_BUILD = "2026-09-04-calibration-flow-v5"
+OMR_REVIEW_BUILD = "2026-09-04-exam-gated-omr-v6"
 from streamlit_image_coordinates import streamlit_image_coordinates
 
 import omr_scanner
@@ -4256,7 +4256,7 @@ def page_home():
                 # controlled PDF + personal countdown flow. Keep Quick OMR
                 # Submit only as the legacy fallback for exams that have no PDF.
                 if str(active.get("question_pdf_file_id", "") or "").strip():
-                    if st.button("📖 Open Exam", type="primary", use_container_width=True):
+                    if st.button("▶️ Start Exam", type="primary", use_container_width=True):
                         try:
                             sh.start_exam_session(
                                 sid, active["key_id"],
@@ -4270,8 +4270,10 @@ def page_home():
                             st.session_state["exam_room_key_id"] = active["key_id"]
                             st.rerun()
                 else:
-                    if st.button("📤 Quick OMR Submit", type="primary", use_container_width=True):
-                        go_to("tests", quick_submit=True)
+                    # Direct/Quick OMR submission is intentionally disabled.
+                    # A student must start the exam first; OMR access is granted
+                    # only after the controlled exam session is completed/expired.
+                    st.info("Start the exam first to unlock OMR submission.")
         else:
             upcoming = cached_upcoming_answer_key()
             if upcoming:
@@ -5097,247 +5099,255 @@ def page_tests_results():
             render_result_detail(match.iloc[0], key_match.iloc[0])
         return
 
-    st.markdown("### 📝 Submit OMR / Test History")
+    st.markdown("### 📝 Tests & Results")
 
+    # OMR submission is deliberately hidden until the student has entered
+    # the controlled exam flow and then clicked "Complete Exam & Go to OMR"
+    # (or the timer has expired). Merely opening Tests & Results must never
+    # unlock a direct OMR upload.
     requested_submit_key = st.session_state.get("submit_key_id")
+    active = None
     if requested_submit_key:
         requested_key = sh.get_answer_key_by_id(requested_submit_key)
         if requested_key:
-            active = requested_key
-            try:
-                active["start_dt"] = datetime.strptime(f"{active['date']} 00:00", "%Y-%m-%d %H:%M")
-                active["end_dt"] = active["start_dt"]
-            except Exception:
-                pass
-        else:
-            active = cached_active_answer_key()
-    else:
-        active = cached_active_answer_key()
-
-    with st.container(key="card_submit_omr"):
-        st.markdown("#### 📤 Submit Your OMR Sheet")
-        if not active:
-            st.info("No test is active right now.")
-        elif sh.has_submitted(sid, active["key_id"]):
-            st.success("✅ You've already submitted this test. Duplicate submissions aren't allowed.")
-        else:
-            total_q = active["total_questions"]
-            st.caption(f"Active test: **{active['exam_name'] or active['key_id']}** · {total_q} questions")
-            uploaded = st.file_uploader(
-                "Upload a clear, straight photo of your FULL filled OMR sheet (camera or gallery). Make sure all 4 corners of the sheet are visible in the frame.",
-                type=["png", "jpg", "jpeg"], key="omr_upload",
-            )
-
-            if uploaded is None:
-                _reset_submission_state()
+            session = sh.get_exam_session(sid, requested_submit_key)
+            session_status = str((session or {}).get("status", "")).lower()
+            if session_status in ("completed", "expired"):
+                active = requested_key
+                try:
+                    active["start_dt"] = datetime.strptime(f"{active['date']} 00:00", "%Y-%m-%d %H:%M")
+                    active["end_dt"] = active["start_dt"]
+                except Exception:
+                    pass
             else:
-                file_sig = f"{uploaded.name}_{uploaded.size}"
-                if st.session_state.get("submit_file_sig") != file_sig:
+                # Stale/invalid navigation state: do not expose the OMR page.
+                st.session_state.pop("submit_key_id", None)
+
+    if active:
+        with st.container(key="card_submit_omr"):
+            st.markdown("#### 📤 Submit Your OMR Sheet")
+            if not active:
+                st.info("No test is active right now.")
+            elif sh.has_submitted(sid, active["key_id"]):
+                st.success("✅ You've already submitted this test. Duplicate submissions aren't allowed.")
+            else:
+                total_q = active["total_questions"]
+                st.caption(f"Active test: **{active['exam_name'] or active['key_id']}** · {total_q} questions")
+                uploaded = st.file_uploader(
+                    "Upload a clear, straight photo of your FULL filled OMR sheet (camera or gallery). Make sure all 4 corners of the sheet are visible in the frame.",
+                    type=["png", "jpg", "jpeg"], key="omr_upload",
+                )
+
+                if uploaded is None:
                     _reset_submission_state()
-                    st.session_state["submit_file_sig"] = file_sig
-
-                if "submit_prepared_image" not in st.session_state:
-                    pil_img = ImageOps.exif_transpose(Image.open(uploaded).convert("RGB"))
-                    original_bytes = uploaded.getvalue()
-                    orig_bgr = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
-                    ok, errors, warnings_ = omr_scanner.validate_omr_image(orig_bgr)
-                    proc_bgr = omr_scanner.resize_max_dim(orig_bgr) if ok else orig_bgr
-                    st.session_state["submit_prepared_image"] = proc_bgr
-                    st.session_state["submit_original_bytes"] = original_bytes
-                    st.session_state["submit_validation"] = (ok, errors, warnings_)
-
-                img_bgr = st.session_state["submit_prepared_image"]
-                ok, errors, warnings_ = st.session_state["submit_validation"]
-                display_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-                display_pil = Image.fromarray(display_rgb)
-
-                if not ok:
-                    st.image(display_rgb, caption="Your uploaded sheet - full photo", use_container_width=True)
-                    for e in errors:
-                        st.error(e)
                 else:
-                    for w in warnings_:
-                        st.warning(w)
+                    file_sig = f"{uploaded.name}_{uploaded.size}"
+                    if st.session_state.get("submit_file_sig") != file_sig:
+                        _reset_submission_state()
+                        st.session_state["submit_file_sig"] = file_sig
 
-                    points_info = omr_scanner.calibration_points_info(total_q)
-                    calib_points = st.session_state.get("submit_calib_points", [])
-                    total_points = len(points_info)
+                    if "submit_prepared_image" not in st.session_state:
+                        pil_img = ImageOps.exif_transpose(Image.open(uploaded).convert("RGB"))
+                        original_bytes = uploaded.getvalue()
+                        orig_bgr = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+                        ok, errors, warnings_ = omr_scanner.validate_omr_image(orig_bgr)
+                        proc_bgr = omr_scanner.resize_max_dim(orig_bgr) if ok else orig_bgr
+                        st.session_state["submit_prepared_image"] = proc_bgr
+                        st.session_state["submit_original_bytes"] = original_bytes
+                        st.session_state["submit_validation"] = (ok, errors, warnings_)
 
-                    if not st.session_state.get("submit_review_ready"):
-                        # Calibration is intentionally kept inside the popup only.
-                        # The main page must not show the point-selection UI.
-                        if len(calib_points) < total_points:
-                            @st.dialog("🎯 Calibrate OMR Photo", width="large")
-                            def _calibration_dialog():
-                                # IMPORTANT:
-                                # st.dialog() is a Streamlit fragment. A fragment rerun
-                                # would otherwise leave the popup open after the final
-                                # click. Therefore the LAST point triggers a FULL APP
-                                # rerun, which returns to this parent flow and runs the
-                                # scanner immediately.
-                                current_points = st.session_state.get("submit_calib_points", [])
-                                current_step = len(current_points)
+                    img_bgr = st.session_state["submit_prepared_image"]
+                    ok, errors, warnings_ = st.session_state["submit_validation"]
+                    display_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+                    display_pil = Image.fromarray(display_rgb)
 
-                                # Safety guard: if another fragment rerun reaches the
-                                # dialog after completion, close it without an "All done"
-                                # dead-end message.
-                                if current_step >= total_points:
-                                    return
-
-                                current_info = points_info[current_step]
-                                st.markdown(
-                                    f"<div class='calib-dialog-focus'>"
-                                    f"<span>STEP {current_step + 1}/{total_points}</span>"
-                                    f"<b>CLICK CENTER · {current_info['full']}</b>"
-                                    f"</div>",
-                                    unsafe_allow_html=True,
-                                )
-
-                                coords = streamlit_image_coordinates(
-                                    display_pil,
-                                    key=f"submit_calib_dialog_{file_sig}_{current_step}",
-                                )
-
-                                if coords is not None:
-                                    pt = (coords["x"], coords["y"])
-                                    if not current_points or current_points[-1] != pt:
-                                        updated_points = current_points + [pt]
-                                        st.session_state["submit_calib_points"] = updated_points
-
-                                        # Final point: leave the popup and return to the
-                                        # normal app flow so the scanner runs below.
-                                        if len(updated_points) >= total_points:
-                                            st.rerun()
-                                        else:
-                                            # Intermediate points only refresh the dialog.
-                                            st.rerun(scope="fragment")
-
-                            _calibration_dialog()
-                        else:
-                            # All points are already stored. This branch is reached by a
-                            # FULL rerun after the final popup click, so scanning starts
-                            # here automatically—there is no intermediate "All done" state.
-                            calibration = {info["key"]: pt for info, pt in zip(points_info, calib_points)}
-                            grid = omr_scanner.build_grid(calibration, total_questions=total_q)
-                            radius = omr_scanner.compute_bubble_radius(img_bgr)
-                            detected = _normalise_answers(
-                                omr_scanner.read_answers(img_bgr, grid, radius=radius),
-                                total_q,
-                            )
-                            double_qs = [q for q, a in detected.items() if a == "MULTI"]
-
-                            # Keep the raw grid in state; it is used only for the interactive overlay.
-                            st.session_state["submit_grid"] = grid
-                            st.session_state["submit_detected_answers"] = detected
-                            st.session_state["submit_final_answers"] = dict(detected)
-                            st.session_state["submit_double_touch"] = double_qs
-                            st.session_state["submit_review_ready"] = True
-                            st.rerun()
+                    if not ok:
+                        st.image(display_rgb, caption="Your uploaded sheet - full photo", use_container_width=True)
+                        for e in errors:
+                            st.error(e)
                     else:
-                        grid = st.session_state.get("submit_grid")
-                        detected = st.session_state.get("submit_detected_answers", {})
-                        final_answers = st.session_state.get("submit_final_answers", dict(detected))
-                        double_qs = st.session_state.get("submit_double_touch", [])
-                        grid_points = _extract_question_option_points(grid, total_q)
-                        radius = omr_scanner.compute_bubble_radius(img_bgr)
+                        for w in warnings_:
+                            st.warning(w)
 
-                        review_rows = _render_interactive_omr_review(
-                            img_bgr, grid_points, detected, final_answers, double_qs, radius
-                        )
+                        points_info = omr_scanner.calibration_points_info(total_q)
+                        calib_points = st.session_state.get("submit_calib_points", [])
+                        total_points = len(points_info)
 
-                        st.divider()
-                        st.markdown("#### ✅ Ready to Submit?")
-                        unresolved_double = [
-                            r for r in _build_review_state(final_answers, detected)
-                            if r["status"] == "double"
-                        ]
-                        if unresolved_double:
-                            st.warning(
-                                f"⚠️ {len(unresolved_double)} double-touch question(s) still need a final A/B/C/D selection before submission."
+                        if not st.session_state.get("submit_review_ready"):
+                            # Calibration is intentionally kept inside the popup only.
+                            # The main page must not show the point-selection UI.
+                            if len(calib_points) < total_points:
+                                @st.dialog("🎯 Calibrate OMR Photo", width="large")
+                                def _calibration_dialog():
+                                    # IMPORTANT:
+                                    # st.dialog() is a Streamlit fragment. A fragment rerun
+                                    # would otherwise leave the popup open after the final
+                                    # click. Therefore the LAST point triggers a FULL APP
+                                    # rerun, which returns to this parent flow and runs the
+                                    # scanner immediately.
+                                    current_points = st.session_state.get("submit_calib_points", [])
+                                    current_step = len(current_points)
+
+                                    # Safety guard: if another fragment rerun reaches the
+                                    # dialog after completion, close it without an "All done"
+                                    # dead-end message.
+                                    if current_step >= total_points:
+                                        return
+
+                                    current_info = points_info[current_step]
+                                    st.markdown(
+                                        f"<div class='calib-dialog-focus'>"
+                                        f"<span>STEP {current_step + 1}/{total_points}</span>"
+                                        f"<b>CLICK CENTER · {current_info['full']}</b>"
+                                        f"</div>",
+                                        unsafe_allow_html=True,
+                                    )
+
+                                    coords = streamlit_image_coordinates(
+                                        display_pil,
+                                        key=f"submit_calib_dialog_{file_sig}_{current_step}",
+                                    )
+
+                                    if coords is not None:
+                                        pt = (coords["x"], coords["y"])
+                                        if not current_points or current_points[-1] != pt:
+                                            updated_points = current_points + [pt]
+                                            st.session_state["submit_calib_points"] = updated_points
+
+                                            # Final point: leave the popup and return to the
+                                            # normal app flow so the scanner runs below.
+                                            if len(updated_points) >= total_points:
+                                                st.rerun()
+                                            else:
+                                                # Intermediate points only refresh the dialog.
+                                                st.rerun(scope="fragment")
+
+                                _calibration_dialog()
+                            else:
+                                # All points are already stored. This branch is reached by a
+                                # FULL rerun after the final popup click, so scanning starts
+                                # here automatically—there is no intermediate "All done" state.
+                                calibration = {info["key"]: pt for info, pt in zip(points_info, calib_points)}
+                                grid = omr_scanner.build_grid(calibration, total_questions=total_q)
+                                radius = omr_scanner.compute_bubble_radius(img_bgr)
+                                detected = _normalise_answers(
+                                    omr_scanner.read_answers(img_bgr, grid, radius=radius),
+                                    total_q,
+                                )
+                                double_qs = [q for q, a in detected.items() if a == "MULTI"]
+
+                                # Keep the raw grid in state; it is used only for the interactive overlay.
+                                st.session_state["submit_grid"] = grid
+                                st.session_state["submit_detected_answers"] = detected
+                                st.session_state["submit_final_answers"] = dict(detected)
+                                st.session_state["submit_double_touch"] = double_qs
+                                st.session_state["submit_review_ready"] = True
+                                st.rerun()
+                        else:
+                            grid = st.session_state.get("submit_grid")
+                            detected = st.session_state.get("submit_detected_answers", {})
+                            final_answers = st.session_state.get("submit_final_answers", dict(detected))
+                            double_qs = st.session_state.get("submit_double_touch", [])
+                            grid_points = _extract_question_option_points(grid, total_q)
+                            radius = omr_scanner.compute_bubble_radius(img_bgr)
+
+                            review_rows = _render_interactive_omr_review(
+                                img_bgr, grid_points, detected, final_answers, double_qs, radius
                             )
 
-                        submitting_key = f"submitting_{file_sig}"
-                        is_submitting = st.session_state.get(submitting_key, False)
-                        cb1, cb2 = st.columns(2)
-                        with cb1:
-                            if st.button("🔄 Redo Calibration Points", use_container_width=True, disabled=is_submitting):
-                                _reset_submission_state()
-                                st.session_state["submit_file_sig"] = file_sig
-                                st.rerun()
-                        with cb2:
-                            submit_clicked = st.button("📤 Confirm & Submit", type="primary", use_container_width=True, disabled=is_submitting)
+                            st.divider()
+                            st.markdown("#### ✅ Ready to Submit?")
+                            unresolved_double = [
+                                r for r in _build_review_state(final_answers, detected)
+                                if r["status"] == "double"
+                            ]
+                            if unresolved_double:
+                                st.warning(
+                                    f"⚠️ {len(unresolved_double)} double-touch question(s) still need a final A/B/C/D selection before submission."
+                                )
 
-                        if submit_clicked and not is_submitting:
-                            st.session_state[submitting_key] = True
-                            try:
-                                with st.spinner("Scoring your final answers and saving your OMR..."):
-                                    submit_key_id = active["key_id"]
-                                    active_now = sh.get_answer_key_by_id(submit_key_id)
-                                    if not active_now:
-                                        st.error("This exam could not be loaded. Your result can't be recorded.")
-                                    elif sh.has_submitted(sid, active_now["key_id"]):
-                                        st.warning("You've already submitted this test.")
-                                    else:
-                                        # The student's final Digital OMR choices are authoritative.
-                                        # Scanner MULTI detections remain stored as audit metadata only; once
-                                        # the student chooses one bubble, that issue is resolved and must not
-                                        # be forcibly converted back to MULTI during scoring.
-                                        scoring_answers = dict(final_answers)
-                                        result = omr_scanner.score_answers(
-                                            scoring_answers,
-                                            active_now["answer_string"],
-                                            negative_marking=active_now.get("negative_marking", False),
-                                            negative_value=active_now.get("negative_marks_value", 0.0),
-                                        )
-                                        # Preserve the scanner's first-pass detection separately
-                                        # from the student's editable final answer. This is the audit
-                                        # trail that keeps double-touch negative marking enforceable.
-                                        result["omr_original_answers"] = dict(detected)
-                                        result["omr_final_answers"] = dict(final_answers)
-                                        result["omr_double_touch"] = list(double_qs)
-                                        result["omr_grid"] = _grid_points_json_safe(grid_points)
-                                        neg_enabled = sh._to_bool(active_now.get("negative_marking", False))
-                                        if neg_enabled:
-                                            neg_per_wrong = max(0.0, float(active_now.get("negative_marks_value", 0.0) or 0.0))
-                                            result["marks"] = round(float(result.get("correct", 0)) - float(result.get("wrong_count", 0)) * neg_per_wrong, 4)
-                                            result["negative_marking"] = True
-                                            result["negative_value"] = neg_per_wrong
+                            submitting_key = f"submitting_{file_sig}"
+                            is_submitting = st.session_state.get(submitting_key, False)
+                            cb1, cb2 = st.columns(2)
+                            with cb1:
+                                if st.button("🔄 Redo Calibration Points", use_container_width=True, disabled=is_submitting):
+                                    _reset_submission_state()
+                                    st.session_state["submit_file_sig"] = file_sig
+                                    st.rerun()
+                            with cb2:
+                                submit_clicked = st.button("📤 Confirm & Submit", type="primary", use_container_width=True, disabled=is_submitting)
 
-                                        saved = sh.append_result_if_not_submitted(
-                                            sid,
-                                            st.session_state["student_name"],
-                                            submit_key_id,
-                                            result,
-                                            omr_photo_bytes=st.session_state.get("submit_original_bytes"),
-                                            omr_photo_name=uploaded.name,
-                                        )
-                                        clear_all_caches()
-                                        if not saved:
-                                            st.warning("You've already submitted this test (from another tab or device).")
+                            if submit_clicked and not is_submitting:
+                                st.session_state[submitting_key] = True
+                                try:
+                                    with st.spinner("Scoring your final answers and saving your OMR..."):
+                                        submit_key_id = active["key_id"]
+                                        active_now = sh.get_answer_key_by_id(submit_key_id)
+                                        if not active_now:
+                                            st.error("This exam could not be loaded. Your result can't be recorded.")
+                                        elif sh.has_submitted(sid, active_now["key_id"]):
+                                            st.warning("You've already submitted this test.")
                                         else:
-                                            sh.set_exam_session_status(sid, submit_key_id, "submitted")
-                                            st.session_state.pop("submit_key_id", None)
-                                            _reset_submission_state()
-                                            st.success("✅ Result saved!")
-                                            with st.container(key="card_submit_result"):
-                                                r1, r2, r3, r4 = st.columns(4)
-                                                r1.metric("Correct ✅", result["correct"])
-                                                r2.metric("Wrong ❌", result["wrong_count"])
-                                                r3.metric("Skipped ⚪", result["skipped"])
-                                                r4.metric("🏆 Marks", result["marks"])
-                                                if sh._to_bool(result.get("negative_marking", False)):
-                                                    st.caption(
-                                                        f"Negative marking: {result['wrong_count']} wrong × {float(result.get('negative_value', 0.0)):.2f} deducted · skipped = no deduction"
-                                                    )
-                                            rows = omr_scanner.build_review_rows(scoring_answers, active_now["answer_string"])
-                                            review_rows = [r for r in rows if r["status"] in ("wrong", "skipped")]
-                                            st.markdown("#### Review")
-                                            render_omr_review(review_rows)
-                            except Exception as e:
-                                st.error("Something went wrong while saving your result and it was NOT recorded. Please try submitting again.")
-                                st.caption(f"Technical detail: {e}")
-                            finally:
-                                st.session_state[submitting_key] = False
+                                            # The student's final Digital OMR choices are authoritative.
+                                            # Scanner MULTI detections remain stored as audit metadata only; once
+                                            # the student chooses one bubble, that issue is resolved and must not
+                                            # be forcibly converted back to MULTI during scoring.
+                                            scoring_answers = dict(final_answers)
+                                            result = omr_scanner.score_answers(
+                                                scoring_answers,
+                                                active_now["answer_string"],
+                                                negative_marking=active_now.get("negative_marking", False),
+                                                negative_value=active_now.get("negative_marks_value", 0.0),
+                                            )
+                                            # Preserve the scanner's first-pass detection separately
+                                            # from the student's editable final answer. This is the audit
+                                            # trail that keeps double-touch negative marking enforceable.
+                                            result["omr_original_answers"] = dict(detected)
+                                            result["omr_final_answers"] = dict(final_answers)
+                                            result["omr_double_touch"] = list(double_qs)
+                                            result["omr_grid"] = _grid_points_json_safe(grid_points)
+                                            neg_enabled = sh._to_bool(active_now.get("negative_marking", False))
+                                            if neg_enabled:
+                                                neg_per_wrong = max(0.0, float(active_now.get("negative_marks_value", 0.0) or 0.0))
+                                                result["marks"] = round(float(result.get("correct", 0)) - float(result.get("wrong_count", 0)) * neg_per_wrong, 4)
+                                                result["negative_marking"] = True
+                                                result["negative_value"] = neg_per_wrong
+
+                                            saved = sh.append_result_if_not_submitted(
+                                                sid,
+                                                st.session_state["student_name"],
+                                                submit_key_id,
+                                                result,
+                                                omr_photo_bytes=st.session_state.get("submit_original_bytes"),
+                                                omr_photo_name=uploaded.name,
+                                            )
+                                            clear_all_caches()
+                                            if not saved:
+                                                st.warning("You've already submitted this test (from another tab or device).")
+                                            else:
+                                                sh.set_exam_session_status(sid, submit_key_id, "submitted")
+                                                st.session_state.pop("submit_key_id", None)
+                                                _reset_submission_state()
+                                                st.success("✅ Result saved!")
+                                                with st.container(key="card_submit_result"):
+                                                    r1, r2, r3, r4 = st.columns(4)
+                                                    r1.metric("Correct ✅", result["correct"])
+                                                    r2.metric("Wrong ❌", result["wrong_count"])
+                                                    r3.metric("Skipped ⚪", result["skipped"])
+                                                    r4.metric("🏆 Marks", result["marks"])
+                                                    if sh._to_bool(result.get("negative_marking", False)):
+                                                        st.caption(
+                                                            f"Negative marking: {result['wrong_count']} wrong × {float(result.get('negative_value', 0.0)):.2f} deducted · skipped = no deduction"
+                                                        )
+                                                rows = omr_scanner.build_review_rows(scoring_answers, active_now["answer_string"])
+                                                review_rows = [r for r in rows if r["status"] in ("wrong", "skipped")]
+                                                st.markdown("#### Review")
+                                                render_omr_review(review_rows)
+                                except Exception as e:
+                                    st.error("Something went wrong while saving your result and it was NOT recorded. Please try submitting again.")
+                                    st.caption(f"Technical detail: {e}")
+                                finally:
+                                    st.session_state[submitting_key] = False
 
     st.markdown("#### 📋 Test History")
     results = cached_results()
