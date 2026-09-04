@@ -1490,6 +1490,1644 @@ def inject_global_css():
         }
         .lb-row.me { background: rgba(18,60,57,0.08); border-color: rgba(18,60,57,0.35); }
 
+        /* ---- OMR review bubbles ---- */
+        .omr-row {
+            display:flex; align-items:center; gap:10px; padding:8px 4px;
+            border-bottom:1px solid rgba(128,128,128,0.15);
+        }
+        .omr-qnum { width:44px; font-weight:700; font-size:13px; opacity:.8; }
+        .omr-tag { font-size:11px; padding:2px 8px; border-radius:999px; margin-right:8px; font-weight:600; }
+        .omr-tag.wrong-tag { background:#fee2e2; color:#991b1b; }
+        .omr-tag.skip-tag { background:#e5e7eb; color:#374151; }
+        .omr-bubble {
+            width:26px; height:26px; border-radius:50%; border:2px solid rgba(128,128,128,0.35);
+            display:inline-flex; align-items:center; justify-content:center;
+            font-size:11px; font-weight:700; margin-right:6px; opacity:.85;
+        }
+        .omr-bubble.correct { background:#22c55e; border-color:#22c55e; color:#fff; opacity:1; }
+        .omr-bubble.wrong { background:#ef4444; border-color:#ef4444; color:#fff; opacity:1; }
+        .dt-star { color:#ef4444; font-weight:800; margin-left:2px; }
+        .double-touch-note {
+            margin-top:10px; padding:10px 12px; border-radius:10px;
+            background: rgba(239,68,68,0.10); border:1px solid rgba(239,68,68,0.35);
+            font-size:13px;
+        }
+        .double-touch-note b { color:#ef4444; }
+
+        .digital-omr-grid {
+            display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:5px; margin-top:8px;
+        }
+        .digital-omr-row {
+            display:grid; grid-template-columns:38px minmax(92px,1fr) auto; grid-template-rows:auto auto;
+            gap:4px 7px; align-items:center; padding:6px 8px; border:1px solid var(--mv-border);
+            border-radius:8px; background:rgba(255,255,255,.025); font-size:11.5px; min-width:0;
+        }
+        .digital-q { grid-row:1 / span 2; font-family:var(--mono); font-weight:800; color:var(--mv-ink); }
+        .digital-options { display:flex; gap:3px; min-width:0; }
+        .digital-bubble { width:21px; height:21px; border:1px solid rgba(148,163,184,.38); border-radius:50%;
+            display:inline-flex; align-items:center; justify-content:center; font:700 9px var(--mono); color:var(--mv-muted); }
+        .digital-bubble.detected { background:rgba(34,197,94,.18); border-color:rgba(34,197,94,.65); color:#86efac; }
+        .digital-bubble.detected-double { background:rgba(239,68,68,.18); border-color:rgba(239,68,68,.7); color:#fda4af; }
+        .digital-bubble.final { box-shadow:0 0 0 2px rgba(41,182,246,.8); color:var(--mv-ink); }
+        .digital-bubble.key { text-decoration:underline; text-underline-offset:2px; }
+        .digital-your, .digital-correct { color:var(--mv-muted); white-space:nowrap; }
+        .digital-your b, .digital-correct b { color:var(--mv-ink); }
+        .digital-correct { grid-column:2; }
+        .digital-status { grid-column:3; grid-row:1 / span 2; font-size:9px; font-weight:800; padding:3px 6px; border-radius:999px; white-space:nowrap; }
+        .digital-status.d-ok { background:rgba(34,197,94,.13); color:#4ade80; }
+        .digital-status.d-bad { background:rgba(239,68,68,.13); color:#f87171; }
+        .digital-status.d-skip { background:rgba(148,163,184,.13); color:#cbd5e1; }
+        .digital-status.d-double { background:rgba(239,68,68,.18); color:#fb7185; }
+        @media (max-width: 767px) {
+            .digital-omr-grid { grid-template-columns:1fr; gap:4px; }
+            .digital-omr-row { grid-template-columns:32px minmax(88px,1fr) auto; padding:5px 6px; font-size:10.5px; }
+            .digital-bubble { width:19px; height:19px; font-size:8px; }
+            .digital-status { font-size:8px; padding:2px 5px; }
+        }
+        @media (max-width: 767px) {
+            /* OMR review must remain readable on a phone without horizontal
+               scrolling. The question number, bubbles, final answer and status
+               are all kept inside one compact card. */
+            .digital-omr-row {
+                grid-template-columns:28px minmax(76px,1fr) auto !important;
+                gap:3px 5px !important;
+                padding:5px 5px !important;
+            }
+            .digital-options { gap:2px !important; }
+            .digital-bubble { width:18px !important; height:18px !important; font-size:7.5px !important; }
+            .digital-your, .digital-correct { font-size:9px !important; }
+            .digital-status { font-size:7.5px !important; padding:2px 4px !important; }
+        }
+
+        .strength-bar { height:6px; border-radius:4px; background:rgba(128,128,128,0.2); overflow:hidden; margin-top:4px; }
+        .strength-fill { height:100%; border-radius:4px; }
+        .time-row-label { font-weight:600; padding-top:6px; font-size:14px; }
+        .mv-window-heading {
+            display:flex; align-items:baseline; gap:10px; margin:8px 0 8px;
+            color:var(--mv-ink);
+        }
+        .mv-window-heading span { font-size:12px; color:var(--mv-muted); font-weight:400; }
+        .mv-time-card-title {
+            font-size:14px; font-weight:700; color:var(--mv-ink); margin-bottom:1px;
+        }
+        .mv-time-card-sub {
+            font-size:11px; color:var(--mv-muted); margin-bottom:6px;
+        }
+        [class*="st-key-mentor_start_t_time_card"],
+        [class*="st-key-mentor_end_t_time_card"] {
+            border:1px solid var(--mv-border); border-radius:12px;
+            background:var(--mv-surface); padding:10px 12px 6px;
+            box-sizing:border-box; min-width:0;
+        }
+
+        /* ---- Phone number field: a country-code st.selectbox ("+880 ⌄"
+           style, matching the requested reference design) sitting beside
+           a normal st.text_input, laid out with plain CSS flexbox.
+           Two earlier attempts at this failed: st.columns() (Streamlit's
+           own column-width engine breaks on real phones) and
+           position:absolute (never rendered at all). This version puts
+           the selectbox and the text_input as two plain, normal children
+           inside this container, and forces Streamlit's own wrapper div
+           around them into a flex row - using BOTH a same-element and a
+           descendant version of the selector below, because Streamlit
+           puts the "stVerticalBlock" testid directly on the same element
+           as the "st-key-*" class (not one level below it, which is what
+           made an earlier ">"-child-combinator version of this rule
+           silently match nothing). An explicit border/background/shadow
+           is added on this same wrapper so the whole code+digits row
+           reads as ONE clearly-bounded field against the page background,
+           instead of just relying on the two child pieces' own colors to
+           imply a boundary. ---- */
+        div[class*="_phone_row"][data-testid="stVerticalBlock"],
+        div[class*="_phone_row"] div[data-testid="stVerticalBlock"] {
+            display: flex !important;
+            flex-direction: row !important;
+            align-items: stretch !important;
+            gap: 0 !important;
+            border: 1px solid var(--mv-border) !important;
+            border-radius: 9px !important;
+            background: var(--mv-input-bg) !important;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.14) !important;
+        }
+        div[class*="_phone_row"][data-testid="stVerticalBlock"] > div,
+        div[class*="_phone_row"] div[data-testid="stVerticalBlock"] > div {
+            margin: 0 !important;
+        }
+        div[class*="_phone_row"][data-testid="stVerticalBlock"] > div:first-child,
+        div[class*="_phone_row"] div[data-testid="stVerticalBlock"] > div:first-child {
+            flex: 0 0 168px !important;
+            min-width: 168px !important;
+        }
+        div[class*="_phone_row"][data-testid="stVerticalBlock"] > div:last-child,
+        div[class*="_phone_row"] div[data-testid="stVerticalBlock"] > div:last-child {
+            flex: 1 1 auto !important;
+            min-width: 0 !important;
+        }
+        /* Country-code side now matches the SAME dark input background as
+           the digits side (not the teal "primary-soft" tint it used to
+           have) - a thin border-right is what separates the two halves
+           visually, while the whole row's own border/shadow above is what
+           separates the entire field from the page background. */
+        div[class*="_phone_row"] div[data-baseweb="select"] > div {
+            height: 46px !important;
+            border-radius: 9px 0 0 9px !important;
+            border: none !important;
+            border-right: 1px solid var(--mv-border) !important;
+            font-weight: 600 !important;
+            color: var(--mv-primary) !important;
+            background: var(--mv-input-bg) !important;
+        }
+        div[class*="_phone_row"] input {
+            height: 46px !important;
+            width: 100% !important;
+            box-sizing: border-box !important;
+            border: none !important;
+            border-radius: 0 9px 9px 0 !important;
+            background: var(--mv-input-bg) !important;
+        }
+
+        /* ---- Profile "Edit Name" row now uses plain st.columns() in
+           Python (see page_profile) instead of a custom flex-row CSS
+           hack - the hack made the text input invisible for this
+           particular avatar+input pairing, so it was removed rather than
+           further patched blind. Nothing needed here. ---- */
+
+        /* ---- Profile page: Profile Information / Account Status / Log
+           Out cards (matches the reference dashboard-style design). Rows
+           inside the info card, and the status pill rows, are plain CSS -
+           real markup below, styled here so it's consistent with the
+           rest of the app's card look instead of a one-off. ---- */
+        .mv-profile-status-row {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 9px 0; border-bottom: 1px solid var(--mv-border);
+        }
+        .mv-profile-status-row:last-child { border-bottom: none; }
+        .mv-profile-status-label { font-size: 13.5px; color: var(--mv-muted); }
+        .mv-profile-status-pill {
+            font-size: 11px; padding: 3px 12px; border-radius: 999px; font-weight: 700;
+        }
+
+        /* ---- Profile stats strip (Tests Completed / Average Score /
+           Leaderboard Rank / Days Active on the student page, and the
+           equivalent mentor stats on the mentor page) - one bordered
+           card, 4 plain columns, no per-column border/background so it
+           reads as a single unified strip matching the reference design.
+           The "View X →" / "Keep Going!" line under each stat is a real
+           st.button styled as a plain teal link (student side) or a
+           static caption (mentor side / the 4th "Days Active" stat) -
+           scoped narrowly to this card so it never affects any other
+           button in the app. ---- */
+        .st-key-card_profile_stats { padding: 18px 20px !important; }
+        .st-key-card_profile_stats div[data-testid="column"] { text-align: center; }
+        .st-key-card_profile_stats .stButton { display: flex; justify-content: center; }
+        .st-key-card_profile_stats .stButton > button:not([kind="primary"]) {
+            background: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+            color: var(--mv-primary) !important;
+            font-size: 12.5px !important;
+            font-weight: 600 !important;
+            padding: 2px 0 !important;
+            margin-top: 2px !important;
+            min-height: unset !important;
+            width: auto !important;
+        }
+        .st-key-card_profile_stats .stButton > button:not([kind="primary"]):hover {
+            text-decoration: underline; background: transparent !important; transform: none !important;
+        }
+
+        /* ---- Small down-chevron next to the top-nav avatar (student and
+           mentor) - purely decorative, matching the reference design's
+           "avatar + caret" combo. The avatar button itself still does all
+           the actual navigation (click anywhere on the circle -> Profile);
+           the chevron is a plain, non-interactive span sitting in its own
+           narrow column right next to it. ---- */
+        .mv-nav-avatar-chevron {
+            display: flex; align-items: center; justify-content: center;
+            height: 34px; color: var(--mv-muted); font-size: 13px;
+        }
+
+        /* ---- Neon-glow profile cards: every card on the Profile page
+           (Profile Information / Account Status / Log Out / stats strip /
+           "Are you a mentor?") gets a soft teal border-glow on top of the
+           app's normal card shadow, matching the reference design's
+           slightly "lit up" card edges. Scoped to "card_profile_*" keys
+           only (via the [class*=...] wildcard) so this never touches
+           unrelated cards elsewhere in the app (Home, Tests, Analysis,
+           etc. keep the plain look). Strengthens a little further on
+           hover for a subtle interactive feel. ---- */
+        [class*="st-key-card_profile_"] {
+            border-color: rgba(38,171,140,0.30) !important;
+            box-shadow: 0 0 0 1px rgba(38,171,140,0.10), 0 0 22px rgba(38,171,140,0.12),
+                        0 1px 2px rgba(18,32,28,0.05), 0 6px 18px rgba(18,32,28,0.05) !important;
+        }
+        [class*="st-key-card_profile_"]:hover {
+            border-color: rgba(38,171,140,0.45) !important;
+            box-shadow: 0 0 0 1px rgba(38,171,140,0.18), 0 0 28px rgba(38,171,140,0.18),
+                        0 2px 4px rgba(18,32,28,0.07), 0 10px 26px rgba(18,32,28,0.09) !important;
+        }
+        /* Neon ring around the big avatar on the Profile page header -
+           a soft glowing halo (teal for students, accent-orange for the
+           mentor) instead of a plain flat circle. Applied via a small
+           wrapper span (see _profile_hero_avatar_html() in app.py) so it
+           never affects the small avatars used elsewhere (leaderboard
+           rows, student-management list, top-nav). */
+        .mv-avatar-glow-ring {
+            display: inline-flex; border-radius: 50%; padding: 3px;
+        }
+
+        /* ---- "Are you a mentor?" card: icon chip + title/description on
+           the left, a compact Mentor Login button on the right - matches
+           the reference design instead of the earlier plain "text above
+           a full-width button" layout. ---- */
+        .mv-mentor-cta-icon {
+            width: 42px; height: 42px; border-radius: 11px;
+            background: var(--mv-accent-soft); color: var(--mv-accent);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 19px; flex-shrink: 0;
+        }
+        .st-key-card_profile_mentor div[data-testid="stHorizontalBlock"] { align-items: center !important; }
+
+        /* ---- Account Status card: a large, very faint shield watermark
+           in the corner (matching the reference design's decorative
+           background icon), implemented as a CSS-only ::after pseudo-
+           element with a negative z-index - this paints behind the
+           card's real content automatically (no extra markup, no
+           fiddling with z-index on the actual status rows, so there's
+           no risk of accidentally covering real content). ---- */
+        .st-key-card_profile_status { position: relative; overflow: hidden; }
+        .st-key-card_profile_status::after {
+            content: "🛡️";
+            position: absolute; right: -14px; bottom: -22px;
+            font-size: 118px; line-height: 1; opacity: 0.05;
+            z-index: -1; pointer-events: none;
+        }
+
+        /* ---- Log Out card: a destructive-red icon chip and a red-
+           outlined button instead of the app's usual teal, since signing
+           out is a distinct, deliberate action - matches the reference
+           design's red accent on this one card only. Scoped tightly to
+           ".st-key-card_profile_logout" (the same container key is
+           reused by both the student and mentor Profile pages, so this
+           one rule covers both) so no other button in the app is
+           affected. ---- */
+        .mv-logout-icon {
+            width: 34px; height: 34px; border-radius: 9px;
+            background: var(--mv-danger-soft); color: var(--mv-danger);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 16px; flex-shrink: 0;
+        }
+        .st-key-card_profile_logout .stButton > button:not([kind="primary"]) {
+            border-color: var(--mv-danger) !important;
+            color: var(--mv-danger) !important;
+        }
+        .st-key-card_profile_logout .stButton > button:not([kind="primary"]):hover {
+            background: var(--mv-danger-soft) !important;
+        }
+
+        /* ---- Change Password: a clickable title row (icon-less plain-
+           text button, left-aligned, bold) + a caption line underneath
+           that's always visible - replaces the old st.expander so the
+           description text ("Update your password regularly...") shows
+           even before it's opened, matching the reference design. The
+           actual toggle-open/closed behavior is a normal session_state
+           flag (same pattern as "Update Profile" elsewhere on this
+           page), not a custom overlay/hack, so it's exactly as reliable
+           as every other toggle in the app. ---- */
+        .st-key-card_profile_changepw .stButton > button:not([kind="primary"]) {
+            background: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+            color: var(--mv-ink) !important;
+            font-weight: 700 !important;
+            font-size: 15px !important;
+            text-align: left !important;
+            justify-content: flex-start !important;
+            padding: 4px 0 !important;
+            min-height: unset !important;
+        }
+        .st-key-card_profile_changepw .stButton > button:not([kind="primary"]):hover {
+            color: var(--mv-primary) !important;
+            background: transparent !important;
+            transform: none !important;
+        }
+
+        /* ---- Mentor results: student name behaves like a clean text link,
+           not a boxed button. The underlying Streamlit button is kept so
+           the existing click/navigation function remains exactly the same. ---- */
+        [class*="st-key-mentor_result_student_link_"] .stButton > button {
+            background: transparent !important;
+            border: 0 !important;
+            box-shadow: none !important;
+            color: var(--mv-primary) !important;
+            padding: 0 !important;
+            min-height: 0 !important;
+            width: auto !important;
+            font: inherit !important;
+            font-weight: 650 !important;
+            text-align: left !important;
+            justify-content: flex-start !important;
+            line-height: 1.35 !important;
+        }
+        [class*="st-key-mentor_result_student_link_"] .stButton > button:hover {
+            color: var(--mv-primary-hover) !important;
+            background: transparent !important;
+            text-decoration: underline !important;
+            text-underline-offset: 3px !important;
+        }
+        [class*="st-key-mentor_result_student_link_"] .stButton > button:focus-visible {
+            outline: 2px solid var(--mv-primary) !important;
+            outline-offset: 3px !important;
+            border-radius: 4px !important;
+        }
+
+        /* ---- Student per-submission calibration ---- */
+        .calib-step-badge {
+            display:inline-block; padding:4px 12px; border-radius:999px;
+            background: var(--mv-primary-soft); color: var(--mv-primary); font-weight:700; font-size:13px;
+        }
+        .calib-point-chip {
+            display:inline-block; padding:4px 10px; border-radius:999px;
+            background:rgba(34,197,94,0.15); color:#15803d; font-weight:600;
+            font-size:12px; margin:2px 4px 2px 0;
+        }
+
+        @media (max-width: 900px) {
+            .block-container {
+                max-width: 100%; padding-top: .85rem;
+                padding-left: 1rem; padding-right: 1rem;
+            }
+            .st-key-card_profile_mentor div[data-testid="stHorizontalBlock"],
+            .st-key-card_profile_mentor div[data-testid="column"] {
+                min-width: 0 !important;
+            }
+            .st-key-top_nav { display: none !important; }
+            .st-key-mobile_top_bar,
+            .st-key-mobile_top_bar[data-testid="stVerticalBlock"],
+            .st-key-mobile_top_bar div[data-testid="stVerticalBlock"] {
+                display: flex !important;
+            }
+            .mv-hero { margin: -1rem -1rem 16px; padding: 26px 12px 18px; }
+        }
+        @media (max-width: 640px) {
+            .metric-box { flex: 1 1 45%; }
+            .lb-row { font-size: 13px; }
+            .analysis-test-card, [class*="st-key-acard_"] { padding: 8px 10px; }
+            .mv-hero { padding: 22px 10px 14px; border-radius: 0 0 16px 16px; }
+            .app-card, [class*="st-key-card_"], div[data-testid="stForm"] { padding: 10px 12px !important; }
+        }
+        @media (min-width: 1400px) {
+            .block-container { max-width: 1280px; }
+        }
+
+        /* ---- Mobile layout hardening ----
+           Keep content inside the viewport and turn the reusable metric /
+           leaderboard rows into explicit grids. Streamlit's own responsive
+           column stacking is useful for some page sections, but it is not
+           reliable for compact cards: long labels can force a column wider
+           than the phone and make neighbouring values overlap. */
+        .mv-mobile-hide-instruction {
+            margin: 4px 0 10px;
+            color: var(--mv-muted);
+            font-size: 12px;
+            line-height: 1.5;
+        }
+
+        .metric-row {
+            min-width: 0;
+        }
+        .metric-box {
+            min-width: 0;
+            overflow: hidden;
+            box-sizing: border-box;
+        }
+
+        .lb-row {
+            min-width: 0;
+            box-sizing: border-box;
+            overflow: hidden;
+        }
+        .lb-row > * {
+            min-width: 0;
+        }
+
+        [class*="st-key-card_"] {
+            min-width: 0 !important;
+            box-sizing: border-box !important;
+        }
+        [class*="st-key-card_"] div[data-testid="column"] {
+            min-width: 0 !important;
+        }
+
+        @media (max-width: 767px) {
+            /* ------------------------------------------------------------
+               Phone-only Profile/Home shell
+               Desktop is intentionally untouched. On a phone the profile
+               header must not stay in a narrow 1.3 : 2.4 side-by-side
+               Streamlit column pair; that is what caused the right-hand
+               stats text to break into one/two letters per line.
+               ------------------------------------------------------------ */
+
+            .block-container {
+                width: 100% !important;
+                max-width: 100% !important;
+                box-sizing: border-box !important;
+                padding-left: 12px !important;
+                padding-right: 12px !important;
+            }
+
+            /* Full-width mobile brand bar: logo/name at the upper-left,
+               hamburger at the upper-right. It does not change desktop. */
+            .st-key-mobile_top_bar,
+            .st-key-mobile_top_bar[data-testid="stVerticalBlock"] {
+                width: calc(100% + 24px) !important;
+                max-width: none !important;
+                margin-left: -12px !important;
+                margin-right: -12px !important;
+                padding: 7px 12px !important;
+                box-sizing: border-box !important;
+                position: sticky !important;
+                top: 0 !important;
+                z-index: 1000 !important;
+                background: var(--mv-bg) !important;
+                border-bottom: 1px solid var(--mv-border) !important;
+            }
+
+            /* Profile header: avatar/name first, then the full-width stats
+               card. This is the key fix for the screenshot's squeezed right
+               side. */
+            .st-key-card_profile_info,
+            .st-key-card_profile_status,
+            .st-key-card_profile_logout,
+            .st-key-card_profile_changepw,
+            .st-key-card_profile_mentor {
+                width: 100% !important;
+                max-width: 100% !important;
+                box-sizing: border-box !important;
+            }
+            div[data-testid="stHorizontalBlock"]:has(.st-key-card_profile_stats) {
+                display: grid !important;
+                grid-template-columns: minmax(0, 1fr) !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                gap: 10px !important;
+            }
+            div[data-testid="stHorizontalBlock"]:has(.st-key-card_profile_stats) > div[data-testid="column"] {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                flex: none !important;
+            }
+
+            /* Profile information + Account Status stack vertically on
+               phones, while the desktop two-column arrangement stays
+               exactly as it is. */
+            div[data-testid="stHorizontalBlock"]:has(.st-key-card_profile_info) {
+                display: grid !important;
+                grid-template-columns: minmax(0, 1fr) !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                gap: 10px !important;
+            }
+            div[data-testid="stHorizontalBlock"]:has(.st-key-card_profile_info) > div[data-testid="column"] {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                flex: none !important;
+            }
+
+            /* The four profile stats remain a 2x2 grid, but now have the
+               whole phone width available, so labels never collapse into
+               vertical letter-by-letter text. */
+            .st-key-card_profile_stats {
+                width: 100% !important;
+                max-width: 100% !important;
+                box-sizing: border-box !important;
+                padding: 14px 12px !important;
+            }
+            .st-key-card_profile_stats div[data-testid="stHorizontalBlock"] {
+                display: grid !important;
+                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+                gap: 14px 8px !important;
+                width: 100% !important;
+            }
+            .st-key-card_profile_stats div[data-testid="column"] {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                text-align: center !important;
+            }
+
+            /* Leaderboard: keep the exact same columns/grid, just make the
+               text a little easier to read on a phone. */
+            .st-key-leaderboard_table_student .lb-row > span,
+            .st-key-leaderboard_table_mentor .lb-row > span {
+                font-size: 11px !important;
+                font-weight: 600 !important;
+                line-height: 1.2 !important;
+            }
+            .st-key-leaderboard_table_student .lb-row > span:nth-child(1),
+            .st-key-leaderboard_table_mentor .lb-row > span:nth-child(1) {
+                font-size: 11px !important;
+                font-weight: 800 !important;
+            }
+            .st-key-leaderboard_table_student .lb-row > span:nth-child(2),
+            .st-key-leaderboard_table_mentor .lb-row > span:nth-child(2) {
+                font-size: 11px !important;
+                font-weight: 700 !important;
+            }
+            .st-key-leaderboard_table_student .lb-row > span:nth-child(n+3),
+            .st-key-leaderboard_table_mentor .lb-row > span:nth-child(n+3) {
+                font-weight: 600 !important;
+            }
+            .mv-time-card-title { font-size:13.5px; }
+            .mv-time-card-sub { margin-bottom:5px; }
+            .mv-mobile-hide-instruction {
+                display: none !important;
+            }
+
+            .metric-row {
+                display: grid !important;
+                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+                gap: 8px !important;
+            }
+            .metric-box {
+                width: 100% !important;
+                flex: none !important;
+                text-align: center;
+                padding: 10px 8px !important;
+            }
+            .metric-box .label,
+            .metric-box .value {
+                min-width: 0 !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+            }
+            .metric-box .label {
+                font-size: 10.5px !important;
+                line-height: 1.25 !important;
+            }
+            .metric-box .value {
+                font-size: 17px !important;
+            }
+
+            .st-key-card_profile_stats div[data-testid="stHorizontalBlock"] {
+                display: grid !important;
+                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+                gap: 12px 4px !important;
+            }
+            .st-key-card_profile_stats div[data-testid="column"] {
+                width: 100% !important;
+                min-width: 0 !important;
+                max-width: 100% !important;
+                text-align: center !important;
+            }
+
+            /* Test history table: preserve the desktop columns semantically, but
+               tighten them enough to fit a phone without horizontal scrolling. */
+            .st-key-test_history_table div[data-testid="stHorizontalBlock"] {
+                /* Eight columns, but sized to the actual phone content width.
+                   Exam gets the flexible space; numeric columns stay compact. */
+                display:grid !important;
+                grid-template-columns:minmax(0,1fr) 48px 28px 34px 32px 38px 42px 38px !important;
+                gap:2px !important; width:100% !important; min-width:0 !important;
+            }
+            .st-key-test_history_table div[data-testid="column"] { min-width:0 !important; width:auto !important; overflow:hidden !important; }
+            .st-key-test_history_table p, .st-key-test_history_table button { font-size:9px !important; line-height:1.15 !important; }
+            .st-key-test_history_table .stButton > button { padding:3px 3px !important; min-height:28px !important; }
+
+            /* Leaderboard: compact single-screen mobile table.
+               Everything important stays visible left-to-right on a phone;
+               no horizontal scrolling and no squeezed desktop 720px canvas. */
+            .st-key-leaderboard_table_student,
+            .st-key-leaderboard_table_mentor {
+                width: 100% !important;
+                max-width: 100% !important;
+                overflow: hidden !important;
+                box-sizing: border-box !important;
+                padding-bottom: 2px !important;
+            }
+            .st-key-leaderboard_table_student .lb-row,
+            .st-key-leaderboard_table_mentor .lb-row {
+                display: grid !important;
+                grid-template-columns: 30px minmax(0, 1fr) 35px 40px 45px 45px 38px !important;
+                width: 100% !important;
+                min-width: 0 !important;
+                max-width: 100% !important;
+                box-sizing: border-box !important;
+                align-items: center !important;
+                gap: 3px !important;
+                overflow: hidden !important;
+                white-space: nowrap !important;
+                padding: 7px 4px !important;
+            }
+            .st-key-leaderboard_table_student .lb-row > span,
+            .st-key-leaderboard_table_mentor .lb-row > span {
+                min-width: 0 !important;
+                width: auto !important;
+                flex: none !important;
+                white-space: nowrap !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+                font-size: 9px !important;
+                line-height: 1.15 !important;
+            }
+            /* rank */
+            .st-key-leaderboard_table_student .lb-row > span:nth-child(1),
+            .st-key-leaderboard_table_mentor .lb-row > span:nth-child(1) {
+                text-align: center !important;
+                font-size: 10px !important;
+            }
+            /* student name — gets the flexible middle space */
+            .st-key-leaderboard_table_student .lb-row > span:nth-child(2),
+            .st-key-leaderboard_table_mentor .lb-row > span:nth-child(2) {
+                width: auto !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+            }
+            .st-key-leaderboard_table_student .lb-row > span:nth-child(2) > span,
+            .st-key-leaderboard_table_mentor .lb-row > span:nth-child(2) > span {
+                min-width: 0 !important;
+                max-width: 100% !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+                white-space: nowrap !important;
+            }
+            /* Keep the compact numeric columns centered. */
+            .st-key-leaderboard_table_student .lb-row > span:nth-child(n+3),
+            .st-key-leaderboard_table_mentor .lb-row > span:nth-child(n+3) {
+                text-align: center !important;
+            }
+
+            /* Test-wise has only Score + Accuracy. Give the name more room. */
+            .st-key-leaderboard_table_student .lb-row:has(> span:nth-child(4):last-child),
+            .st-key-leaderboard_table_mentor .lb-row:has(> span:nth-child(4):last-child) {
+                grid-template-columns: 30px minmax(0, 1fr) 72px 72px !important;
+            }
+        }
+
+        /* ---- Analysis / exam-history rows on mobile -------------------
+           No horizontal scroll: keep the same desktop information but pack it
+           into a two-line card that fits a narrow phone. */
+        /* Mobile Analysis / Test History
+           Keep every statistic in a fixed-width cell so values like 40, 100,
+           40.5 can NEVER break into separate digits. */
+        @media (max-width: 767px) {
+            [class*="st-key-acard_"] {
+                width:100% !important; max-width:100% !important; box-sizing:border-box !important;
+                padding:10px 9px 11px !important; overflow:visible !important;
+                border-radius:12px !important;
+                height:auto !important; min-height:0 !important;
+            }
+            [class*="st-key-acard_"] > div[data-testid="stVerticalBlock"] {
+                height:auto !important; min-height:0 !important;
+                overflow:visible !important;
+            }
+            [class*="st-key-acard_"] div[data-testid="stHorizontalBlock"] {
+                display:grid !important;
+                grid-template-columns:minmax(0,1fr) 54px 54px 54px 54px !important;
+                width:100% !important; min-width:0 !important; max-width:100% !important;
+                gap:5px !important; align-items:start !important;
+                flex-wrap:nowrap !important;
+            }
+            [class*="st-key-acard_"] div[data-testid="column"] > div {
+                min-width:0 !important; width:100% !important;
+            }
+            [class*="st-key-acard_"] div[data-testid="column"] {
+                min-width:0 !important; width:auto !important; max-width:100% !important;
+                overflow:hidden !important;
+            }
+            [class*="st-key-acard_"] .analysis-title {
+                font-size:12px !important; line-height:1.2 !important;
+                white-space:nowrap !important; overflow:hidden !important; text-overflow:ellipsis !important;
+            }
+            [class*="st-key-acard_"] .analysis-subtle {
+                font-size:9px !important; line-height:1.15 !important;
+                white-space:nowrap !important; overflow:hidden !important; text-overflow:ellipsis !important;
+            }
+            [class*="st-key-acard_"] .history-value {
+                width:54px !important; min-width:54px !important; max-width:54px !important;
+                text-align:center !important; white-space:nowrap !important; overflow:hidden !important;
+            }
+            [class*="st-key-acard_"] .history-value span {
+                display:block !important; font-size:8px !important; line-height:1 !important;
+                white-space:nowrap !important;
+            }
+            [class*="st-key-acard_"] .history-value b {
+                display:block !important; font-size:14px !important; line-height:1.25 !important;
+                white-space:nowrap !important; word-break:keep-all !important; overflow:visible !important;
+            }
+            [class*="st-key-acard_"] .stButton > button {
+                min-width:54px !important; width:54px !important; padding:5px 3px !important;
+                font-size:10px !important; white-space:nowrap !important;
+            }
+            [class*="st-key-acard_"] .analysis-subtle:last-child {
+                display:block !important; width:100% !important;
+                white-space:normal !important; overflow:visible !important;
+                line-height:1.3 !important; margin-top:5px !important;
+            }
+        }
+
+        .mobile-history-list-placeholder { display:none; }
+        [class*="st-key-mobile_history_list"] { display:none; }
+        @media (max-width: 767px) {
+            [class*="st-key-mobile_history_list"] { display:block !important; }
+        }
+
+        /* Mobile-friendly Test History: the old 8-column table becomes
+           a compact card on phones. This prevents Streamlit's responsive
+           column wrapping from splitting values like 31.75 / 40 / 33. */
+        .mobile-history-card {
+            display:none;
+        }
+        @media (max-width: 767px) {
+            .desktop-history-table { display:none !important; }
+            [class*="st-key-desktop_history_table"] { display:none !important; }
+            [class*="st-key-desktop_history_table"] { display:none !important; }
+            .mobile-history-card {
+                display:block !important;
+                width:100% !important; box-sizing:border-box !important;
+                border:1px solid var(--mv-border); border-radius:12px;
+                padding:10px 11px 9px; margin:0 0 8px;
+                background:rgba(127,127,127,.025);
+                overflow:visible !important;
+            }
+            .mobile-history-top {
+                display:flex; align-items:flex-start; justify-content:space-between;
+                gap:8px; min-width:0;
+            }
+            .mobile-history-exam {
+                min-width:0; flex:1 1 auto;
+                font-size:13px; font-weight:800; line-height:1.2;
+                white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+            }
+            .mobile-history-date {
+                margin-top:2px; font-size:9px; color:var(--mv-muted);
+                white-space:nowrap;
+            }
+            .mobile-history-stats {
+                display:grid; grid-template-columns:repeat(5,minmax(0,1fr));
+                gap:4px; margin-top:9px;
+            }
+            .mobile-history-stat {
+                min-width:0; text-align:center;
+                white-space:nowrap; overflow:visible;
+            }
+            .mobile-history-stat span {
+                display:block; font-size:8px; color:var(--mv-muted); line-height:1.05;
+                white-space:nowrap;
+            }
+            .mobile-history-stat b {
+                display:block; margin-top:2px; font-size:13px; line-height:1.15;
+                white-space:nowrap !important; word-break:keep-all !important;
+                overflow:visible !important;
+            }
+            .mobile-history-actions { margin-top:8px; }
+            .mobile-history-actions .stButton > button {
+                min-height:30px !important; padding:4px 10px !important;
+                font-size:11px !important; border-radius:9px !important;
+            }
+        }
+
+        /* Very narrow phones: stack the title above the four fixed stats.
+           This is intentionally a card, not a horizontally scrolling table. */
+        @media (max-width: 380px) {
+            [class*="st-key-acard_"] div[data-testid="stHorizontalBlock"] {
+                grid-template-columns:minmax(0,1fr) 52px 52px 52px 52px !important;
+                gap:3px !important;
+            }
+            [class*="st-key-acard_"] .history-value,
+            [class*="st-key-acard_"] .stButton > button {
+                width:52px !important; min-width:52px !important; max-width:52px !important;
+            }
+        }
+
+        /* ---- Themed spinner (recolors Streamlit's built-in spinner to
+           match Med Venture instead of the generic default) ---- */
+        [data-testid="stSpinner"] { color: var(--mv-primary) !important; }
+        [data-testid="stSpinner"] svg { color: var(--mv-primary) !important; fill: var(--mv-primary) !important; }
+        [data-testid="stSpinner"] p, [data-testid="stSpinner"] div {
+            font-family: var(--mono) !important; color: var(--mv-muted) !important; font-size: 13px !important;
+        }
+
+        /* ---- Boot loading screen pulse-line animation ---- */
+        @keyframes mv-pulse-draw {
+            0% { stroke-dashoffset: 520; }
+            55% { stroke-dashoffset: 0; }
+            100% { stroke-dashoffset: 0; opacity: 0; }
+        }
+        .mv-boot-pulse path { animation: mv-pulse-draw 1.8s ease-in-out infinite; }
+
+        /* ---- Entry-screen (password gate / student login / mentor login)
+           pulse-line: unlike the one-shot boot pulse above (which draws once
+           then fades out), this one keeps a short "traveling" dash segment
+           looping across the line forever - so the heartbeat line on the
+           first screen keeps animating continuously instead of freezing
+           after the first pass. ---- */
+        .mv-hero-pulse-path {
+            stroke-dasharray: 90 400;
+            animation: mv-hero-pulse-travel 3.2s ease-in-out infinite;
+        }
+        @keyframes mv-hero-pulse-travel {
+            0%   { stroke-dashoffset: 490; opacity: 0; }
+            10%  { opacity: 1; }
+            70%  { opacity: 1; }
+            92%  { stroke-dashoffset: -400; opacity: 0; }
+            100% { stroke-dashoffset: -400; opacity: 0; }
+        }
+
+        /* ---- Responsive two-panel / compact table system ---- */
+        .mv-compact-row { border:1px solid var(--mv-border); border-radius:12px; background:var(--mv-surface); padding:7px 9px; margin:4px 0; }
+        .mv-review-dot { font-size:13px; text-align:center; }
+        @media (max-width: 800px) {
+            .stApp [data-testid="stHorizontalBlock"] { gap: 6px !important; }
+            .stApp [data-testid="stColumn"] { min-width: 0 !important; }
+            /* OMR panels become one-column on narrow screens; no horizontal overflow. */
+            .stApp div[data-testid="column"] { min-width: 0 !important; }
+            .stApp .stButton > button { padding: 6px 8px !important; min-height: 36px !important; font-size: 12px !important; }
+            .mv-compact-row { padding: 5px 6px; }
+            .mv-compact-row [data-testid="stMetricValue"] { font-size: 18px !important; }
+            .mv-exam-meta-grid { gap:6px !important; }
+        }
+        @media (max-width: 560px) {
+            .mv-mobile-stack > div[data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; }
+            .stApp .stTextInput input, .stApp .stSelectbox, .stApp textarea { font-size: 13px !important; }
+            .stApp [data-testid="stMarkdownContainer"] p { overflow-wrap:anywhere; }
+        }
+
+
+        /* ==================================================================
+           FINAL PROFESSIONAL VISUAL POLISH
+           Simple, consistent and lightweight. Presentation only.
+           ================================================================== */
+        .stApp {
+            background:
+                radial-gradient(circle at 50% -20%, rgba(38,171,140,.055), transparent 34%),
+                var(--mv-bg) !important;
+        }
+
+        /* Clear typography hierarchy */
+        .stApp, .stApp p, .stApp span, .stApp label, .stApp li {
+            color: var(--mv-ink);
+        }
+        .stApp h1, .stApp h2, .stApp h3 {
+            font-family: var(--serif) !important;
+            color: var(--mv-ink) !important;
+            letter-spacing: -.018em;
+            font-weight: 600 !important;
+        }
+        .stApp h4, .stApp h5, .stApp h6 {
+            color: var(--mv-ink) !important;
+            font-weight: 700 !important;
+        }
+        .stApp [data-testid="stCaptionContainer"],
+        .stApp small { color: var(--mv-muted) !important; }
+
+        /* Keep content airy without making the layout oversized */
+        .block-container {
+            max-width: 1180px !important;
+            padding-top: 1.6rem !important;
+            padding-bottom: 2.6rem !important;
+        }
+        [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"] {
+            margin-bottom: .1rem;
+        }
+
+        /* One calm card language across the app */
+        [class*="st-key-card_"],
+        [class*="st-key-acard_"],
+        [class*="st-key-profile_"],
+        [class*="st-key-auth_card"],
+        .mentor-create-card, .mentor-edit-head,
+        .mentor-exam-hero, .mv-compact-row {
+            border-color: rgba(122,167,157,.20) !important;
+            box-shadow: 0 10px 26px rgba(0,0,0,.12) !important;
+        }
+
+        /* Buttons: clear primary action, quiet secondary actions */
+        .stButton > button,
+        .stDownloadButton > button {
+            border-radius: 10px !important;
+            font-weight: 600 !important;
+            letter-spacing: .005em;
+            transition: transform .12s ease, border-color .12s ease, background-color .12s ease !important;
+        }
+        .stButton > button:hover,
+        .stDownloadButton > button:hover {
+            transform: translateY(-1px);
+        }
+        .stButton > button[kind="secondary"],
+        .stDownloadButton > button {
+            background: rgba(255,255,255,.018) !important;
+            border-color: rgba(122,167,157,.26) !important;
+            color: #DCE9E4 !important;
+        }
+        .stButton > button[kind="secondary"]:hover,
+        .stDownloadButton > button:hover {
+            border-color: rgba(38,171,140,.58) !important;
+            background: rgba(38,171,140,.075) !important;
+        }
+
+        /* Inputs and selectors */
+        .stTextInput input, .stTextArea textarea,
+        [data-baseweb="input"] input {
+            color: #EDF5F2 !important;
+            background: #0A1718 !important;
+            border-color: rgba(122,167,157,.26) !important;
+        }
+        .stTextInput input:focus, .stTextArea textarea:focus,
+        [data-baseweb="input"]:focus-within {
+            border-color: rgba(38,171,140,.80) !important;
+            box-shadow: 0 0 0 3px rgba(38,171,140,.10) !important;
+        }
+        [data-baseweb="select"] > div {
+            background: #0A1718 !important;
+            border-color: rgba(122,167,157,.26) !important;
+            color: #EDF5F2 !important;
+        }
+        .stTextInput label, .stTextArea label,
+        .stSelectbox label, .stDateInput label {
+            color: #C4D2CD !important;
+            font-size: .84rem !important;
+            font-weight: 600 !important;
+        }
+
+        /* Tabs and expanders: restrained, readable */
+        [data-baseweb="tab-list"] {
+            gap: 4px !important;
+            border-bottom: 1px solid rgba(122,167,157,.16) !important;
+        }
+        [data-baseweb="tab"] {
+            border-radius: 9px 9px 0 0 !important;
+            color: var(--mv-muted) !important;
+            font-weight: 600 !important;
+        }
+        [data-baseweb="tab"][aria-selected="true"] {
+            color: var(--mv-primary) !important;
+            background: rgba(38,171,140,.07) !important;
+        }
+        [data-testid="stExpander"] {
+            border-color: rgba(122,167,157,.20) !important;
+            border-radius: 12px !important;
+            background: rgba(255,255,255,.012) !important;
+        }
+
+        /* Tables and metrics */
+        [data-testid="stMetric"] {
+            padding: 2px 0 !important;
+        }
+        [data-testid="stMetricLabel"] { color: var(--mv-muted) !important; }
+        [data-testid="stMetricValue"] { color: var(--mv-ink) !important; }
+        [data-testid="stDataFrame"] {
+            border: 1px solid rgba(122,167,157,.18) !important;
+            border-radius: 12px !important;
+            overflow: hidden !important;
+        }
+
+        /* Alerts should read clearly but stay visually calm */
+        [data-testid="stAlert"] {
+            border-radius: 12px !important;
+            border: 1px solid rgba(122,167,157,.20) !important;
+        }
+
+        /* Logo gets presence without turning into a decorative block */
+        .mv-logo-shell {
+            background: linear-gradient(145deg,#ffffff,#eef8f5) !important;
+            border-color: rgba(232,171,68,.92) !important;
+            box-shadow: 0 7px 18px rgba(0,0,0,.22), 0 0 0 3px rgba(38,171,140,.09) !important;
+        }
+
+        /* Mobile: compact and clean, not cramped */
+        @media (max-width: 700px) {
+            .block-container {
+                padding: 1rem .72rem 2rem !important;
+            }
+            .stApp h1 { font-size: 1.7rem !important; }
+            .stApp h2 { font-size: 1.35rem !important; }
+            .stApp h3 { font-size: 1.12rem !important; }
+            .stButton > button, .stDownloadButton > button {
+                min-height: 40px !important;
+                font-size: .9rem !important;
+            }
+            [data-testid="stMetricValue"] { font-size: 1.35rem !important; }
+        }
+
+
+        /* ================================================================
+           FINAL MOBILE LOGIN FIX — intentionally last in the main CSS.
+           ================================================================ */
+        @media (max-width: 700px) {
+            /* Login card: one clean vertical flow on phones. */
+            [class*="st-key-auth_card_login"] {
+                width: 100% !important;
+                max-width: 100% !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                overflow: hidden !important;
+                border-radius: 18px !important;
+                box-sizing: border-box !important;
+            }
+
+            /* Stack the card's two main columns only. */
+            [class*="st-key-auth_card_login"] > div[data-testid="stVerticalBlock"] > div[data-testid="stHorizontalBlock"],
+            [class*="st-key-auth_card_login"] > div[data-testid="stHorizontalBlock"] {
+                display: flex !important;
+                flex-direction: column !important;
+                flex-wrap: nowrap !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                gap: 0 !important;
+            }
+            [class*="st-key-auth_card_login"] > div[data-testid="stVerticalBlock"] > div[data-testid="stHorizontalBlock"] > div[data-testid="column"],
+            [class*="st-key-auth_card_login"] > div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                flex: 0 0 100% !important;
+                box-sizing: border-box !important;
+            }
+
+            /* Compact welcome panel. */
+            [class*="st-key-auth_card_login"] .mv-auth-side {
+                width: 100% !important;
+                min-height: 0 !important;
+                padding: 22px 18px 18px !important;
+                border-right: 0 !important;
+                border-bottom: 1px solid var(--mv-border) !important;
+                box-sizing: border-box !important;
+            }
+            [class*="st-key-auth_card_login"] .mv-auth-side-icon-wrap { width: 90px !important; height: 90px !important; margin-bottom: 10px !important; }
+            [class*="st-key-auth_card_login"] .mv-auth-ring.r1 { width: 90px !important; height: 90px !important; }
+            [class*="st-key-auth_card_login"] .mv-auth-ring.r2 { width: 66px !important; height: 66px !important; }
+            [class*="st-key-auth_card_login"] .mv-auth-icon-box { width: 48px !important; height: 48px !important; font-size: 20px !important; }
+            [class*="st-key-auth_card_login"] .mv-auth-side-title { font-size: 20px !important; }
+            [class*="st-key-auth_card_login"] .mv-auth-side-text { max-width: 100% !important; }
+
+            /* Full-width form with stable padding. */
+            [class*="st-key-auth_card_login"] [class*="st-key-auth_form_login"] {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                margin: 0 !important;
+                padding: 18px 14px 12px !important;
+                box-sizing: border-box !important;
+            }
+            [class*="st-key-auth_card_login"] [data-testid="stForm"] { width: 100% !important; max-width: 100% !important; min-width: 0 !important; }
+
+            /* Phone row: force exactly two usable parts. */
+            [class*="st-key-login_phone_row"] { width: 100% !important; max-width: 100% !important; min-width: 0 !important; }
+            [class*="st-key-login_phone_row"] div[data-testid="stVerticalBlock"] {
+                display: flex !important;
+                flex-direction: row !important;
+                align-items: flex-end !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                gap: 8px !important;
+            }
+            [class*="st-key-login_phone_row"] div[data-testid="stVerticalBlock"] > div:first-child {
+                flex: 0 0 142px !important;
+                width: 142px !important;
+                min-width: 142px !important;
+                max-width: 142px !important;
+            }
+            [class*="st-key-login_phone_row"] div[data-testid="stVerticalBlock"] > div:last-child {
+                flex: 1 1 0 !important;
+                width: auto !important;
+                min-width: 0 !important;
+                max-width: none !important;
+            }
+            [class*="st-key-login_phone_row"] [data-baseweb="select"],
+            [class*="st-key-login_phone_row"] [data-baseweb="select"] > div,
+            [class*="st-key-login_phone_row"] input { width: 100% !important; min-width: 0 !important; box-sizing: border-box !important; }
+
+            /* The remember/forgot row remains horizontal. */
+            [class*="st-key-auth_card_login"] [data-testid="stForm"] div[data-testid="stHorizontalBlock"] {
+                display: flex !important;
+                flex-direction: row !important;
+                flex-wrap: nowrap !important;
+                align-items: center !important;
+                width: 100% !important;
+                gap: 8px !important;
+            }
+            [class*="st-key-auth_card_login"] [data-testid="stForm"] div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+                flex: 1 1 0 !important;
+                width: auto !important;
+                min-width: 0 !important;
+            }
+            [class*="st-key-auth_card_login"] .stFormSubmitButton > button { width: 100% !important; min-height: 46px !important; }
+            [class*="st-key-auth_bottom_links"] { margin-top: 12px !important; }
+        }
+        @media (max-width: 420px) {
+            [class*="st-key-login_phone_row"] div[data-testid="stVerticalBlock"] > div:first-child {
+                flex-basis: 128px !important; width: 128px !important; min-width: 128px !important; max-width: 128px !important;
+            }
+        }
+
+        
+
+        /* ABSOLUTE MOBILE AUTH WIDTH FIX — final override */
+        @media (max-width: 760px) {
+            .block-container:has([class*="st-key-auth_card_login"]) {
+                width: 100% !important; max-width: none !important;
+                padding-left: 10px !important; padding-right: 10px !important;
+                box-sizing: border-box !important;
+            }
+            [class*="st-key-auth_card_login"],
+            [class*="st-key-auth_card_login"] > div,
+            [class*="st-key-auth_card_login"] [data-testid="stVerticalBlockBorderWrapper"] {
+                width: 100% !important; max-width: 100% !important;
+                min-width: 0 !important; box-sizing: border-box !important;
+            }
+            /* Outer two-column login layout -> one full-width column on phone */
+            [class*="st-key-auth_card_login"] > div [data-testid="stHorizontalBlock"]:first-child {
+                width: 100% !important; max-width: 100% !important;
+                display: flex !important; flex-direction: column !important;
+                align-items: stretch !important; gap: 0 !important;
+            }
+            [class*="st-key-auth_card_login"] > div [data-testid="stHorizontalBlock"]:first-child > [data-testid="column"] {
+                display: block !important; flex: 0 0 100% !important;
+                width: 100% !important; max-width: 100% !important;
+                min-width: 0 !important; padding: 0 !important;
+                box-sizing: border-box !important;
+            }
+            [class*="st-key-auth_form_login"],
+            [class*="st-key-auth_form_login"] > div,
+            [class*="st-key-auth_form_login"] [data-testid="stForm"],
+            [class*="st-key-auth_form_login"] [data-testid="stTextInput"],
+            [class*="st-key-auth_form_login"] [data-testid="stSelectbox"] {
+                width: 100% !important; max-width: 100% !important;
+                min-width: 0 !important; box-sizing: border-box !important;
+            }
+        }
+
+        /* ================================================================
+           PHONE PROFILE REDESIGN v4
+           Desktop is intentionally untouched.
+           The important distinction from the previous attempt is that
+           these selectors target the OUTER Streamlit row that contains the
+           profile columns, not the inner 4-stat row. That prevents the
+           whole profile from getting stuck at roughly 50% width.
+           ================================================================ */
+        @media (max-width: 767px) {
+
+            /* ---------- App viewport: use the entire physical phone width ---------- */
+            [data-testid="stAppViewContainer"],
+            [data-testid="stAppViewContainer"] > .main,
+            [data-testid="stAppViewContainer"] .main .block-container {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                box-sizing: border-box !important;
+            }
+
+            [data-testid="stAppViewContainer"] .main .block-container {
+                padding-left: 10px !important;
+                padding-right: 10px !important;
+            }
+
+            /* ---------- The actual header row: avatar/name + stats ----------
+               This is the outer row created by:
+               header_col, stats_col = st.columns([1.3, 2.4])
+            */
+            div[data-testid="stHorizontalBlock"]:has(> div[data-testid="column"] .st-key-card_profile_stats) {
+                display: flex !important;
+                flex-direction: column !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                gap: 12px !important;
+                margin: 0 0 14px 0 !important;
+            }
+
+            div[data-testid="stHorizontalBlock"]:has(> div[data-testid="column"] .st-key-card_profile_stats) > div[data-testid="column"] {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                flex: 0 0 100% !important;
+                box-sizing: border-box !important;
+                padding: 0 !important;
+            }
+
+            /* ---------- Compact, polished profile hero ---------- */
+            div[data-testid="stHorizontalBlock"]:has(> div[data-testid="column"] .st-key-card_profile_stats)
+            > div[data-testid="column"]:first-child {
+                display: flex !important;
+                align-items: center !important;
+                justify-content: flex-start !important;
+                min-height: 82px !important;
+                padding: 12px 14px !important;
+                border: 1px solid var(--mv-border) !important;
+                border-radius: 18px !important;
+                background: linear-gradient(135deg, rgba(38,171,140,.10), rgba(59,130,246,.05)) !important;
+                box-shadow: 0 8px 24px rgba(0,0,0,.16) !important;
+            }
+
+            div[data-testid="stHorizontalBlock"]:has(> div[data-testid="column"] .st-key-card_profile_stats)
+            > div[data-testid="column"]:first-child > div {
+                width: 100% !important;
+                min-width: 0 !important;
+            }
+
+            /* Avatar/name wrapper generated by the profile hero HTML. */
+            div[data-testid="stHorizontalBlock"]:has(> div[data-testid="column"] .st-key-card_profile_stats)
+            > div[data-testid="column"]:first-child [style*="display:flex"] {
+                margin-bottom: 0 !important;
+                gap: 13px !important;
+                flex-wrap: nowrap !important;
+            }
+
+            /* ---------- Stats card: full width, 2 x 2 ---------- */
+            .st-key-card_profile_stats {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                box-sizing: border-box !important;
+                padding: 12px !important;
+                border-radius: 18px !important;
+                overflow: hidden !important;
+            }
+
+            .st-key-card_profile_stats > div {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+            }
+
+            .st-key-card_profile_stats div[data-testid="stHorizontalBlock"] {
+                display: grid !important;
+                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                gap: 8px !important;
+            }
+
+            .st-key-card_profile_stats div[data-testid="column"] {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                flex: none !important;
+                box-sizing: border-box !important;
+                padding: 8px 5px !important;
+                border-radius: 13px !important;
+                background: rgba(255,255,255,.025) !important;
+            }
+
+            .st-key-card_profile_stats div[data-testid="column"] > div {
+                min-width: 0 !important;
+                max-width: 100% !important;
+            }
+
+            .st-key-card_profile_stats .stButton > button:not([kind="primary"]) {
+                font-size: 10.5px !important;
+                font-weight: 700 !important;
+                white-space: nowrap !important;
+                margin-top: 1px !important;
+            }
+
+            /* ---------- Second profile row: info + account status ----------
+               Also target the OUTER row, not the inner two-field rows. */
+            div[data-testid="stHorizontalBlock"]:has(> div[data-testid="column"] .st-key-card_profile_info) {
+                display: flex !important;
+                flex-direction: column !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                gap: 10px !important;
+            }
+
+            div[data-testid="stHorizontalBlock"]:has(> div[data-testid="column"] .st-key-card_profile_info) > div[data-testid="column"] {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                flex: 0 0 100% !important;
+                padding: 0 !important;
+                box-sizing: border-box !important;
+            }
+
+            /* Profile cards get a consistent phone rhythm. */
+            .st-key-card_profile_info,
+            .st-key-card_profile_status,
+            .st-key-card_profile_logout,
+            .st-key-card_profile_changepw,
+            .st-key-card_profile_mentor {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                box-sizing: border-box !important;
+                border-radius: 16px !important;
+            }
+
+            /* Keep information rows compact rather than tall. */
+            .st-key-card_profile_info .mv-profile-status-row {
+                padding: 8px 0 !important;
+            }
+
+            .st-key-card_profile_info .mv-profile-status-label {
+                font-size: 12.5px !important;
+            }
+
+            /* ---------- Leaderboard: same columns, better phone typography ---------- */
+            .st-key-leaderboard_table_student,
+            .st-key-leaderboard_table_mentor {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                box-sizing: border-box !important;
+            }
+
+            .st-key-leaderboard_table_student .lb-row,
+            .st-key-leaderboard_table_mentor .lb-row {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                box-sizing: border-box !important;
+                padding: 8px 4px !important;
+                gap: 3px !important;
+            }
+
+            .st-key-leaderboard_table_student .lb-row > span,
+            .st-key-leaderboard_table_mentor .lb-row > span {
+                font-size: 10.5px !important;
+                font-weight: 650 !important;
+                line-height: 1.2 !important;
+            }
+
+            .st-key-leaderboard_table_student .lb-row > span:nth-child(1),
+            .st-key-leaderboard_table_mentor .lb-row > span:nth-child(1) {
+                font-weight: 800 !important;
+                font-size: 11px !important;
+            }
+
+            .st-key-leaderboard_table_student .lb-row > span:nth-child(2),
+            .st-key-leaderboard_table_mentor .lb-row > span:nth-child(2) {
+                font-weight: 750 !important;
+            }
+
+            /* ---------- Prevent Streamlit's mobile column engine from
+               re-introducing a half-width child inside profile cards. ---------- */
+            .st-key-card_profile_info div[data-testid="column"],
+            .st-key-card_profile_status div[data-testid="column"],
+            .st-key-card_profile_logout div[data-testid="column"],
+            .st-key-card_profile_changepw div[data-testid="column"],
+            .st-key-card_profile_mentor div[data-testid="column"] {
+                min-width: 0 !important;
+                max-width: 100% !important;
+                box-sizing: border-box !important;
+            }
+        }
+
+
+        /* ================================================================
+           FINAL PHONE PROFILE REDESIGN
+           Important: the Profile hero is created by st.columns([1.3,2.4]).
+           Streamlit can keep the horizontal block's calculated width even
+           after its children are changed to 100%. The previous mobile
+           patches therefore left the whole hero sitting in roughly half
+           the viewport. This rule deliberately makes THAT OUTER BLOCK
+           escape the centered Streamlit content width and occupy the
+           complete physical phone viewport.
+           Desktop is not affected.
+           ================================================================ */
+        @media (max-width: 767px) {
+
+            /* Full phone canvas */
+            [data-testid="stAppViewContainer"] .main,
+            [data-testid="stAppViewContainer"] .main .block-container {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                box-sizing: border-box !important;
+            }
+
+            [data-testid="stAppViewContainer"] .main .block-container {
+                padding-left: 10px !important;
+                padding-right: 10px !important;
+            }
+
+            /* THE IMPORTANT PART:
+               select the actual outer profile hero horizontal block and
+               make it viewport-wide, not merely child-wide. */
+            div[data-testid="stHorizontalBlock"]:has(.st-key-card_profile_stats) {
+                width: calc(100vw - 20px) !important;
+                max-width: calc(100vw - 20px) !important;
+                min-width: 0 !important;
+                margin-left: 0 !important;
+                margin-right: 0 !important;
+                padding: 0 !important;
+                display: flex !important;
+                flex-direction: column !important;
+                align-items: stretch !important;
+                gap: 10px !important;
+                box-sizing: border-box !important;
+            }
+
+            /* Both outer columns become REAL full-width blocks. */
+            div[data-testid="stHorizontalBlock"]:has(.st-key-card_profile_stats)
+            > div[data-testid="column"],
+            div[data-testid="stHorizontalBlock"]:has(.st-key-card_profile_stats)
+            > div[data-testid="column"] > div[data-testid="stVerticalBlock"] {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                flex: 0 0 100% !important;
+                box-sizing: border-box !important;
+                padding-left: 0 !important;
+                padding-right: 0 !important;
+            }
+
+            /* Profile identity card */
+            div[data-testid="stHorizontalBlock"]:has(.st-key-card_profile_stats)
+            > div[data-testid="column"]:first-child {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-height: 86px !important;
+                padding: 12px 14px !important;
+                margin: 0 !important;
+                border: 1px solid var(--mv-border) !important;
+                border-radius: 18px !important;
+                background: var(--mv-surface) !important;
+                box-sizing: border-box !important;
+                display: flex !important;
+                align-items: center !important;
+                overflow: hidden !important;
+            }
+
+            /* Identity HTML should stay horizontal and never squeeze. */
+            div[data-testid="stHorizontalBlock"]:has(.st-key-card_profile_stats)
+            > div[data-testid="column"]:first-child div[style*="display:flex"] {
+                width: 100% !important;
+                min-width: 0 !important;
+                flex-wrap: nowrap !important;
+                align-items: center !important;
+                gap: 13px !important;
+            }
+
+            /* Stats card */
+            .st-key-card_profile_stats {
+                display: block !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                margin: 0 !important;
+                padding: 12px !important;
+                box-sizing: border-box !important;
+                border-radius: 18px !important;
+                overflow: hidden !important;
+            }
+
+            .st-key-card_profile_stats > div,
+            .st-key-card_profile_stats div[data-testid="stHorizontalBlock"] {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                box-sizing: border-box !important;
+            }
+
+            /* Keep stats 2 x 2 on phone */
+            .st-key-card_profile_stats > div[data-testid="stVerticalBlock"] > div[data-testid="stHorizontalBlock"],
+            .st-key-card_profile_stats div[data-testid="stHorizontalBlock"] {
+                display: grid !important;
+                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+                gap: 8px !important;
+            }
+
+            .st-key-card_profile_stats div[data-testid="column"] {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                flex: none !important;
+                padding: 8px 4px !important;
+                box-sizing: border-box !important;
+                text-align: center !important;
+                border-radius: 12px !important;
+            }
+
+            .st-key-card_profile_stats .stButton > button:not([kind="primary"]) {
+                font-size: 11px !important;
+                font-weight: 750 !important;
+                white-space: nowrap !important;
+            }
+
+            /* Second row: profile information + status are also full width */
+            div[data-testid="stHorizontalBlock"]:has(.st-key-card_profile_info) {
+                width: 100% !important;
+                max-width: 100% !important;
+                display: flex !important;
+                flex-direction: column !important;
+                gap: 10px !important;
+                margin: 0 !important;
+                box-sizing: border-box !important;
+            }
+
+            div[data-testid="stHorizontalBlock"]:has(.st-key-card_profile_info)
+            > div[data-testid="column"] {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                flex: 0 0 100% !important;
+                padding: 0 !important;
+                box-sizing: border-box !important;
+            }
+
+            /* Leaderboard typography only; no column redesign */
+            .st-key-leaderboard_table_student .lb-row > span,
+            .st-key-leaderboard_table_mentor .lb-row > span {
+                font-size: 11px !important;
+                font-weight: 700 !important;
+                line-height: 1.2 !important;
+            }
+
+            .st-key-leaderboard_table_student .lb-row > span:nth-child(1),
+            .st-key-leaderboard_table_mentor .lb-row > span:nth-child(1) {
+                font-size: 11.5px !important;
+                font-weight: 800 !important;
+            }
+        }
+
+
+        /* ================================================================
+           PROFILE HERO SHELL — structural mobile fix
+           This does NOT resize Streamlit's column engine. The Python layout
+           now uses one stable shell, so CSS owns the desktop/mobile layout.
+           ================================================================ */
+        .st-key-profile_hero_shell {
+            width:100% !important;
+            max-width:100% !important;
+            min-width:0 !important;
+            box-sizing:border-box !important;
+            display:grid !important;
+            grid-template-columns:minmax(0, 1.3fr) minmax(0, 2.4fr) !important;
+            gap:16px !important;
+            align-items:start !important;
+        }
+        .st-key-profile_hero_shell > div {
+            min-width:0 !important;
+            width:100% !important;
+            max-width:100% !important;
+        }
+        .st-key-profile_hero_shell .st-key-card_profile_header,
+        .st-key-profile_hero_shell .st-key-card_profile_stats {
+            width:100% !important;
+            max-width:100% !important;
+            min-width:0 !important;
+            box-sizing:border-box !important;
+        }
+        @media (max-width:767px) {
+            .st-key-profile_hero_shell {
+                display:grid !important;
+                grid-template-columns:minmax(0, 1fr) !important;
+                gap:12px !important;
+                width:100vw !important;
+                max-width:100vw !important;
+                margin-left:calc(50% - 50vw) !important;
+                margin-right:calc(50% - 50vw) !important;
+                padding-left:10px !important;
+                padding-right:10px !important;
+                box-sizing:border-box !important;
+            }
+            .st-key-profile_hero_shell > div {
+                width:100% !important;
+                max-width:100% !important;
+                min-width:0 !important;
+            }
+            .st-key-profile_hero_shell .st-key-card_profile_header {
+                padding:14px !important;
+                border-radius:18px !important;
+                margin:0 !important;
+            }
+            .st-key-profile_hero_shell .st-key-card_profile_stats {
+                padding:12px !important;
+                border-radius:18px !important;
+                margin:0 !important;
+                overflow:hidden !important;
+            }
+            .st-key-profile_hero_shell .st-key-card_profile_stats > div {
+                width:100% !important;
+                max-width:100% !important;
+                min-width:0 !important;
+            }
+            .st-key-profile_hero_shell .st-key-card_profile_stats div[data-testid="stHorizontalBlock"] {
+                display:grid !important;
+                grid-template-columns:repeat(2,minmax(0,1fr)) !important;
+                gap:9px !important;
+                width:100% !important;
+            }
+            .st-key-profile_hero_shell .st-key-card_profile_stats div[data-testid="column"] {
+                width:100% !important;
+                max-width:100% !important;
+                min-width:0 !important;
+                flex:none !important;
+                padding:9px 4px !important;
+                box-sizing:border-box !important;
+            }
+            .st-key-profile_hero_shell .st-key-card_profile_stats .stButton > button {
+                font-size:11px !important;
+                font-weight:700 !important;
+                white-space:nowrap !important;
+            }
+        }
 
         /* ================================================================
            MOBILE LEADERBOARD — READABLE PC-STYLE TABLE
@@ -5927,8 +7565,7 @@ def page_profile():
         .mv-pv-stat-number { font-size:21px; }
         .mv-pv-stat-label { font-size:11px; }
     }
-    </style>
-
+    
     /* ================================================================
        PROFILE V2 — REAL STREAMLIT COLUMN MOBILE FIX
        ================================================================ */
@@ -6222,7 +7859,7 @@ def page_profile():
             grid-template-columns:1fr !important;
         }
     }
-
+</style>
     """, unsafe_allow_html=True)
 
     with st.container(key="profile_v2_shell"):
