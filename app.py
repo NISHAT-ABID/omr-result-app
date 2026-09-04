@@ -5083,6 +5083,15 @@ def _render_interactive_omr_review(img_bgr, grid_points, detected_answers, final
 
 def page_omr_submit():
     """Private OMR submission page unlocked only after a student exam ends."""
+    # This route is only rendered for an authenticated student from main().
+    # Keep the student id local to this page so the exam-session gate below
+    # never depends on an undefined global variable.
+    sid = st.session_state.get("student_id")
+    if not sid:
+        st.warning("Your student session is missing. Please log in again.")
+        go_to("home")
+        return
+
     st.markdown("### 📤 OMR Submission")
 
     # OMR submission is deliberately hidden until the student has entered
