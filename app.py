@@ -5016,7 +5016,7 @@ def _render_review_issues_view(review_rows, total_q):
 
 
 def _render_interactive_omr_review(img_bgr, grid_points, detected_answers, final_answers, double_qs, radius):
-    """Show the student's original OMR beside an editable Digital OMR."""
+    """Show the student's original OMR and an editable Digital OMR."""
     total_q = len(final_answers)
     review_rows = _build_review_state(final_answers, detected_answers)
 
@@ -5060,7 +5060,6 @@ def _render_interactive_omr_review(img_bgr, grid_points, detected_answers, final
                 st.image(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB), use_container_width=True)
         else:
             st.image(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB), use_container_width=True)
-        st.caption("This is the exact photo you submitted. The Digital OMR is what will be submitted after your corrections.")
         st.markdown("</div>", unsafe_allow_html=True)
 
     with right:
@@ -8049,13 +8048,52 @@ def main():
                 max-width: 100% !important;
                 box-sizing: border-box !important;
             }
-            /* On mobile the submitted photo gets the full first section;
-               Digital OMR starts only after the Original OMR section ends. */
+            /* OMR REVIEW — mobile must be a true full-width vertical stack.
+               Do not let Streamlit's desktop column widths survive on phones. */
+            div[data-testid="stHorizontalBlock"]:has(.omr-photo-card) {
+                display: flex !important;
+                flex-direction: column !important;
+                flex-wrap: nowrap !important;
+                align-items: stretch !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                gap: 14px !important;
+            }
+            div[data-testid="stHorizontalBlock"]:has(.omr-photo-card) > div[data-testid="column"] {
+                display: block !important;
+                order: initial !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 100% !important;
+                flex: 0 0 100% !important;
+                box-sizing: border-box !important;
+                padding: 0 !important;
+                margin: 0 !important;
+            }
             div[data-testid="stHorizontalBlock"]:has(.omr-photo-card) > div[data-testid="column"]:first-child {
                 order: 1 !important;
             }
-            div[data-testid="stHorizontalBlock"]:has(.digital-omr-shell) > div[data-testid="column"]:last-child {
+            div[data-testid="stHorizontalBlock"]:has(.omr-photo-card) > div[data-testid="column"]:last-child {
                 order: 2 !important;
+            }
+            div[data-testid="stHorizontalBlock"]:has(.omr-photo-card) > div[data-testid="column"]:last-child .digital-omr-shell {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                box-sizing: border-box !important;
+            }
+            div[data-testid="stHorizontalBlock"]:has(.omr-photo-card) .stImage,
+            div[data-testid="stHorizontalBlock"]:has(.omr-photo-card) [data-testid="stImage"] {
+                width: 100% !important;
+                max-width: 100% !important;
+            }
+            div[data-testid="stHorizontalBlock"]:has(.omr-photo-card) [data-testid="stImage"] img {
+                display: block !important;
+                width: 100% !important;
+                height: auto !important;
+                max-width: 100% !important;
+                object-fit: contain !important;
             }
         }
 
