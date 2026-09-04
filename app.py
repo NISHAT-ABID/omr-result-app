@@ -4883,7 +4883,19 @@ def _render_digital_question_row(q, answer, original, status, total_q, compact=F
 
         for idx, opt in enumerate(("A", "B", "C", "D"), start=1):
             selected = answer == opt
+            detected_here = original == opt
             with cols[idx]:
+                if detected_here:
+                    st.markdown(
+                        "<div style='height:14px;display:flex;justify-content:center;align-items:center;"
+                        "margin-bottom:2px;'>"
+                        "<span title='Detected by scanner' style='display:inline-block;width:8px;height:8px;"
+                        "border-radius:50%;background:var(--mv-accent);'></span>"
+                        "</div>",
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    st.markdown("<div style='height:14px;margin-bottom:2px;'></div>", unsafe_allow_html=True)
                 st.button(
                     opt,
                     key=f"digital_omr_q{q}_{opt}",
@@ -5049,6 +5061,18 @@ def _render_interactive_omr_review(img_bgr, grid_points, detected_answers, final
         horizontal=True,
         key="submit_omr_view",
         label_visibility="collapsed",
+    )
+
+    # Detection-only legend: one accent color, used only to show what the scanner
+    # originally detected. It is deliberately separate from correctness/status.
+    st.markdown(
+        "<div style='display:flex;align-items:center;gap:7px;margin:2px 0 10px 0;"
+        "font-size:12px;color:var(--mv-muted);'>"
+        "<span style='display:inline-block;width:9px;height:9px;border-radius:50%;"
+        "background:var(--mv-accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--mv-accent) 16%,transparent);'></span>"
+        "<span>Scanner detected</span>"
+        "</div>",
+        unsafe_allow_html=True,
     )
 
     left, right = st.columns([0.92, 1.55], gap="medium")
