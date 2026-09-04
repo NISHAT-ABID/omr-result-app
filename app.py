@@ -27,7 +27,7 @@ from PIL import Image, ImageOps
 # ================= FINAL OMR REVIEW BUILD =================
 # Original OMR photo + full Digital OMR + immutable double-touch audit +
 # compact mobile tables. Existing exam/OMR features are intentionally preserved.
-OMR_REVIEW_BUILD = "2026-09-04-exam-gated-omr-v8-mentor-evidence-review"
+OMR_REVIEW_BUILD = "2026-09-04-past-omr-calibration-map-v10"
 from streamlit_image_coordinates import streamlit_image_coordinates
 
 import omr_scanner
@@ -8160,6 +8160,8 @@ def _render_mentor_review_workspace(result_row, key_row):
 
 
 def _draw_student_correct_answer_glow(img_bgr, grid_points, correct_answers, source_size=None):
+    # V10: Past Exam uses the student's saved calibration grid as the ONLY
+    # answer-position source; no new detection/calibration is performed here.
     """Highlight only the correct answer on the student's past OMR photo.
 
     The saved grid is created on the resized calibration image, while the past
@@ -8180,8 +8182,8 @@ def _draw_student_correct_answer_glow(img_bgr, grid_points, correct_answers, sou
             sx = sy = 1.0
 
     scale = max(0.65, min(3.0, (sx + sy) / 2.0))
-    halo_r = max(14, int(round(25 * scale)))
-    core_r = max(4, int(round(6 * scale)))
+    halo_r = max(9, int(round(14 * scale)))
+    core_r = max(3, int(round(4 * scale)))
 
     # Separate layers keep the original student ink visible underneath a
     # restrained, translucent green glow.
