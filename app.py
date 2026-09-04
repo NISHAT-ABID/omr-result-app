@@ -1920,7 +1920,126 @@ def inject_global_css():
         }
 
         @media (max-width: 767px) {
-            .mv-window-heading { flex-wrap:wrap; gap:2px 8px; }
+            /* ------------------------------------------------------------
+               Phone-only Profile/Home shell
+               Desktop is intentionally untouched. On a phone the profile
+               header must not stay in a narrow 1.3 : 2.4 side-by-side
+               Streamlit column pair; that is what caused the right-hand
+               stats text to break into one/two letters per line.
+               ------------------------------------------------------------ */
+
+            .block-container {
+                width: 100% !important;
+                max-width: 100% !important;
+                box-sizing: border-box !important;
+                padding-left: 12px !important;
+                padding-right: 12px !important;
+            }
+
+            /* Full-width mobile brand bar: logo/name at the upper-left,
+               hamburger at the upper-right. It does not change desktop. */
+            .st-key-mobile_top_bar,
+            .st-key-mobile_top_bar[data-testid="stVerticalBlock"] {
+                width: calc(100% + 24px) !important;
+                max-width: none !important;
+                margin-left: -12px !important;
+                margin-right: -12px !important;
+                padding: 7px 12px !important;
+                box-sizing: border-box !important;
+                position: sticky !important;
+                top: 0 !important;
+                z-index: 1000 !important;
+                background: var(--mv-bg) !important;
+                border-bottom: 1px solid var(--mv-border) !important;
+            }
+
+            /* Profile header: avatar/name first, then the full-width stats
+               card. This is the key fix for the screenshot's squeezed right
+               side. */
+            .st-key-card_profile_info,
+            .st-key-card_profile_status,
+            .st-key-card_profile_logout,
+            .st-key-card_profile_changepw,
+            .st-key-card_profile_mentor {
+                width: 100% !important;
+                max-width: 100% !important;
+                box-sizing: border-box !important;
+            }
+            div[data-testid="stHorizontalBlock"]:has(.st-key-card_profile_stats) {
+                display: grid !important;
+                grid-template-columns: minmax(0, 1fr) !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                gap: 10px !important;
+            }
+            div[data-testid="stHorizontalBlock"]:has(.st-key-card_profile_stats) > div[data-testid="column"] {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                flex: none !important;
+            }
+
+            /* Profile information + Account Status stack vertically on
+               phones, while the desktop two-column arrangement stays
+               exactly as it is. */
+            div[data-testid="stHorizontalBlock"]:has(.st-key-card_profile_info) {
+                display: grid !important;
+                grid-template-columns: minmax(0, 1fr) !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                gap: 10px !important;
+            }
+            div[data-testid="stHorizontalBlock"]:has(.st-key-card_profile_info) > div[data-testid="column"] {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                flex: none !important;
+            }
+
+            /* The four profile stats remain a 2x2 grid, but now have the
+               whole phone width available, so labels never collapse into
+               vertical letter-by-letter text. */
+            .st-key-card_profile_stats {
+                width: 100% !important;
+                max-width: 100% !important;
+                box-sizing: border-box !important;
+                padding: 14px 12px !important;
+            }
+            .st-key-card_profile_stats div[data-testid="stHorizontalBlock"] {
+                display: grid !important;
+                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+                gap: 14px 8px !important;
+                width: 100% !important;
+            }
+            .st-key-card_profile_stats div[data-testid="column"] {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                text-align: center !important;
+            }
+
+            /* Leaderboard: keep the exact same columns/grid, just make the
+               text a little easier to read on a phone. */
+            .st-key-leaderboard_table_student .lb-row > span,
+            .st-key-leaderboard_table_mentor .lb-row > span {
+                font-size: 11px !important;
+                font-weight: 600 !important;
+                line-height: 1.2 !important;
+            }
+            .st-key-leaderboard_table_student .lb-row > span:nth-child(1),
+            .st-key-leaderboard_table_mentor .lb-row > span:nth-child(1) {
+                font-size: 11px !important;
+                font-weight: 800 !important;
+            }
+            .st-key-leaderboard_table_student .lb-row > span:nth-child(2),
+            .st-key-leaderboard_table_mentor .lb-row > span:nth-child(2) {
+                font-size: 11px !important;
+                font-weight: 700 !important;
+            }
+            .st-key-leaderboard_table_student .lb-row > span:nth-child(n+3),
+            .st-key-leaderboard_table_mentor .lb-row > span:nth-child(n+3) {
+                font-weight: 600 !important;
+            }
             .mv-time-card-title { font-size:13.5px; }
             .mv-time-card-sub { margin-bottom:5px; }
             .mv-mobile-hide-instruction {
