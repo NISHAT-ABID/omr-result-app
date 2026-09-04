@@ -4155,7 +4155,7 @@ def render_student_exam_room(sid, key):
             sh.set_exam_session_status(sid, key["key_id"], "expired")
         st.session_state["submit_key_id"] = key["key_id"]
         st.session_state.pop("exam_room_key_id", None)
-        st.rerun()
+        go_to("omr_submit")
         return
 
     pdf_id = key.get("question_pdf_file_id")
@@ -4175,7 +4175,7 @@ def render_student_exam_room(sid, key):
         sh.set_exam_session_status(sid, key["key_id"], "completed")
         st.session_state["submit_key_id"] = key["key_id"]
         st.session_state.pop("exam_room_key_id", None)
-        st.rerun()
+        go_to("omr_submit")
 
 
 # =========================================================================
@@ -4198,26 +4198,26 @@ def page_home():
     # window has already closed. The exam window controls START permission;
     # the student's personal duration controls the session itself.
     resume_session = sh.get_student_resume_session(sid)
+    pending_omr_key = None
     if resume_session:
         resume_key = sh.get_answer_key_by_id(resume_session.get("key_id"))
         if resume_key:
-            if resume_session.get("status") == "started":
+            resume_status = str(resume_session.get("status", "")).lower()
+            if resume_status == "started":
                 st.session_state["exam_room_key_id"] = resume_key["key_id"]
                 render_student_exam_room(sid, resume_key)
                 return
-            # The personal timer has ended (or the student already clicked
-            # Complete). Send the student straight to the OMR page, even if
-            # the global exam window is now closed.
-            st.session_state["submit_key_id"] = resume_key["key_id"]
-            go_to("tests")
-            return
+            elif resume_status in ("completed", "expired") and not sh.has_submitted(sid, resume_key["key_id"]):
+                # The exam session is persisted server-side, so after leaving
+                # the app the same Home card can still become Upload OMR.
+                pending_omr_key = resume_key
 
     st.markdown(
         f"<div class='mv-page-greeting'><span>👋</span><h2>Welcome, {name}</h2></div>",
         unsafe_allow_html=True,
     )
 
-    active = cached_active_answer_key()
+    active = pending_omr_key or cached_active_answer_key()
     # Real st.container(key=...) instead of a raw <div class='app-card'>
     # split across two st.markdown() calls - see the note above the
     # ".app-card" CSS rule for why the split version rendered an empty
@@ -4226,8 +4226,9 @@ def page_home():
     with st.container(key="card_home_active"):
         if active:
             already = sh.has_submitted(sid, active["key_id"])
-            duration_display_min = active.get("duration_minutes") or int(
-                (active["end_dt"] - active["start_dt"]).total_seconds() // 60
+            duration_display_min = active.get("duration_minutes") or (
+                int((active["end_dt"] - active["start_dt"]).total_seconds() // 60)
+                if active.get("start_dt") and active.get("end_dt") else 0
             )
             st.markdown(f"#### 🟢 Active Test: {active['exam_name'] or active['key_id']}")
             window_text = (
@@ -4252,10 +4253,13 @@ def page_home():
             if already:
                 st.info("You already submitted this test. Check it in Tests & Results.")
             else:
-                # Exams with a mentor-uploaded question PDF always use the
-                # controlled PDF + personal countdown flow. Keep Quick OMR
-                # Submit only as the legacy fallback for exams that have no PDF.
-                if str(active.get("question_pdf_file_id", "") or "").strip():
+                if pending_omr_key and active.get("key_id") == pending_omr_key.get("key_id"):
+                    # The same Home exam card changes from Start Exam to Upload OMR
+                    # after the persisted exam session reaches completed/expired.
+                    if st.button("📤 Upload OMR", type="primary", use_container_width=True):
+                        st.session_state["submit_key_id"] = active["key_id"]
+                        go_to("omr_submit")
+                elif str(active.get("question_pdf_file_id", "") or "").strip():
                     if st.button("▶️ Start Exam", type="primary", use_container_width=True):
                         try:
                             sh.start_exam_session(
@@ -4270,10 +4274,7 @@ def page_home():
                             st.session_state["exam_room_key_id"] = active["key_id"]
                             st.rerun()
                 else:
-                    # Direct/Quick OMR submission is intentionally disabled.
-                    # A student must start the exam first; OMR access is granted
-                    # only after the controlled exam session is completed/expired.
-                    st.info("Start the exam first to unlock OMR submission.")
+                    st.info("This exam is not ready for OMR submission yet.")
         else:
             upcoming = cached_upcoming_answer_key()
             if upcoming:
@@ -5080,32 +5081,20 @@ def _render_interactive_omr_review(img_bgr, grid_points, detected_answers, final
 
     return review_rows
 
-def page_tests_results():
-    sid = st.session_state["student_id"]
-
-    view_key_id = st.session_state.get("view_key_id")
-    if view_key_id:
-        results = cached_results()
-        keys_df = cached_answer_keys()
-        match = results[(results["student_id"] == sid) & (results["key_id"] == view_key_id)]
-        key_match = keys_df[keys_df["key_id"] == view_key_id]
-        if match.empty or key_match.empty:
-            st.warning("Result not found.")
-        else:
-            if st.button("← Back to Tests & Results"):
-                st.session_state["view_key_id"] = None
-                st.session_state.pop("submit_key_id", None)
-                st.rerun()
-            render_result_detail(match.iloc[0], key_match.iloc[0])
-        return
-
-    st.markdown("### 📝 Tests & Results")
+def page_omr_submit():
+    """Private OMR submission page unlocked only after a student exam ends."""
+    st.markdown("### 📤 OMR Submission")
 
     # OMR submission is deliberately hidden until the student has entered
     # the controlled exam flow and then clicked "Complete Exam & Go to OMR"
     # (or the timer has expired). Merely opening Tests & Results must never
     # unlock a direct OMR upload.
     requested_submit_key = st.session_state.get("submit_key_id")
+    if not requested_submit_key:
+        st.info("No OMR submission is currently unlocked. Complete or finish your exam first.")
+        if st.button("← Back to Home", use_container_width=True):
+            go_to("home")
+        return
     active = None
     if requested_submit_key:
         requested_key = sh.get_answer_key_by_id(requested_submit_key)
@@ -5348,6 +5337,31 @@ def page_tests_results():
                                     st.caption(f"Technical detail: {e}")
                                 finally:
                                     st.session_state[submitting_key] = False
+
+
+
+def page_tests_results():
+    sid = st.session_state["student_id"]
+
+    view_key_id = st.session_state.get("view_key_id")
+    if view_key_id:
+        results = cached_results()
+        keys_df = cached_answer_keys()
+        match = results[(results["student_id"] == sid) & (results["key_id"] == view_key_id)]
+        key_match = keys_df[keys_df["key_id"] == view_key_id]
+        if match.empty or key_match.empty:
+            st.warning("Result not found.")
+        else:
+            if st.button("← Back to Tests & Results"):
+                st.session_state["view_key_id"] = None
+                st.session_state.pop("submit_key_id", None)
+                st.rerun()
+            render_result_detail(match.iloc[0], key_match.iloc[0])
+        return
+
+    st.markdown("### 📝 Tests & Results")
+    # OMR upload/scanning is intentionally NOT rendered here. It is on the
+    # private `omr_submit` route and unlocks only after the exam ends.
 
     st.markdown("#### 📋 Test History")
     results = cached_results()
@@ -8228,6 +8242,8 @@ def main():
 
             if page == "home":
                 page_home()
+            elif page == "omr_submit":
+                page_omr_submit()
             elif page in ("tests", "test_detail"):
                 page_tests_results()
             elif page == "analysis":
