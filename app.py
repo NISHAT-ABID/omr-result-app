@@ -27,7 +27,7 @@ from PIL import Image, ImageOps
 # ================= FINAL OMR REVIEW BUILD =================
 # Original OMR photo + full Digital OMR + immutable double-touch audit +
 # compact mobile tables. Existing exam/OMR features are intentionally preserved.
-OMR_REVIEW_BUILD = "2026-09-04-calibration-flow-v4"
+OMR_REVIEW_BUILD = "2026-09-04-calibration-flow-v5"
 from streamlit_image_coordinates import streamlit_image_coordinates
 
 import omr_scanner
@@ -8048,28 +8048,30 @@ def main():
                 max-width: 100% !important;
                 box-sizing: border-box !important;
             }
-            /* OMR REVIEW — mobile must be a true full-width vertical stack.
-               Do not let Streamlit's desktop column widths survive on phones. */
+            /* OMR REVIEW — mobile: one real column, full available width.
+               Streamlit keeps desktop column flex-basis/width inline in some
+               releases, so explicitly reset every sizing mechanism here. */
             div[data-testid="stHorizontalBlock"]:has(.omr-photo-card) {
-                display: flex !important;
-                flex-direction: column !important;
-                flex-wrap: nowrap !important;
-                align-items: stretch !important;
+                display: grid !important;
+                grid-template-columns: minmax(0, 1fr) !important;
+                grid-auto-flow: row !important;
                 width: 100% !important;
                 max-width: 100% !important;
                 min-width: 0 !important;
                 gap: 14px !important;
+                align-items: stretch !important;
             }
             div[data-testid="stHorizontalBlock"]:has(.omr-photo-card) > div[data-testid="column"] {
                 display: block !important;
-                order: initial !important;
                 width: 100% !important;
-                max-width: 100% !important;
-                min-width: 100% !important;
-                flex: 0 0 100% !important;
+                max-width: none !important;
+                min-width: 0 !important;
+                flex: none !important;
+                flex-basis: auto !important;
                 box-sizing: border-box !important;
                 padding: 0 !important;
                 margin: 0 !important;
+                grid-column: 1 / -1 !important;
             }
             div[data-testid="stHorizontalBlock"]:has(.omr-photo-card) > div[data-testid="column"]:first-child {
                 order: 1 !important;
@@ -8077,23 +8079,48 @@ def main():
             div[data-testid="stHorizontalBlock"]:has(.omr-photo-card) > div[data-testid="column"]:last-child {
                 order: 2 !important;
             }
-            div[data-testid="stHorizontalBlock"]:has(.omr-photo-card) > div[data-testid="column"]:last-child .digital-omr-shell {
+
+            /* Original OMR: the card and Streamlit image both occupy the
+               entire mobile content width; never fall back to intrinsic image width. */
+            div[data-testid="stHorizontalBlock"]:has(.omr-photo-card) .omr-photo-card {
+                position: static !important;
+                display: block !important;
                 width: 100% !important;
-                max-width: 100% !important;
+                max-width: none !important;
                 min-width: 0 !important;
                 box-sizing: border-box !important;
             }
-            div[data-testid="stHorizontalBlock"]:has(.omr-photo-card) .stImage,
-            div[data-testid="stHorizontalBlock"]:has(.omr-photo-card) [data-testid="stImage"] {
-                width: 100% !important;
-                max-width: 100% !important;
-            }
-            div[data-testid="stHorizontalBlock"]:has(.omr-photo-card) [data-testid="stImage"] img {
+            div[data-testid="stHorizontalBlock"]:has(.omr-photo-card) .omr-photo-card .stImage,
+            div[data-testid="stHorizontalBlock"]:has(.omr-photo-card) .omr-photo-card [data-testid="stImage"] {
                 display: block !important;
                 width: 100% !important;
-                height: auto !important;
                 max-width: 100% !important;
+                min-width: 0 !important;
+            }
+            div[data-testid="stHorizontalBlock"]:has(.omr-photo-card) .omr-photo-card [data-testid="stImage"] > div,
+            div[data-testid="stHorizontalBlock"]:has(.omr-photo-card) .omr-photo-card [data-testid="stImage"] figure {
+                width: 100% !important;
+                max-width: 100% !important;
+                margin: 0 !important;
+            }
+            div[data-testid="stHorizontalBlock"]:has(.omr-photo-card) .omr-photo-card [data-testid="stImage"] img {
+                display: block !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                height: auto !important;
                 object-fit: contain !important;
+            }
+
+            /* Digital OMR: full-width second section, directly below Original OMR. */
+            div[data-testid="stHorizontalBlock"]:has(.omr-photo-card) > div[data-testid="column"]:last-child,
+            div[data-testid="stHorizontalBlock"]:has(.omr-photo-card) > div[data-testid="column"]:last-child .digital-omr-shell {
+                width: 100% !important;
+                max-width: none !important;
+                min-width: 0 !important;
+                box-sizing: border-box !important;
+            }
+            div[data-testid="stHorizontalBlock"]:has(.omr-photo-card) > div[data-testid="column"]:last-child .digital-omr-shell {
+                display: block !important;
             }
         }
 
