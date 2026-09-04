@@ -5201,9 +5201,14 @@ def page_omr_submit():
                                         unsafe_allow_html=True,
                                     )
 
+                                    # Keep ONE stable component key for the whole calibration.
+                                    # Changing the key after every click forces Streamlit to destroy
+                                    # and recreate the image component, which causes the popup to
+                                    # visibly blink. The existing point list prevents the same
+                                    # coordinate returned after a rerun from being counted twice.
                                     coords = streamlit_image_coordinates(
                                         display_pil,
-                                        key=f"submit_calib_dialog_{file_sig}_{current_step}",
+                                        key=f"submit_calib_dialog_{file_sig}",
                                     )
 
                                     if coords is not None:
