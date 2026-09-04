@@ -27,7 +27,7 @@ from PIL import Image, ImageOps
 # ================= FINAL OMR REVIEW BUILD =================
 # Original OMR photo + full Digital OMR + immutable double-touch audit +
 # compact mobile tables. Existing exam/OMR features are intentionally preserved.
-OMR_REVIEW_BUILD = "2026-09-04-review-overlay-v2"
+OMR_REVIEW_BUILD = "2026-09-04-review-overlay-v3"
 from streamlit_image_coordinates import streamlit_image_coordinates
 
 import omr_scanner
@@ -5166,8 +5166,9 @@ def page_tests_results():
 
                     if not st.session_state.get("submit_review_ready"):
                         st.markdown("#### 🎯 Calibrate Your Sheet")
-                        st.caption(
-                            f"Your photo will open in a calibration popup. Tap the exact CENTER of these {total_points} bubbles in order (a top AND bottom point for every question block, so the reading stays accurate even if the sheet is a little curved, folded, or tilted in the photo)."
+                        st.markdown(
+                            f"<div class='calib-focus-instruction'><span>📍 CLICK CENTER</span> · {total_points} points · follow the order</div>",
+                            unsafe_allow_html=True,
                         )
                         if len(calib_points) < total_points:
                             step = points_info[len(calib_points)]
@@ -5177,13 +5178,28 @@ def page_tests_results():
                             )
                             @st.dialog("🎯 Calibrate OMR Photo", width="large")
                             def _calibration_dialog():
-                                st.caption(f"Step {len(calib_points) + 1} of {total_points}: tap the exact center of **{step['full']}**.")
-                                coords = streamlit_image_coordinates(display_pil, key=f"submit_calib_dialog_{file_sig}_{len(calib_points)}")
+                                # Dialogs are Streamlit fragments. A fragment rerun keeps
+                                # the popup open and refreshes only this calibration step.
+                                current_points = st.session_state.get("submit_calib_points", [])
+                                current_step = len(current_points)
+                                if current_step >= total_points:
+                                    st.success(f"✅ All {total_points} points marked!")
+                                    return
+
+                                current_info = points_info[current_step]
+                                st.markdown(
+                                    f"<div class='calib-dialog-focus'><span>CLICK CENTER</span><b>{current_info['full']}</b></div>",
+                                    unsafe_allow_html=True,
+                                )
+                                coords = streamlit_image_coordinates(
+                                    display_pil,
+                                    key=f"submit_calib_dialog_{file_sig}_{current_step}",
+                                )
                                 if coords is not None:
                                     pt = (coords["x"], coords["y"])
-                                    if not calib_points or calib_points[-1] != pt:
-                                        st.session_state["submit_calib_points"] = calib_points + [pt]
-                                        st.rerun()
+                                    if not current_points or current_points[-1] != pt:
+                                        st.session_state["submit_calib_points"] = current_points + [pt]
+                                        st.rerun(scope="fragment")
                             _calibration_dialog()
                         else:
                             st.success(f"✅ All {total_points} points marked!")
@@ -7910,7 +7926,134 @@ def main():
             max-width: 100% !important;
         }
     }
-    </style>
+    
+        /* ================================================================
+           REQUESTED MOBILE POLISH — 2026-09-04
+           Only the requested areas are overridden; existing theme/layout stays intact.
+           ================================================================ */
+
+        /* Leaderboard: never truncate a merit like #4 into #.. on phones.
+           Give the merit column a little fixed room and allow the badge itself to show. */
+        @media (max-width:767px) {
+            .st-key-leaderboard_table_student .lb-header,
+            .st-key-leaderboard_table_student .lb-row,
+            .st-key-leaderboard_table_mentor .lb-header,
+            .st-key-leaderboard_table_mentor .lb-row {
+                grid-template-columns: 44px minmax(0,1fr) 38px 43px 43px 45px !important;
+                gap: 3px !important;
+            }
+
+            .st-key-leaderboard_table_student .lb-row > span:nth-child(1),
+            .st-key-leaderboard_table_mentor .lb-row > span:nth-child(1),
+            .st-key-leaderboard_table_student .lb-header > span:nth-child(1),
+            .st-key-leaderboard_table_mentor .lb-header > span:nth-child(1) {
+                min-width: 44px !important;
+                width: 44px !important;
+                overflow: visible !important;
+                text-overflow: clip !important;
+                white-space: nowrap !important;
+                text-align: center !important;
+            }
+
+            .st-key-leaderboard_table_student .lb-row .rank-badge,
+            .st-key-leaderboard_table_mentor .lb-row .rank-badge {
+                display: inline-flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                min-width: 38px !important;
+                padding: 3px 5px !important;
+                overflow: visible !important;
+                text-overflow: clip !important;
+                white-space: nowrap !important;
+                font-size: 10px !important;
+            }
+
+            /* Test-wise leaderboard has 4 columns. */
+            .st-key-leaderboard_table_student .lb-header-testwise,
+            .st-key-leaderboard_table_student .lb-row-testwise,
+            .st-key-leaderboard_table_mentor .lb-header-testwise,
+            .st-key-leaderboard_table_mentor .lb-row-testwise {
+                grid-template-columns: 44px minmax(0,1fr) 58px 52px !important;
+            }
+
+            /* Calibration instruction: short, bold, high-contrast and easy to scan. */
+            .calib-focus-instruction {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                margin: 4px 0 10px;
+                padding: 6px 10px;
+                border-radius: 8px;
+                background: rgba(38,171,140,.12);
+                border: 1px solid rgba(38,171,140,.35);
+                color: var(--mv-ink);
+                font-size: 12px;
+                font-weight: 750;
+                line-height: 1.2;
+            }
+            .calib-focus-instruction span {
+                color: var(--mv-primary);
+                font-weight: 900;
+                letter-spacing: .04em;
+            }
+
+            /* OMR review: stack Original OMR first, Digital OMR second.
+               This prevents the two panels from being squeezed side-by-side. */
+            div[data-testid="stHorizontalBlock"]:has(.omr-photo-card) {
+                display: flex !important;
+                flex-direction: column !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                gap: 12px !important;
+            }
+            div[data-testid="stHorizontalBlock"]:has(.omr-photo-card) > div[data-testid="column"] {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                flex: 0 0 100% !important;
+                padding: 0 !important;
+            }
+            .omr-photo-card {
+                position: static !important;
+                width: 100% !important;
+                box-sizing: border-box !important;
+            }
+            .omr-photo-card img {
+                width: 100% !important;
+                height: auto !important;
+                max-width: 100% !important;
+                object-fit: contain !important;
+            }
+            .digital-omr-shell {
+                width: 100% !important;
+                box-sizing: border-box !important;
+            }
+        }
+
+        /* Calibration popup focus label on both phone and desktop. */
+        .calib-dialog-focus {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 2px 0 10px;
+            padding: 8px 10px;
+            border-radius: 9px;
+            background: rgba(38,171,140,.12);
+            border: 1px solid rgba(38,171,140,.35);
+            font-size: 13px;
+            line-height: 1.25;
+        }
+        .calib-dialog-focus span {
+            color: var(--mv-primary);
+            font-weight: 900;
+            letter-spacing: .04em;
+            white-space: nowrap;
+        }
+        .calib-dialog-focus b {
+            color: var(--mv-ink);
+            font-weight: 900;
+        }
+</style>
     """, unsafe_allow_html=True)
 
     # The ENTIRE visible app body - the app-password gate, the Google
