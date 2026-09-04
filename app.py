@@ -1490,6 +1490,115 @@ def inject_global_css():
         }
         .lb-row.me { background: rgba(18,60,57,0.08); border-color: rgba(18,60,57,0.35); }
 
+
+        /* ================================================================
+           MOBILE LEADERBOARD — READABLE PC-STYLE TABLE
+           ================================================================ */
+        @media (max-width:767px) {
+            div.st-key-leaderboard_table_student,
+            div.st-key-leaderboard_table_mentor {
+                width:100% !important;
+                max-width:none !important;
+                min-width:0 !important;
+                overflow:visible !important;
+            }
+
+            div.st-key-leaderboard_table_student .lb-row,
+            div.st-key-leaderboard_table_mentor .lb-row {
+                display:grid !important;
+                grid-template-columns:
+                    32px
+                    minmax(95px,1fr)
+                    45px
+                    48px
+                    48px
+                    48px
+                    42px !important;
+                align-items:center !important;
+                gap:3px !important;
+                width:100% !important;
+                max-width:none !important;
+                min-width:0 !important;
+                padding:9px 5px !important;
+                margin-bottom:6px !important;
+                box-sizing:border-box !important;
+                overflow:hidden !important;
+            }
+
+            div.st-key-leaderboard_table_student .lb-row > span,
+            div.st-key-leaderboard_table_mentor .lb-row > span {
+                min-width:0 !important;
+                width:auto !important;
+                max-width:100% !important;
+                flex:none !important;
+                font-size:9.5px !important;
+                line-height:1.15 !important;
+                white-space:nowrap !important;
+                overflow:hidden !important;
+                text-overflow:ellipsis !important;
+            }
+
+            div.st-key-leaderboard_table_student .lb-row > span:nth-child(1),
+            div.st-key-leaderboard_table_mentor .lb-row > span:nth-child(1) {
+                text-align:center !important;
+                font-size:10px !important;
+                font-weight:800 !important;
+            }
+
+            div.st-key-leaderboard_table_student .lb-row > span:nth-child(2),
+            div.st-key-leaderboard_table_mentor .lb-row > span:nth-child(2) {
+                text-align:left !important;
+                font-size:10.5px !important;
+                font-weight:700 !important;
+            }
+
+            div.st-key-leaderboard_table_student .lb-row > span:nth-child(n+3),
+            div.st-key-leaderboard_table_mentor .lb-row > span:nth-child(n+3) {
+                text-align:center !important;
+                font-size:8.8px !important;
+            }
+
+            div.st-key-leaderboard_table_student .lb-row > span:nth-child(2) > span,
+            div.st-key-leaderboard_table_mentor .lb-row > span:nth-child(2) > span {
+                display:inline-flex !important;
+                align-items:center !important;
+                gap:4px !important;
+                min-width:0 !important;
+                max-width:100% !important;
+                overflow:hidden !important;
+                white-space:nowrap !important;
+            }
+
+            div.st-key-leaderboard_table_student .lb-row > span:nth-child(2) img,
+            div.st-key-leaderboard_table_mentor .lb-row > span:nth-child(2) img {
+                width:22px !important;
+                height:22px !important;
+                flex:0 0 22px !important;
+            }
+
+            div.st-key-leaderboard_table_student .rank-badge,
+            div.st-key-leaderboard_table_mentor .rank-badge {
+                padding:3px 5px !important;
+                font-size:9px !important;
+            }
+        }
+
+        @media (max-width:380px) {
+            div.st-key-leaderboard_table_student .lb-row,
+            div.st-key-leaderboard_table_mentor .lb-row {
+                grid-template-columns:
+                    28px
+                    minmax(82px,1fr)
+                    39px
+                    42px
+                    42px
+                    42px
+                    36px !important;
+                gap:2px !important;
+                padding:8px 3px !important;
+            }
+        }
+
         /* ---- OMR review bubbles ---- */
         .omr-row {
             display:flex; align-items:center; gap:10px; padding:8px 4px;
@@ -5709,11 +5818,11 @@ def render_profile_stats_strip(stats):
 
 
 def page_profile():
-    """Clean, compact Profile dashboard for desktop and phone.
+    """Premium Profile page.
 
-    Design principle: fewer sections, more information density.  The first
-    section is performance/analysis data; profile editing and password
-    management follow underneath.  Existing actions and navigation are kept.
+    Intentionally uses a fresh set of Streamlit container keys so the old
+    profile CSS cannot leak into this layout. Desktop and mobile are both
+    designed from the same semantic structure; CSS only changes the grid.
     """
     sid = st.session_state["student_id"]
     student = sh.get_student_by_id(sid)
@@ -5733,142 +5842,449 @@ def page_profile():
         avg_pct = 0.0
     rank, out_of = cached_rank(sid)
 
+    # Fresh, isolated Profile design. No desktop/mobile layout is inherited
+    # from the older profile cards.
     st.markdown("""
     <style>
     /* ================================================================
-       MED VENTURE — PROFILE / COMPACT DASHBOARD
-       Deliberately uses only a few large sections.  The same structure
-       scales from desktop to phone; no fixed-width Streamlit columns.
+       MED VENTURE — PROFILE V2
+       A clean dashboard layout. All selectors are scoped to .mv-profile-v2
+       so the rest of the application is untouched.
        ================================================================ */
-    .mv-profile-clean { width:100%; max-width:1120px; margin:0 auto; }
-    .mv-profile-clean * { box-sizing:border-box; }
+    .mv-profile-v2 { width:100%; max-width:1180px; margin:0 auto; }
+    .mv-profile-v2 * { box-sizing:border-box; }
 
-    .mvc-head {
-        display:flex; align-items:center; justify-content:space-between;
-        gap:18px; padding:8px 2px 18px;
+    .mv-pv-hero {
+        display:grid; grid-template-columns:auto 1fr auto; align-items:center;
+        gap:20px; padding:24px 26px; margin:8px 0 18px;
+        background:linear-gradient(135deg, rgba(38,171,140,.12), rgba(20,35,38,.72));
+        border:1px solid rgba(38,171,140,.28); border-radius:24px;
+        box-shadow:0 14px 36px rgba(0,0,0,.16);
     }
-    .mvc-head-left { display:flex; align-items:center; gap:16px; min-width:0; }
-    .mvc-avatar { flex:0 0 auto; }
-    .mvc-name { color:var(--mv-ink); font-family:var(--serif); font-size:30px; font-weight:700; line-height:1.05; }
-    .mvc-role { margin-top:6px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
-    .mvc-role .role { color:var(--mv-muted); font-size:11px; font-weight:800; letter-spacing:.12em; }
-    .mvc-role .verified { color:var(--mv-primary); background:var(--mv-primary-soft); border-radius:999px; padding:4px 9px; font-size:11px; font-weight:800; }
-    .mvc-account { flex:0 0 auto; color:var(--mv-primary); background:var(--mv-primary-soft); border-radius:999px; padding:8px 12px; font-size:11px; font-weight:800; }
-    .mvc-account.off { color:#f2434a; background:rgba(242,67,74,.12); }
+    .mv-pv-avatar { display:flex; align-items:center; justify-content:center; }
+    .mv-pv-name { font-family:var(--serif); font-size:30px; font-weight:650; line-height:1.05; color:var(--mv-ink); }
+    .mv-pv-role { margin-top:7px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+    .mv-pv-role span { font-size:11px; font-weight:800; letter-spacing:.09em; text-transform:uppercase; color:var(--mv-muted); }
+    .mv-pv-verified { padding:5px 10px; border-radius:999px; background:rgba(38,171,140,.15); color:var(--mv-primary); letter-spacing:0 !important; text-transform:none !important; }
+    .mv-pv-status { padding:9px 13px; border-radius:13px; background:rgba(38,171,140,.10); color:var(--mv-primary); font-size:12px; font-weight:800; text-align:center; }
+    .mv-pv-status.off { background:rgba(242,67,74,.11); color:#f2434a; }
 
-    .mvc-section {
-        border:1px solid var(--mv-border); background:var(--mv-surface);
-        border-radius:18px; padding:18px; margin-bottom:16px;
-        box-shadow:0 7px 22px rgba(0,0,0,.07);
+    .mv-pv-stats { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin-bottom:18px; }
+    .mv-pv-stat { min-width:0; padding:18px 14px; border:1px solid var(--mv-border); border-radius:18px; background:var(--mv-surface); text-align:center; }
+    .mv-pv-stat-icon { width:42px; height:42px; margin:0 auto 9px; display:flex; align-items:center; justify-content:center; border-radius:13px; font-size:19px; }
+    .mv-pv-stat-number { font-family:var(--mono); font-size:23px; font-weight:800; color:var(--mv-ink); line-height:1.1; }
+    .mv-pv-stat-label { margin-top:5px; font-size:11.5px; color:var(--mv-muted); font-weight:650; line-height:1.25; }
+
+    .mv-pv-main { display:grid; grid-template-columns:minmax(0,1.45fr) minmax(300px,.85fr); gap:18px; align-items:start; }
+    .mv-pv-card { padding:20px; border:1px solid var(--mv-border); border-radius:20px; background:var(--mv-surface); margin-bottom:18px; box-shadow:0 8px 24px rgba(0,0,0,.08); }
+    .mv-pv-card-title { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px; }
+    .mv-pv-card-title h3 { margin:0; color:var(--mv-ink); font-size:17px; font-weight:800; }
+    .mv-pv-card-title p { margin:3px 0 0; color:var(--mv-muted); font-size:12px; }
+    .mv-pv-info-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+    .mv-pv-info { display:flex; align-items:center; gap:11px; padding:13px; border:1px solid var(--mv-border); border-radius:14px; background:rgba(255,255,255,.018); min-width:0; }
+    .mv-pv-info-icon { width:36px; height:36px; flex:0 0 36px; border-radius:11px; display:flex; align-items:center; justify-content:center; font-size:16px; }
+    .mv-pv-info-label { font-size:10.5px; color:var(--mv-muted); font-weight:700; text-transform:uppercase; letter-spacing:.06em; }
+    .mv-pv-info-value { margin-top:2px; color:var(--mv-ink); font-size:13.5px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+    .mv-pv-status-list { display:grid; gap:9px; }
+    .mv-pv-status-item { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 13px; border-radius:13px; background:rgba(255,255,255,.025); }
+    .mv-pv-status-item .label { color:var(--mv-muted); font-size:12px; font-weight:650; }
+    .mv-pv-pill { padding:5px 10px; border-radius:999px; font-size:11px; font-weight:800; }
+    .mv-pv-pill.good { background:rgba(38,171,140,.13); color:var(--mv-primary); }
+    .mv-pv-pill.bad { background:rgba(242,67,74,.13); color:#f2434a; }
+
+    .mv-pv-action { display:flex; align-items:center; gap:12px; padding:14px 15px; border:1px solid var(--mv-border); border-radius:15px; margin-bottom:10px; }
+    .mv-pv-action-icon { width:38px; height:38px; border-radius:12px; display:flex; align-items:center; justify-content:center; background:var(--mv-primary-soft); font-size:17px; flex:0 0 38px; }
+    .mv-pv-action-copy { flex:1; min-width:0; }
+    .mv-pv-action-copy b { color:var(--mv-ink); font-size:13.5px; }
+    .mv-pv-action-copy span { display:block; margin-top:2px; color:var(--mv-muted); font-size:11.5px; }
+
+    .mv-pv-footer { display:grid; grid-template-columns:1fr auto; align-items:center; gap:16px; padding:18px 20px; border:1px solid rgba(38,171,140,.22); border-radius:20px; background:linear-gradient(135deg,rgba(38,171,140,.10),rgba(38,171,140,.035)); }
+    .mv-pv-footer-copy b { color:var(--mv-ink); font-size:14px; }
+    .mv-pv-footer-copy span { display:block; color:var(--mv-muted); font-size:11.5px; margin-top:3px; }
+
+    /* Streamlit buttons inside this page */
+    .mv-profile-v2 .stButton > button { border-radius:11px !important; min-height:38px !important; font-weight:750 !important; }
+    .mv-profile-v2 .mv-pv-stat-btn .stButton > button { border:0 !important; background:transparent !important; color:var(--mv-primary) !important; min-height:26px !important; font-size:11.5px !important; padding:0 !important; }
+
+    @media (max-width: 850px) {
+        .mv-profile-v2 { width:100%; max-width:none; }
+        .mv-pv-hero { grid-template-columns:auto 1fr; padding:18px; gap:14px; border-radius:20px; }
+        .mv-pv-status { grid-column:1 / -1; text-align:left; }
+        .mv-pv-name { font-size:25px; }
+        .mv-pv-stats { grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+        .mv-pv-stat { padding:15px 10px; }
+        .mv-pv-main { grid-template-columns:1fr; gap:0; }
+        .mv-pv-info-grid { grid-template-columns:1fr; }
+        .mv-pv-card { padding:16px; border-radius:17px; }
+        .mv-pv-footer { grid-template-columns:1fr; }
     }
-    .mvc-section-head { display:flex; align-items:end; justify-content:space-between; gap:12px; margin-bottom:14px; }
-    .mvc-section-head h3 { margin:0; color:var(--mv-ink); font-size:17px; font-weight:850; }
-    .mvc-section-head p { margin:3px 0 0; color:var(--mv-muted); font-size:11.5px; }
-
-    .mvc-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; }
-    .mvc-metric { min-width:0; padding:15px 12px; border-radius:14px; background:rgba(255,255,255,.025); border:1px solid var(--mv-border); }
-    .mvc-metric-top { display:flex; align-items:center; justify-content:space-between; gap:8px; }
-    .mvc-metric-icon { width:34px; height:34px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:16px; }
-    .mvc-metric-number { color:var(--mv-ink); font-family:var(--mono); font-size:22px; font-weight:850; margin-top:11px; line-height:1; }
-    .mvc-metric-label { color:var(--mv-muted); font-size:11px; font-weight:700; margin-top:5px; line-height:1.25; }
-    .mvc-metric-link { color:var(--mv-primary); font-size:10.5px; font-weight:750; margin-top:9px; }
-
-    .mvc-profile-grid { display:grid; grid-template-columns:minmax(0,1.2fr) minmax(0,.8fr); gap:18px; }
-    .mvc-subhead { color:var(--mv-ink); font-size:14px; font-weight:850; margin-bottom:11px; }
-    .mvc-info-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:9px; }
-    .mvc-info { display:flex; align-items:center; gap:10px; min-width:0; padding:10px 11px; border-bottom:1px solid var(--mv-border); }
-    .mvc-info-icon { width:32px; height:32px; flex:0 0 32px; border-radius:9px; display:flex; align-items:center; justify-content:center; font-size:14px; }
-    .mvc-info-label { color:var(--mv-muted); font-size:9.5px; font-weight:750; text-transform:uppercase; letter-spacing:.06em; }
-    .mvc-info-value { color:var(--mv-ink); font-size:12.5px; font-weight:700; margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-
-    .mvc-security { display:grid; gap:8px; }
-    .mvc-security-row { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 11px; border-radius:10px; background:rgba(255,255,255,.025); }
-    .mvc-security-row span:first-child { color:var(--mv-muted); font-size:11.5px; font-weight:650; }
-    .mvc-pill { padding:4px 8px; border-radius:999px; font-size:10px; font-weight:850; }
-    .mvc-pill.good { color:var(--mv-primary); background:var(--mv-primary-soft); }
-    .mvc-pill.bad { color:#f2434a; background:rgba(242,67,74,.12); }
-
-    .mvc-actions { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
-    .mvc-action-note { color:var(--mv-muted); font-size:11px; padding:9px 2px 2px; }
-    .mv-profile-clean .stButton > button { min-height:38px !important; border-radius:10px !important; font-weight:750 !important; }
-
-    @media (max-width: 760px) {
-        .mv-profile-clean { width:100%; max-width:none; }
-        .mvc-head { padding:3px 0 14px; align-items:flex-start; }
-        .mvc-head-left { gap:11px; }
-        .mvc-name { font-size:25px; }
-        .mvc-account { font-size:10px; padding:7px 9px; }
-        .mvc-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
-        .mvc-metric { padding:13px 11px; }
-        .mvc-metric-number { font-size:20px; }
-        .mvc-profile-grid { grid-template-columns:1fr; gap:14px; }
-        .mvc-section { padding:14px; border-radius:15px; }
-        .mvc-info-list { grid-template-columns:1fr 1fr; gap:5px; }
-        .mvc-actions { grid-template-columns:1fr; }
-    }
-    @media (max-width: 430px) {
-        .mvc-head-left .mv-avatar-glow-ring { transform:scale(.82); transform-origin:left center; }
-        .mvc-name { font-size:22px; }
-        .mvc-role { margin-top:4px; }
-        .mvc-section-head h3 { font-size:15px; }
-        .mvc-info { padding:9px 6px; }
-        .mvc-info-value { font-size:11.5px; }
+    @media (max-width: 480px) {
+        .mv-profile-v2 { margin-left:0; margin-right:0; }
+        .mv-pv-hero { padding:16px; margin-top:4px; }
+        .mv-pv-avatar .mv-avatar-glow-ring { transform:scale(.9); transform-origin:left center; }
+        .mv-pv-name { font-size:23px; }
+        .mv-pv-stat-number { font-size:21px; }
+        .mv-pv-stat-label { font-size:11px; }
     }
     </style>
+
+    /* ================================================================
+       PROFILE V2 — REAL STREAMLIT COLUMN MOBILE FIX
+       ================================================================ */
+    div.st-key-profile_v2_shell,
+    div.st-key-profile_v2_shell[data-testid="stVerticalBlock"] {
+        width:100% !important;
+        max-width:none !important;
+        min-width:0 !important;
+        margin:0 !important;
+        padding:0 !important;
+    }
+
+    div.st-key-profile_v2_hero div[data-testid="stHorizontalBlock"] {
+        width:100% !important;
+        max-width:none !important;
+        min-width:0 !important;
+        gap:14px !important;
+        align-items:center !important;
+    }
+
+    div.st-key-profile_v2_hero div[data-testid="column"] {
+        min-width:0 !important;
+        padding:0 !important;
+    }
+
+    div.st-key-profile_v2_stats div[data-testid="stHorizontalBlock"] {
+        display:flex !important;
+        flex-direction:row !important;
+        flex-wrap:wrap !important;
+        width:100% !important;
+        max-width:none !important;
+        min-width:0 !important;
+        gap:10px !important;
+        align-items:stretch !important;
+    }
+
+    div.st-key-profile_v2_stats div[data-testid="column"] {
+        box-sizing:border-box !important;
+        min-width:0 !important;
+        padding:0 !important;
+        flex:0 0 calc(25% - 8px) !important;
+        width:calc(25% - 8px) !important;
+        max-width:calc(25% - 8px) !important;
+    }
+
+    div.st-key-profile_v2_stats .mv-pv-stat {
+        width:100% !important;
+        min-width:0 !important;
+        max-width:none !important;
+        overflow:hidden !important;
+    }
+
+    @media (max-width:767px) {
+        div.st-key-profile_v2_hero div[data-testid="stHorizontalBlock"] {
+            display:grid !important;
+            grid-template-columns:86px minmax(0,1fr) !important;
+            grid-template-rows:auto auto !important;
+            gap:6px 14px !important;
+            width:100% !important;
+            max-width:none !important;
+            padding:18px !important;
+        }
+
+        div.st-key-profile_v2_hero div[data-testid="column"] {
+            width:100% !important;
+            max-width:none !important;
+            min-width:0 !important;
+            flex:none !important;
+            padding:0 !important;
+        }
+
+        div.st-key-profile_v2_hero div[data-testid="column"]:nth-child(1) {
+            grid-column:1 !important;
+            grid-row:1 / span 2 !important;
+        }
+
+        div.st-key-profile_v2_hero div[data-testid="column"]:nth-child(2) {
+            grid-column:2 !important;
+            grid-row:1 !important;
+        }
+
+        div.st-key-profile_v2_hero div[data-testid="column"]:nth-child(3) {
+            grid-column:2 !important;
+            grid-row:2 !important;
+        }
+
+        div.st-key-profile_v2_hero .mv-pv-name {
+            font-size:25px !important;
+            line-height:1.05 !important;
+            white-space:nowrap !important;
+            overflow:hidden !important;
+            text-overflow:ellipsis !important;
+        }
+
+        div.st-key-profile_v2_hero .mv-pv-status {
+            display:inline-flex !important;
+            width:auto !important;
+            max-width:max-content !important;
+            padding:6px 10px !important;
+            border-radius:999px !important;
+            font-size:10px !important;
+        }
+
+        /* CRITICAL: reset Streamlit column flex sizing */
+        div.st-key-profile_v2_stats div[data-testid="stHorizontalBlock"] {
+            display:flex !important;
+            flex-direction:row !important;
+            flex-wrap:wrap !important;
+            justify-content:flex-start !important;
+            align-items:stretch !important;
+            width:100% !important;
+            max-width:none !important;
+            min-width:0 !important;
+            gap:10px !important;
+        }
+
+        div.st-key-profile_v2_stats div[data-testid="column"] {
+            display:flex !important;
+            flex-direction:column !important;
+            box-sizing:border-box !important;
+            flex:0 0 calc(50% - 5px) !important;
+            width:calc(50% - 5px) !important;
+            max-width:calc(50% - 5px) !important;
+            min-width:0 !important;
+            padding:0 !important;
+            margin:0 !important;
+        }
+
+        div.st-key-profile_v2_stats div[data-testid="column"] > div {
+            width:100% !important;
+            max-width:none !important;
+            min-width:0 !important;
+        }
+
+        div.st-key-profile_v2_stats .mv-pv-stat {
+            display:flex !important;
+            flex-direction:column !important;
+            align-items:center !important;
+            justify-content:center !important;
+            width:100% !important;
+            min-width:0 !important;
+            max-width:none !important;
+            min-height:122px !important;
+            padding:14px 8px 10px !important;
+            overflow:hidden !important;
+        }
+
+        div.st-key-profile_v2_stats .mv-pv-stat-icon {
+            flex:0 0 auto !important;
+            width:40px !important;
+            height:40px !important;
+            margin-bottom:7px !important;
+        }
+
+        div.st-key-profile_v2_stats .mv-pv-stat-number {
+            width:100% !important;
+            min-width:0 !important;
+            font-size:22px !important;
+            line-height:1.1 !important;
+            white-space:nowrap !important;
+            overflow:hidden !important;
+            text-overflow:ellipsis !important;
+            text-align:center !important;
+        }
+
+        div.st-key-profile_v2_stats .mv-pv-stat-label {
+            width:100% !important;
+            min-width:0 !important;
+            margin-top:5px !important;
+            font-size:11px !important;
+            line-height:1.25 !important;
+            text-align:center !important;
+            white-space:normal !important;
+            word-break:normal !important;
+            overflow-wrap:normal !important;
+            overflow:hidden !important;
+        }
+
+        div.st-key-profile_v2_stats div[data-testid="column"] .stButton,
+        div.st-key-profile_v2_stats div[data-testid="column"] .stButton > button {
+            width:100% !important;
+            max-width:none !important;
+        }
+
+        div.st-key-profile_v2_stats .mv-pv-stat-btn .stButton > button {
+            min-height:28px !important;
+            font-size:10.5px !important;
+            padding:2px 3px !important;
+            white-space:nowrap !important;
+        }
+
+        /* Main content: one full-width stack */
+        div.st-key-profile_v2_main {
+            width:100% !important;
+            max-width:none !important;
+            min-width:0 !important;
+        }
+
+        div.st-key-profile_v2_main div[data-testid="stHorizontalBlock"] {
+            display:flex !important;
+            flex-direction:column !important;
+            flex-wrap:nowrap !important;
+            width:100% !important;
+            max-width:none !important;
+            min-width:0 !important;
+            gap:0 !important;
+        }
+
+        div.st-key-profile_v2_main div[data-testid="column"] {
+            display:block !important;
+            width:100% !important;
+            max-width:none !important;
+            min-width:0 !important;
+            flex:0 0 100% !important;
+            padding:0 !important;
+            margin:0 !important;
+        }
+
+        div.st-key-profile_v2_main .mv-pv-card {
+            width:100% !important;
+            max-width:none !important;
+            min-width:0 !important;
+            padding:16px !important;
+            margin-bottom:12px !important;
+            border-radius:18px !important;
+        }
+
+        div.st-key-profile_v2_main .mv-pv-info-grid {
+            display:grid !important;
+            grid-template-columns:repeat(2,minmax(0,1fr)) !important;
+            width:100% !important;
+            gap:8px !important;
+        }
+
+        div.st-key-profile_v2_main .mv-pv-info {
+            min-width:0 !important;
+            width:100% !important;
+            padding:11px 9px !important;
+        }
+
+        div.st-key-profile_v2_main .mv-pv-info-value {
+            min-width:0 !important;
+            max-width:100% !important;
+        }
+
+        div.st-key-profile_v2_mentor {
+            width:100% !important;
+            max-width:none !important;
+            min-width:0 !important;
+        }
+
+        div.st-key-profile_v2_mentor .mv-pv-footer {
+            width:100% !important;
+            max-width:none !important;
+            grid-template-columns:1fr !important;
+            padding:16px !important;
+        }
+    }
+
+    @media (max-width:380px) {
+        div.st-key-profile_v2_hero div[data-testid="stHorizontalBlock"] {
+            grid-template-columns:72px minmax(0,1fr) !important;
+            gap:5px 10px !important;
+            padding:15px !important;
+        }
+
+        div.st-key-profile_v2_hero .mv-pv-name {
+            font-size:23px !important;
+        }
+
+        div.st-key-profile_v2_stats div[data-testid="stHorizontalBlock"] {
+            gap:8px !important;
+        }
+
+        div.st-key-profile_v2_stats div[data-testid="column"] {
+            flex-basis:calc(50% - 4px) !important;
+            width:calc(50% - 4px) !important;
+            max-width:calc(50% - 4px) !important;
+        }
+
+        div.st-key-profile_v2_stats .mv-pv-stat {
+            min-height:112px !important;
+            padding:12px 6px 9px !important;
+        }
+
+        div.st-key-profile_v2_stats .mv-pv-stat-label {
+            font-size:10px !important;
+        }
+
+        div.st-key-profile_v2_main .mv-pv-info-grid {
+            grid-template-columns:1fr !important;
+        }
+    }
+
     """, unsafe_allow_html=True)
 
-    with st.container(key="profile_clean_shell"):
-        st.markdown('<div class="mv-profile-clean">', unsafe_allow_html=True)
+    with st.container(key="profile_v2_shell"):
+        st.markdown('<div class="mv-profile-v2">', unsafe_allow_html=True)
 
-        # --------------------------------------------------------------
-        # HEADER — identity only, intentionally not a large card.
-        # --------------------------------------------------------------
-        st.markdown(
-            '<div class="mvc-head">'
-            '<div class="mvc-head-left">'
-            f'<div class="mvc-avatar">{_profile_hero_avatar_html(render_avatar(sid, name, size=70, font_size=26), "#26AB8C")}</div>'
-            f'<div><div class="mvc-name">{name}</div>'
-            '<div class="mvc-role"><span class="role">STUDENT</span><span class="verified">✓ Verified</span></div></div>'
-            '</div>'
-            f'<div class="mvc-account {"off" if disabled else ""}">{"● Disabled" if disabled else "● Active"}</div>'
-            '</div>', unsafe_allow_html=True)
+        # HERO
+        with st.container(key="profile_v2_hero"):
+            h1, h2, h3 = st.columns([.72, 2.8, .9], gap="small")
+            with h1:
+                st.markdown(
+                    f'<div class="mv-pv-avatar">{_profile_hero_avatar_html(render_avatar(sid, name, size=76, font_size=28), "#26AB8C")}</div>',
+                    unsafe_allow_html=True,
+                )
+            with h2:
+                st.markdown(
+                    f'<div class="mv-pv-name">{name}</div>'
+                    f'<div class="mv-pv-role"><span>Student</span><span class="mv-pv-verified">✓ Verified</span></div>',
+                    unsafe_allow_html=True,
+                )
+            with h3:
+                cls = "mv-pv-status" if not disabled else "mv-pv-status off"
+                st.markdown(f'<div class="{cls}">● {"Active account" if not disabled else "Account disabled"}</div>', unsafe_allow_html=True)
 
-        # --------------------------------------------------------------
-        # SECTION 1 — data/analysis first, as requested.
-        # --------------------------------------------------------------
-        st.markdown(
-            '<div class="mvc-section">'
-            '<div class="mvc-section-head"><div><h3>📊 Performance Overview</h3>'
-            '<p>Your exam activity at a glance</p></div></div>'
-            '<div class="mvc-metrics">'
-            f'<div class="mvc-metric"><div class="mvc-metric-top"><div class="mvc-metric-icon" style="background:var(--mv-primary-soft)">📋</div></div><div class="mvc-metric-number">{tests_completed}</div><div class="mvc-metric-label">Tests Completed</div><div class="mvc-metric-link">View Results →</div></div>'
-            f'<div class="mvc-metric"><div class="mvc-metric-top"><div class="mvc-metric-icon" style="background:var(--mv-blue-soft)">📈</div></div><div class="mvc-metric-number">{avg_pct}%</div><div class="mvc-metric-label">Average Score</div><div class="mvc-metric-link">View Analysis →</div></div>'
-            f'<div class="mvc-metric"><div class="mvc-metric-top"><div class="mvc-metric-icon" style="background:var(--mv-accent-soft)">🏆</div></div><div class="mvc-metric-number">{("#" + str(rank)) if rank else "—"}</div><div class="mvc-metric-label">Leaderboard Rank</div><div class="mvc-metric-link">View Leaderboard →</div></div>'
-            f'<div class="mvc-metric"><div class="mvc-metric-top"><div class="mvc-metric-icon" style="background:var(--mv-purple-soft)">📚</div></div><div class="mvc-metric-number">{tests_completed}</div><div class="mvc-metric-label">Total Exams</div><div class="mvc-metric-link">View Results →</div></div>'
-            '</div></div>', unsafe_allow_html=True)
+        # STATS — native buttons preserve all existing navigation behavior.
+        stats = [
+            ("📋", "var(--mv-primary-soft)", tests_completed, "Tests Completed", "View Results →", "tests"),
+            ("📈", "var(--mv-blue-soft)", f"{avg_pct}%", "Average Score", "View Analysis →", "analysis"),
+            ("🏆", "var(--mv-accent-soft)", f"#{rank}" if rank else "—", "Leaderboard Rank", "View Leaderboard →", "leaderboard"),
+            ("📚", "var(--mv-purple-soft)", tests_completed, "Total Exams", "View Results →", "tests"),
+        ]
+        with st.container(key="profile_v2_stats"):
+            stat_cols = st.columns(4, gap="small")
+            for i, (icon, bg, number, label, link_text, target) in enumerate(stats):
+                with stat_cols[i]:
+                    st.markdown(
+                        f'<div class="mv-pv-stat">'
+                        f'<div class="mv-pv-stat-icon" style="background:{bg};">{icon}</div>'
+                        f'<div class="mv-pv-stat-number">{number}</div>'
+                        f'<div class="mv-pv-stat-label">{label}</div></div>',
+                        unsafe_allow_html=True,
+                    )
+                    with st.container(key=f"profile_v2_stat_btn_{i}"):
+                        if st.button(link_text, key=f"profile_v2_nav_{i}", use_container_width=True):
+                            go_to(target)
 
-        # Real buttons sit below the HTML metrics, preserving navigation.
-        nav_cols = st.columns(4, gap="small")
-        nav_targets = [("Results", "tests"), ("Analysis", "analysis"), ("Leaderboard", "leaderboard"), ("Results", "tests")]
-        for i, (label, target) in enumerate(nav_targets):
-            with nav_cols[i]:
-                if st.button(label, key=f"profile_clean_nav_{i}", use_container_width=True):
-                    go_to(target)
+        # MAIN CONTENT
+        with st.container(key="profile_v2_main"):
+            left, right = st.columns([1.45, .85], gap="medium")
 
-        # --------------------------------------------------------------
-        # SECTION 2 — Profile update + Password + Security, fewer cards.
-        # --------------------------------------------------------------
-        with st.container(key="profile_clean_settings"):
-            st.markdown(
-                '<div class="mvc-section">'
-                '<div class="mvc-section-head"><div><h3>⚙️ Profile & Account</h3>'
-                '<p>Update your personal information and account security</p></div></div>', unsafe_allow_html=True)
-
-            with st.container(key="profile_clean_profile_area"):
-                left, right = st.columns([1.2, .8], gap="large")
-                with left:
-                    st.markdown('<div class="mvc-subhead">👤 Profile Information</div>', unsafe_allow_html=True)
+            with left:
+                # Profile Information
+                with st.container(key="profile_v2_info"):
                     edit_open = st.session_state.get("profile_edit_open", False)
+                    st.markdown(
+                        '<div class="mv-pv-card-title"><div><h3>👤 Profile Information</h3>'
+                        '<p>Your personal account details</p></div></div>',
+                        unsafe_allow_html=True,
+                    )
+                    if st.button("✖ Cancel" if edit_open else "✏️ Edit Profile", key="profile_v2_edit", use_container_width=True):
+                        st.session_state["profile_edit_open"] = not edit_open
+                        st.rerun()
+
                     if not edit_open:
                         info = [
                             ("📞", "Phone", sh.format_bd_phone(student["phone"]), "var(--mv-primary-soft)"),
@@ -5876,82 +6292,73 @@ def page_profile():
                             ("🎂", "Birth Date", birth_date_val or "N/A", "var(--mv-accent-soft)"),
                             ("🎓", "Role", "STUDENT", "var(--mv-purple-soft)"),
                         ]
-                        st.markdown('<div class="mvc-info-list">' + ''.join(
-                            f'<div class="mvc-info"><div class="mvc-info-icon" style="background:{bg}">{ic}</div><div><div class="mvc-info-label">{lab}</div><div class="mvc-info-value">{val}</div></div></div>'
-                            for ic, lab, val, bg in info
-                        ) + '</div>', unsafe_allow_html=True)
+                        st.markdown(
+                            '<div class="mv-pv-info-grid">' + ''.join(
+                                f'<div class="mv-pv-info"><div class="mv-pv-info-icon" style="background:{bg};">{ic}</div>'
+                                f'<div><div class="mv-pv-info-label">{lab}</div><div class="mv-pv-info-value">{val}</div></div></div>'
+                                for ic, lab, val, bg in info
+                            ) + '</div>', unsafe_allow_html=True)
                     else:
-                        new_name = st.text_input("Full name", value=name, key="profile_clean_name")
-                        c1, c2 = st.columns(2)
-                        with c1:
-                            want_bd = st.checkbox("Birth date", value=bool(birth_date_val), key="profile_clean_bd_toggle")
+                        new_name = st.text_input("Full name", value=name, key="profile_v2_name")
+                        b1, b2 = st.columns(2)
+                        with b1:
+                            want_bd = st.checkbox("Add / update birth date", value=bool(birth_date_val), key="profile_v2_bd_toggle")
                             new_bd = None
                             if want_bd:
                                 try:
-                                    default_bd = datetime.strptime(birth_date_val, "%Y-%m-%d").date() if birth_date_val else date(2005, 1, 1)
+                                    default_bd = datetime.strptime(birth_date_val, "%Y-%m-%d").date() if birth_date_val else date(2005,1,1)
                                 except Exception:
-                                    default_bd = date(2005, 1, 1)
-                                new_bd = st.date_input("Birth date", value=default_bd, key="profile_clean_bd")
-                        with c2:
-                            gender_options = ["Not specified", "Male", "Female", "Other"]
-                            current_gender = gender_val if gender_val in gender_options else "Not specified"
-                            new_gender = st.selectbox("Gender", gender_options, index=gender_options.index(current_gender), key="profile_clean_gender")
-                        b1, b2 = st.columns(2)
-                        with b1:
-                            if st.button("Save Profile", type="primary", use_container_width=True, key="profile_clean_save"):
-                                cleaned = (new_name or "").strip()
-                                try:
-                                    if not cleaned:
-                                        raise ValueError("Name cannot be empty.")
-                                    if cleaned != name:
-                                        sh.update_student_name(sid, cleaned)
-                                        st.session_state["student_name"] = cleaned
-                                    sh.update_student_extra_profile(
-                                        sid,
-                                        birth_date=(new_bd.strftime("%Y-%m-%d") if want_bd and new_bd else ""),
-                                        gender=(new_gender if new_gender != "Not specified" else ""),
-                                    )
-                                    clear_all_caches()
-                                except ValueError as e:
-                                    st.error(str(e))
-                                else:
-                                    st.session_state["profile_edit_open"] = False
-                                    st.success("Profile updated!")
-                                    st.rerun()
+                                    default_bd = date(2005,1,1)
+                                new_bd = st.date_input("Birth date", value=default_bd, min_value=date(1950,1,1), max_value=date.today(), key="profile_v2_bd")
                         with b2:
-                            if st.button("Cancel", use_container_width=True, key="profile_clean_cancel"):
-                                st.session_state["profile_edit_open"] = False
-                                st.rerun()
-                    if st.button("✏️ Edit Profile" if not edit_open else "✖ Close Editor", use_container_width=True, key="profile_clean_edit_toggle"):
-                        st.session_state["profile_edit_open"] = not edit_open
-                        st.rerun()
+                            gender_idx = GENDER_OPTIONS.index(gender_val) if gender_val in GENDER_OPTIONS else 0
+                            new_gender = st.selectbox("Gender", GENDER_OPTIONS, index=gender_idx, key="profile_v2_gender")
+                        st.caption("📞 Your phone number is your login ID, so it can't be changed here.")
+                        if st.button("💾 Save Changes", type="primary", use_container_width=True, key="profile_v2_save"):
+                            cleaned = new_name.strip()
+                            if not cleaned:
+                                st.error("Name cannot be empty.")
+                            else:
+                                with st.spinner("Updating your profile..."):
+                                    try:
+                                        if cleaned != name:
+                                            sh.update_student_name(sid, cleaned)
+                                            st.session_state["student_name"] = cleaned
+                                        sh.update_student_extra_profile(
+                                            sid,
+                                            birth_date=(new_bd.strftime("%Y-%m-%d") if want_bd and new_bd else ""),
+                                            gender=(new_gender if new_gender != "Not specified" else ""),
+                                        )
+                                        clear_all_caches()
+                                    except ValueError as e:
+                                        st.error(str(e))
+                                    else:
+                                        st.session_state["profile_edit_open"] = False
+                                        st.success("Profile updated!")
+                                        st.rerun()
 
-                with right:
-                    st.markdown('<div class="mvc-subhead">🛡️ Account Security</div>', unsafe_allow_html=True)
-                    account_good = not disabled
-                    st.markdown(
-                        '<div class="mvc-security">'
-                        f'<div class="mvc-security-row"><span>Account status</span><span class="mvc-pill {"good" if account_good else "bad"}">{"Active" if account_good else "Disabled"}</span></div>'
-                        f'<div class="mvc-security-row"><span>Block status</span><span class="mvc-pill {"good" if account_good else "bad"}">{"Not blocked" if account_good else "Blocked"}</span></div>'
-                        '</div>', unsafe_allow_html=True)
-
-                    st.markdown('<div style="height:14px"></div>', unsafe_allow_html=True)
+                # Change Password
+                with st.container(key="profile_v2_password"):
                     pw_open = st.session_state.get("profile_changepw_open", False)
-                    if st.button("🔐 Change Password" if not pw_open else "🔐 Close Password", use_container_width=True, key="profile_clean_pw_toggle"):
+                    st.markdown(
+                        '<div class="mv-pv-card-title"><div><h3>🔐 Password & Security</h3>'
+                        '<p>Keep your account protected with a strong password</p></div></div>',
+                        unsafe_allow_html=True,
+                    )
+                    if st.button("Change Password ▾" if pw_open else "Change Password →", key="profile_v2_pw_toggle", use_container_width=True):
                         st.session_state["profile_changepw_open"] = not pw_open
                         st.rerun()
                     if pw_open:
-                        cur_pw = st.text_input("Current password", type="password", key="profile_clean_cur_pw")
-                        new_pw1 = st.text_input("New password", type="password", key="profile_clean_new_pw1")
+                        cur_pw = st.text_input("Current password", type="password", key="profile_v2_cur_pw")
+                        new_pw1 = st.text_input("New password", type="password", key="profile_v2_new_pw1")
                         if new_pw1:
                             score, label, tips = sh.password_strength(new_pw1)
                             colors = ["#ef4444", "#ef4444", "#f59e0b", "#10b981", "#059669"]
                             st.markdown(
-                                f'<div style="height:5px;border-radius:4px;background:var(--mv-border);margin:5px 0 4px"><div style="height:5px;border-radius:4px;width:{(score+1)*20}%;background:{colors[score]}"></div></div><small>Password strength: <b>{label}</b></small>',
-                                unsafe_allow_html=True,
-                            )
-                        new_pw2 = st.text_input("Confirm new password", type="password", key="profile_clean_new_pw2")
-                        if st.button("Update Password", type="primary", use_container_width=True, key="profile_clean_pw_save"):
+                                f'<div class="strength-bar"><div class="strength-fill" style="width:{(score+1)*20}%;background:{colors[score]};"></div></div>'
+                                f'<small>Password strength: <b>{label}</b></small>', unsafe_allow_html=True)
+                        new_pw2 = st.text_input("Confirm new password", type="password", key="profile_v2_new_pw2")
+                        if st.button("Update Password", type="primary", use_container_width=True, key="profile_v2_pw_save"):
                             try:
                                 sh.authenticate_student(student["phone"], cur_pw)
                             except ValueError:
@@ -5971,25 +6378,38 @@ def page_profile():
                                         st.session_state.pop(k, None)
                                     st.rerun()
 
-            st.markdown('</div>', unsafe_allow_html=True)
+            with right:
+                # Account Security
+                with st.container(key="profile_v2_security"):
+                    st.markdown(
+                        '<div class="mv-pv-card-title"><div><h3>🛡️ Account Security</h3>'
+                        '<p>Current account state</p></div></div>', unsafe_allow_html=True)
+                    account_good = not disabled
+                    st.markdown(
+                        '<div class="mv-pv-status-list">'
+                        f'<div class="mv-pv-status-item"><span class="label">Account Status</span><span class="mv-pv-pill {"good" if account_good else "bad"}">{"Active" if account_good else "Disabled"}</span></div>'
+                        f'<div class="mv-pv-status-item"><span class="label">Block Status</span><span class="mv-pv-pill {"good" if account_good else "bad"}">{"Not Blocked" if account_good else "Blocked"}</span></div>'
+                        '</div>', unsafe_allow_html=True)
 
-        # --------------------------------------------------------------
-        # SECTION 3 — very small action bar, not more cards.
-        # --------------------------------------------------------------
-        with st.container(key="profile_clean_actions"):
-            st.markdown('<div class="mvc-actions">', unsafe_allow_html=True)
-            a1, a2 = st.columns(2, gap="small")
-            with a1:
-                st.markdown('<div class="mvc-action-note">🔒 Sign out from this device</div>', unsafe_allow_html=True)
-                if st.button("Log Out", use_container_width=True, key="profile_clean_logout"):
-                    for k in ("student_id", "student_name", "session_version", "role"):
-                        st.session_state.pop(k, None)
-                    go_to("home")
-            with a2:
-                st.markdown('<div class="mvc-action-note">🎓 For mentors & teachers</div>', unsafe_allow_html=True)
-                if st.button("Mentor Login →", use_container_width=True, key="profile_clean_mentor"):
-                    go_to("mentor")
-            st.markdown('</div>', unsafe_allow_html=True)
+                # Account actions
+                with st.container(key="profile_v2_actions"):
+                    st.markdown(
+                        '<div class="mv-pv-card-title"><div><h3>⚙️ Account Actions</h3>'
+                        '<p>Quick account controls</p></div></div>', unsafe_allow_html=True)
+                    st.markdown('<div class="mv-pv-action"><div class="mv-pv-action-icon">🚪</div><div class="mv-pv-action-copy"><b>Sign out</b><span>End your current session securely.</span></div></div>', unsafe_allow_html=True)
+                    if st.button("Log Out", key="profile_v2_logout", use_container_width=True):
+                        for k in ("student_id", "student_name", "session_version", "role"):
+                            st.session_state.pop(k, None)
+                        go_to("home")
+
+        # Mentor CTA
+        with st.container(key="profile_v2_mentor"):
+            st.markdown(
+                '<div class="mv-pv-footer"><div class="mv-pv-footer-copy">'
+                '<b>🎓 Are you a mentor?</b><span>Switch to the Mentor panel to manage exams and students.</span>'
+                '</div></div>', unsafe_allow_html=True)
+            if st.button("Mentor Login →", key="profile_v2_mentor_login", use_container_width=True):
+                go_to("mentor")
 
         st.markdown('</div>', unsafe_allow_html=True)
 
