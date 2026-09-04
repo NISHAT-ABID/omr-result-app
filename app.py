@@ -840,6 +840,18 @@ def inject_global_css():
             font-weight: 700 !important;
             box-shadow: none !important;
         }
+        /* Compact question numbers: skipped/double are highlighted by color only. */
+        .digital-q-number {
+            display:inline-block;
+            font-family:var(--mono);
+            font-size:11px;
+            font-weight:800;
+            line-height:27px;
+            white-space:nowrap;
+        }
+        .digital-q-skipped { color:#f2b84b !important; }
+        .digital-q-double { color:#ff6b6b !important; }
+
         [class*="st-key-digital_omr_q_"] button:hover {
             border-color: var(--mv-primary) !important;
             color: var(--mv-primary) !important;
@@ -4878,16 +4890,23 @@ def _render_digital_question_row(q, answer, original, status, total_q, compact=F
     """Render one editable OMR row with real circular A/B/C/D controls."""
     wrapper_class = "digital-q-issue" if status in ("skipped", "double") else ("digital-q-edited" if original != answer else "")
     with st.container(key=f"digital_omr_q_{q}"):
+        # Keep the four bubbles tight, while leaving the two question blocks
+        # visibly separated so the columns are easy to scan.
         cols = st.columns([0.72, 1, 1, 1, 1], gap="small")
         with cols[0]:
-            badge = ""
+            # Keep issue indicators compact: highlight the question number
+            # itself instead of adding symbols that consume horizontal space.
             if status == "skipped":
-                badge = " ⏭"
+                label = f"Q{q}"
+                label_class = "digital-q-number digital-q-skipped"
             elif status == "double":
-                badge = " ⚠"
-            label = f"Q{q}{badge}"
+                label = f"Q{q}"
+                label_class = "digital-q-number digital-q-double"
+            else:
+                label = f"Q{q}"
+                label_class = "digital-q-number"
             if wrapper_class:
-                st.markdown(f"<div class='{wrapper_class}'><span style='font-family:var(--mono);font-size:11px;font-weight:800;'>{label}</span></div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='{wrapper_class}'><span class='{label_class}'>{label}</span></div>", unsafe_allow_html=True)
             else:
                 st.markdown(f"**Q{q}**")
 
@@ -4970,7 +4989,7 @@ def _render_normal_omr_view(review_rows, total_q):
         if total_q > 20:
             block_ranges = [(start_q, min(start_q + half_size - 1, total_q)),
                             (start_q + half_size, min(start_q + page_size - 1, total_q))]
-            block_cols = st.columns(2, gap="small")
+            block_cols = st.columns(2, gap="medium")
             for col, (block_start, block_end) in zip(block_cols, block_ranges):
                 if block_start > block_end:
                     continue
