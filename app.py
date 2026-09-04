@@ -6330,8 +6330,7 @@ def page_profile():
             f'<div class="mvc-performance"><div class="mvc-performance-head"><div class="mvc-performance-title">📊 Performance</div><div class="mvc-performance-caption">Your overall exam performance</div></div><div class="mvc-performance-grid">'
             f'<div class="mvc-performance-item"><div class="mvc-performance-value">{best_pct}%</div><div class="mvc-performance-label">Highest Score</div></div>'
             f'<div class="mvc-performance-item"><div class="mvc-performance-value">{lowest_pct}%</div><div class="mvc-performance-label">Lowest Score</div></div>'
-            f'<div class="mvc-performance-item"><div class="mvc-performance-value">{accuracy_pct}%</div><div class="mvc-performance-label">Accuracy</div></div>'
-            '</div></div></div></div>', unsafe_allow_html=True)
+                        '</div></div></div></div>', unsafe_allow_html=True)
 
         # --------------------------------------------------------------
         # SECTION 2 — Profile update + Password + Security, fewer cards.
