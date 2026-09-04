@@ -6877,8 +6877,9 @@ def _render_answer_key_editor(key):
     st.markdown("#### 📝 Answer Key")
     st.caption("Tap the correct OMR bubbles directly. 1 bubble = Normal · 2+ bubbles = Multiple Correct · ⭐ = Bonus")
 
-    page_size = 25 if total > 40 else total
-    pages = list(range(1, total + 1, page_size))
+    # Never allow page_size to become 0 (range(..., 0) raises ValueError).
+    page_size = 25 if total > 40 else max(total, 1)
+    pages = list(range(1, total + 1, page_size)) if total > 0 else [1]
     page = st.session_state.get("edit_exam_key_page", 0)
     page = min(max(page, 0), max(len(pages) - 1, 0))
     start = pages[page]
@@ -6901,7 +6902,7 @@ def _render_answer_key_editor(key):
             st.session_state[bonus_key] = existing_type == "bonus"
 
         with st.container(key=f"mentor_edit_key_q_{q}"):
-            top = st.columns([0.8, 4.2, 1.3], gap="small")
+            top = st.columns([0.65, 4.05, 1.15], gap="small")
             with top[0]:
                 st.markdown(f"**Q{q:02d}**")
             with top[1]:
@@ -7042,11 +7043,11 @@ def render_answer_key_tab():
         .mentor-exam-row .name{font-size:14px}
         .mentor-exam-row .meta{font-size:10px}
 
-        /* Mobile: keep exam details and Edit beside each other. */
+        /* Phone: compact exam card; details and Edit stay on the same row. */
         [class*="st-key-mentor_exam_card_"] div[data-testid="stHorizontalBlock"]{
             display:grid !important;
-            grid-template-columns:minmax(0,4.4fr) minmax(82px,1.6fr) !important;
-            gap:7px !important;
+            grid-template-columns:minmax(0,1fr) 74px !important;
+            gap:8px !important;
             align-items:center !important;
         }
         [class*="st-key-mentor_exam_card_"] div[data-testid="column"]{
@@ -7054,12 +7055,24 @@ def render_answer_key_tab():
             min-width:0 !important;
             max-width:100% !important;
         }
+        [class*="st-key-mentor_exam_card_"] .mentor-exam-row{
+            padding:8px 0 8px 1px !important;
+        }
+        [class*="st-key-mentor_exam_card_"] .mentor-exam-row .name{
+            font-size:13px !important;
+            line-height:1.25 !important;
+        }
+        [class*="st-key-mentor_exam_card_"] .mentor-exam-row .meta{
+            font-size:9px !important;
+            margin-top:2px !important;
+        }
         [class*="st-key-mentor_exam_card_"] .stButton > button{
-            width:100% !important;
-            min-width:0 !important;
-            min-height:38px !important;
-            padding:5px 7px !important;
-            font-size:12px !important;
+            width:74px !important;
+            min-width:74px !important;
+            min-height:36px !important;
+            height:36px !important;
+            padding:4px 5px !important;
+            font-size:11px !important;
             white-space:nowrap !important;
         }
     }
