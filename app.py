@@ -27,7 +27,7 @@ from PIL import Image, ImageOps
 # ================= FINAL OMR REVIEW BUILD =================
 # Original OMR photo + full Digital OMR + immutable double-touch audit +
 # compact mobile tables. Existing exam/OMR features are intentionally preserved.
-OMR_REVIEW_BUILD = "2026-09-04-exam-gated-omr-v7-mentor-evidence-review"
+OMR_REVIEW_BUILD = "2026-09-04-exam-gated-omr-v9-mentor-evidence-review"
 from streamlit_image_coordinates import streamlit_image_coordinates
 
 import omr_scanner
@@ -4341,7 +4341,6 @@ def page_home():
             else:
                 st.info("No test is active or upcoming right now.")
 
-    results = cached_results()
     my_results = results[results["student_id"] == sid] if not results.empty else results
 
     # Last Result + Overall Progress side by side - makes better use of
@@ -4872,8 +4871,6 @@ def render_result_detail(result_row, key_row, mentor_mode=False):
     # Mentor simply gets the extra review controls.
     if mentor_mode:
         _render_mentor_review_workspace(result_row, key_row)
-        st.markdown("### 📋 Questions & Answers")
-        _render_questions_answers_summary(result_row, key_row, set())
     else:
         try:
             review_set = set(int(q) for q in json.loads(result_row.get("omr_double_touch_json") or "[]"))
@@ -4905,9 +4902,6 @@ def render_result_detail(result_row, key_row, mentor_mode=False):
                     st.image(cv2.cvtColor(photo_bgr, cv2.COLOR_BGR2RGB), use_container_width=True)
             else:
                 st.info("Submitted OMR photo is unavailable.")
-
-        st.markdown("### 📋 Questions & Answers")
-        _render_questions_answers_summary(result_row, key_row, review_set)
 
         st.markdown("### 📝 Digital OMR")
         st.caption("All questions are shown. Use the filters to focus on a result type.")
@@ -6468,7 +6462,7 @@ def page_profile():
     .mvc-section-head h3 { margin:0; color:var(--mv-ink); font-size:17px; font-weight:850; }
     .mvc-section-head p { margin:3px 0 0; color:var(--mv-muted); font-size:11.5px; }
 
-    .mvc-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; }
+    .mvc-metrics { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
     .mvc-metric { min-width:0; padding:15px 12px; border-radius:14px; background:rgba(255,255,255,.025); border:1px solid var(--mv-border); }
     .mvc-metric-top { display:flex; align-items:center; justify-content:space-between; gap:8px; }
     .mvc-metric-icon { width:34px; height:34px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:16px; }
@@ -8079,27 +8073,6 @@ def page_mentor_profile():
     keys_df = cached_answer_keys()
     exams_created = 0 if keys_df.empty else len(keys_df)
     results = cached_results()
-    mentor_results = results if not results.empty else results
-    avg_pct = best_pct = lowest_pct = accuracy_pct = 0.0
-    submissions = len(mentor_results)
-    if not mentor_results.empty:
-        totals = pd.to_numeric(mentor_results.get("total"), errors="coerce")
-        marks = pd.to_numeric(mentor_results.get("marks"), errors="coerce")
-        pct = (marks / totals.replace(0, np.nan) * 100).dropna()
-        if not pct.empty:
-            avg_pct = round(float(pct.mean()), 1)
-            best_pct = round(float(pct.max()), 1)
-            lowest_pct = round(float(pct.min()), 1)
-        if "accuracy" in mentor_results.columns:
-            acc = pd.to_numeric(mentor_results["accuracy"], errors="coerce").dropna()
-            if not acc.empty:
-                accuracy_pct = round(float(acc.mean()), 1)
-        if accuracy_pct == 0.0 and "correct" in mentor_results.columns and "answered" in mentor_results.columns:
-            correct = pd.to_numeric(mentor_results["correct"], errors="coerce")
-            answered = pd.to_numeric(mentor_results["answered"], errors="coerce").replace(0, np.nan)
-            acc = (correct / answered * 100).dropna()
-            if not acc.empty:
-                accuracy_pct = round(float(acc.mean()), 1)
 
     st.markdown("""
     <style>
@@ -8123,11 +8096,6 @@ def page_mentor_profile():
     .mvc-metric-number { color:var(--mv-ink); font-family:var(--mono); font-size:22px; font-weight:850; margin-top:11px; line-height:1; }
     .mvc-metric-label { color:var(--mv-muted); font-size:11px; font-weight:700; margin-top:5px; }
     .mvc-metric-link { color:var(--mv-primary); font-size:10.5px; font-weight:750; margin-top:9px; }
-    .mvc-performance { min-width:0; padding:14px 13px; border-radius:14px; border:1px solid var(--mv-border); background:rgba(255,255,255,.025); }
-    .mvc-performance-title { color:var(--mv-ink); font-size:12px; font-weight:850; margin-bottom:10px; }
-    .mvc-performance-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
-    .mvc-performance-value { color:var(--mv-ink); font-family:var(--mono); font-size:18px; font-weight:850; }
-    .mvc-performance-label { color:var(--mv-muted); font-size:9px; font-weight:700; margin-top:4px; }
     .mvc-profile-grid { display:grid; grid-template-columns:minmax(0,1.2fr) minmax(0,.8fr); gap:18px; }
     .mvc-subhead { color:var(--mv-ink); font-size:14px; font-weight:850; margin-bottom:11px; }
     .mvc-info-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:9px; }
@@ -8159,16 +8127,11 @@ def page_mentor_profile():
             f'</div><div class="mvc-account">● Active</div></div>', unsafe_allow_html=True)
 
         st.markdown(
-            '<div class="mvc-section"><div class="mvc-section-head"><div><h3>📊 Performance Overview</h3>'
+            '<div class="mvc-section"><div class="mvc-section-head"><div><h3>📌 Overview</h3>'
             '<p>Your mentor activity at a glance</p></div></div><div class="mvc-metrics">'
             f'<div class="mvc-metric"><div class="mvc-metric-icon">📝</div><div class="mvc-metric-number">{exams_created}</div><div class="mvc-metric-label">Exams Created</div><div class="mvc-metric-link">View Exams →</div></div>'
             f'<div class="mvc-metric"><div class="mvc-metric-icon">👥</div><div class="mvc-metric-number">{stats.get("total_students", 0)}</div><div class="mvc-metric-label">Students</div><div class="mvc-metric-link">View Students →</div></div>'
-            f'<div class="mvc-metric"><div class="mvc-metric-icon">📈</div><div class="mvc-metric-number">{avg_pct if submissions else stats.get("average_score_pct", 0)}%</div><div class="mvc-metric-label">Average Score</div><div class="mvc-metric-link">View Results →</div></div>'
-            f'<div class="mvc-performance"><div class="mvc-performance-title">📊 Performance</div><div class="mvc-performance-grid">'
-            f'<div class="mvc-performance-item"><div class="mvc-performance-value">{best_pct}%</div><div class="mvc-performance-label">Highest</div></div>'
-            f'<div class="mvc-performance-item"><div class="mvc-performance-value">{lowest_pct}%</div><div class="mvc-performance-label">Lowest</div></div>'
-            f'<div class="mvc-performance-item"><div class="mvc-performance-value">{accuracy_pct}%</div><div class="mvc-performance-label">Accuracy</div></div>'
-            '</div></div></div></div>', unsafe_allow_html=True)
+            '</div></div>', unsafe_allow_html=True)
 
         left, right = st.columns([1.7,1], gap="medium")
         with left:
