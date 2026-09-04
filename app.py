@@ -5809,8 +5809,10 @@ def page_profile():
     .mvc-actions { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
     .mvc-action-note { color:var(--mv-muted); font-size:11px; padding:9px 2px 2px; }
     .mv-profile-clean .stButton > button { min-height:38px !important; border-radius:10px !important; font-weight:750 !important; }
-    .mv-profile-clean .mvc-metrics + div[data-testid="stHorizontalBlock"] .stButton > button { margin-top:-128px !important; height:116px !important; opacity:0 !important; cursor:pointer !important; }
-    .mv-profile-clean .mvc-metrics + div[data-testid="stHorizontalBlock"] { position:relative; z-index:5; }
+    .mv-profile-clean .mvc-metrics + div[data-testid="stHorizontalBlock"] { margin-top:-126px !important; position:relative; z-index:5; }
+    .mv-profile-clean .mvc-metrics + div[data-testid="stHorizontalBlock"] .stButton { height:116px !important; }
+    .mv-profile-clean .mvc-metrics + div[data-testid="stHorizontalBlock"] .stButton > button { height:116px !important; opacity:0 !important; cursor:pointer !important; border:0 !important; background:transparent !important; }
+    
 
     @media (max-width: 760px) {
         .mv-profile-clean { width:100%; max-width:none; }
@@ -5861,7 +5863,7 @@ def page_profile():
             '<div class="mvc-section-head"><div><h3>📊 Performance Overview</h3>'
             '<p>Your exam activity at a glance</p></div></div>'
             '<div class="mvc-metrics">'
-            f'<div class="mvc-metric"><div class="mvc-metric-icon">📋</div><div class="mvc-metric-number">{exams_completed}</div><div class="mvc-metric-label">Exam Completed</div><div class="mvc-metric-link">View Results →</div></div>'
+            f'<div class="mvc-metric"><div class="mvc-metric-icon">📋</div><div class="mvc-metric-number">{tests_completed}</div><div class="mvc-metric-label">Exam Completed</div><div class="mvc-metric-link">View Results →</div></div>'
             f'<div class="mvc-metric"><div class="mvc-metric-icon">🏆</div><div class="mvc-metric-number">{("#" + str(rank)) if rank else "—"}</div><div class="mvc-metric-label">Rank</div><div class="mvc-metric-link">View Leaderboard →</div></div>'
             f'<div class="mvc-metric"><div class="mvc-metric-icon">📈</div><div class="mvc-metric-number">{avg_pct}%</div><div class="mvc-metric-label">Average Score</div><div class="mvc-metric-link">View Analysis →</div></div>'
             f'<div class="mvc-performance"><div class="mvc-performance-title">📊 Performance</div><div class="mvc-performance-grid">'
@@ -5870,9 +5872,10 @@ def page_profile():
             f'<div class="mvc-performance-item"><div class="mvc-performance-value">{accuracy_pct}%</div><div class="mvc-performance-label">Accuracy</div></div>'
             '</div></div></div></div>', unsafe_allow_html=True)
 
-        # The metric boxes themselves are the navigation surfaces; no separate nav buttons.
+        # Invisible click layers over the three navigation metric boxes.
+        # The card itself is the button; no visible secondary button is shown.
         nav_cols = st.columns(3, gap="small")
-        nav_targets = [("Exam Completed", "tests"), ("Rank", "leaderboard"), ("Average Score", "analysis")]
+        nav_targets = [("", "tests"), ("", "leaderboard"), ("", "analysis")]
         for i, (label, target) in enumerate(nav_targets):
             with nav_cols[i]:
                 if st.button(label, key=f"profile_clean_nav_{i}", use_container_width=True):
