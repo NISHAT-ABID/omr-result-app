@@ -8727,10 +8727,10 @@ st.markdown('''
     text-overflow: clip !important;
     overflow-wrap: anywhere !important;
   }
-  /* Security stays as one compact horizontal line. */
+  /* On mobile, Account status and Block status stay stacked vertically. */
   .st-key-profile_clean_profile_area .mvc-security-inline {
     display: grid !important;
-    grid-template-columns: 1fr 1fr !important;
+    grid-template-columns: 1fr !important;
   }
 }
 </style>
