@@ -4894,7 +4894,6 @@ def _render_digital_question_row(q, answer, original, status, total_q, compact=F
                     use_container_width=True,
                     on_click=_digital_omr_pick_answer,
                     args=(q, opt, total_q),
-                    help=f"Select {opt} for Question {q}" if not selected else f"Question {q}: {opt} selected. Click again to clear.",
                 )
 
         if not compact and status == "skipped":
@@ -5049,20 +5048,45 @@ def _make_detection_overlay(img_bgr, grid_points, detected_answers, radius):
                 cv2.circle(overlay, center, int(base_r * 1.65), accent_bgr, thickness, cv2.LINE_AA)
                 cv2.circle(overlay, center, int(base_r * 1.9), accent_bgr, max(1, thickness // 2), cv2.LINE_AA)
         elif answer == "MULTI":
-            # For a MULTI result the scanner only exposes the aggregate status.
-            # Circle every sufficiently dark bubble so the student can see which
-            # filled options triggered the multi-detection.
+            # MULTI means the scanner found more than one selected bubble.
+            # Do NOT circle every option: compare the inner fill darkness of
+            # the four bubbles and circle only the genuinely dark ones. The
+            # outer printed bubble ring is deliberately excluded by sampling
+            # only the inner part of each bubble.
+            measurements = []
             for opt, pt in q_points.items():
                 center = (int(round(pt[0])), int(round(pt[1])))
                 x, y = center
                 r = max(3, int(base_r))
-                y0, y1 = max(0, y-r), min(overlay.shape[0], y+r+1)
-                x0, x1 = max(0, x-r), min(overlay.shape[1], x+r+1)
+                inner_r = max(2, int(round(r * 0.58)))
+                y0, y1 = max(0, y-inner_r), min(overlay.shape[0], y+inner_r+1)
+                x0, x1 = max(0, x-inner_r), min(overlay.shape[1], x+inner_r+1)
                 if y1 <= y0 or x1 <= x0:
                     continue
-                gray = cv2.cvtColor(overlay[y0:y1, x0:x1], cv2.COLOR_BGR2GRAY)
-                darkness = 255.0 - float(np.mean(gray))
-                if darkness >= 55.0:
+                patch = overlay[y0:y1, x0:x1]
+                gray = cv2.cvtColor(patch, cv2.COLOR_BGR2GRAY)
+                # Circular inner mask prevents the printed outline from
+                # dominating the darkness measurement.
+                yy, xx = np.ogrid[:gray.shape[0], :gray.shape[1]]
+                cx = gray.shape[1] / 2.0
+                cy = gray.shape[0] / 2.0
+                mask = (xx - cx) ** 2 + (yy - cy) ** 2 <= (inner_r * 0.82) ** 2
+                if not np.any(mask):
+                    continue
+                darkness = 255.0 - float(np.mean(gray[mask]))
+                measurements.append((opt, center, darkness))
+
+            if measurements:
+                values = [m[2] for m in measurements]
+                median_dark = float(np.median(values))
+                max_dark = float(max(values))
+                # Filled bubbles are substantially darker than the printed
+                # empty rings. The relative test also adapts to phone-camera
+                # brightness/contrast, while the absolute floor avoids
+                # marking very faint paper texture.
+                threshold = max(58.0, median_dark + 22.0, max_dark * 0.52)
+                selected_multi = [m for m in measurements if m[2] >= threshold]
+                for _, center, _ in selected_multi:
                     cv2.circle(overlay, center, int(base_r * 1.65), accent_bgr, thickness, cv2.LINE_AA)
                     cv2.circle(overlay, center, int(base_r * 1.9), accent_bgr, max(1, thickness // 2), cv2.LINE_AA)
 
