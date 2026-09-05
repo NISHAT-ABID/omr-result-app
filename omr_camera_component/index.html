@@ -1,0 +1,87 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<script src="https://docs.opencv.org/4.x/opencv.js"></script>
+<style>
+*{box-sizing:border-box} html,body{margin:0;padding:0;background:#071311;color:#fff;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif} body{overflow:hidden}
+#app{width:100%;min-height:520px;height:78vh;max-height:820px;position:relative;background:#050908;border-radius:18px;overflow:hidden}
+video{width:100%;height:100%;object-fit:cover;display:block;background:#050908}
+#canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+#top{position:absolute;top:0;left:0;right:0;padding:12px 14px;padding-top:max(12px,env(safe-area-inset-top));display:flex;justify-content:space-between;align-items:center;background:linear-gradient(#0009,transparent);z-index:4}
+.badge{padding:8px 11px;border-radius:999px;background:#0008;font-size:13px;font-weight:700}.ok{background:#0d9488e8}.hint{position:absolute;left:14px;right:14px;bottom:90px;text-align:center;z-index:4;text-shadow:0 2px 5px #000;font-weight:600;font-size:14px}
+#controls{position:absolute;left:0;right:0;bottom:0;padding:12px 16px;padding-bottom:max(14px,env(safe-area-inset-bottom));display:flex;justify-content:center;gap:14px;align-items:center;background:linear-gradient(transparent,#000b 35%);z-index:5}
+button{border:0;border-radius:999px;color:white;background:#26322f;padding:13px 20px;font-size:15px;font-weight:750;min-height:48px}#capture{width:68px;height:68px;padding:0;border:5px solid #fff;background:#0d9488;box-shadow:0 0 0 4px #0d948866}#capture:disabled{opacity:.35}#start{background:#0d9488}.hidden{display:none!important}
+#status{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:6;background:#050908e8;text-align:center;padding:24px}.panel{max-width:420px}.panel h3{margin:0 0 8px}.panel p{margin:0 0 18px;color:#c9d5d2;line-height:1.5}
+:fullscreen #app{height:100vh;max-height:none;border-radius:0}:-webkit-full-screen #app{height:100vh;max-height:none;border-radius:0}
+</style>
+</head>
+<body>
+<div id="app">
+  <video id="video" autoplay playsinline muted></video>
+  <canvas id="canvas"></canvas>
+  <div id="top"><span class="badge">The Med Venture · OMR Scanner</span><span id="state" class="badge">Align sheet</span></div>
+  <div id="hint" class="hint">Point the camera at the FULL OMR sheet</div>
+  <div id="controls"><button id="start">📷 Start Camera</button><button id="capture" disabled aria-label="Capture">●</button><button id="flip" class="hidden">↔ Camera</button></div>
+  <div id="status" class="hidden"><div class="panel"><h3>Camera ready</h3><p>Allow camera access, then place the complete OMR sheet inside the green border.</p><button id="allow">Open Camera</button></div></div>
+</div>
+<script>
+const sendReady=()=>parent.postMessage({type:'streamlit:componentReady',apiVersion:1},'*');
+const setHeight=()=>parent.postMessage({type:'streamlit:setFrameHeight',height:document.body.scrollHeight},'*');
+const sendValue=v=>parent.postMessage({type:'streamlit:setComponentValue',value:v},'*');
+const video=document.getElementById('video'), canvas=document.getElementById('canvas'), ctx=canvas.getContext('2d');
+const start=document.getElementById('start'), capture=document.getElementById('capture'), flip=document.getElementById('flip'), state=document.getElementById('state'), hint=document.getElementById('hint');
+let stream=null, facing='environment', lastQuad=null, cvReady=false, timer=null;
+function resizeCanvas(){canvas.width=video.videoWidth||640;canvas.height=video.videoHeight||480; canvas.style.aspectRatio=(video.videoWidth||640)+'/'+(video.videoHeight||480)}
+function draw(){
+ if(!video.videoWidth)return;
+ if(canvas.width!==video.videoWidth||canvas.height!==video.videoHeight)resizeCanvas();
+ ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.drawImage(video,0,0,canvas.width,canvas.height);
+ try{
+   let img=cv.imread(canvas); let gray=new cv.Mat(); let blur=new cv.Mat(); let edges=new cv.Mat();
+   cv.cvtColor(img,gray,cv.COLOR_RGBA2GRAY); cv.GaussianBlur(gray,blur,new cv.Size(5,5),0); cv.Canny(blur,40,120,edges);
+   let kernel=cv.Mat.ones(5,5,cv.CV_8U); cv.morphologyEx(edges,edges,cv.MORPH_CLOSE,kernel); kernel.delete();
+   let contours=new cv.MatVector(), hierarchy=new cv.Mat(); cv.findContours(edges,contours,hierarchy,cv.RETR_EXTERNAL,cv.CHAIN_APPROX_SIMPLE);
+   let best=null,bestScore=0, W=canvas.width,H=canvas.height,total=W*H;
+   for(let i=0;i<contours.size();i++){
+     let c=contours.get(i), area=cv.contourArea(c); if(area<total*.14){c.delete();continue;}
+     let peri=cv.arcLength(c,true), approx=new cv.Mat(); cv.approxPolyDP(c,approx,.025*peri,true);
+     if(approx.rows===4 && cv.isContourConvex(approx)){
+       let r=cv.boundingRect(approx), aspect=Math.min(r.width,r.height)/Math.max(r.width,r.height);
+       if(aspect>=.38&&aspect<=.80){let score=area*(1+aspect*.25); if(score>bestScore){bestScore=score; if(best)best.delete();best=approx;approx=null}}
+     }
+     c.delete(); if(approx)approx.delete();
+   }
+   if(best){
+     let pts=[]; for(let i=0;i<4;i++)pts.push({x:best.intAt(i,0),y:best.intAt(i,1)});
+     pts.sort((a,b)=>a.y-b.y); let top=pts.slice(0,2).sort((a,b)=>a.x-b.x), bot=pts.slice(2).sort((a,b)=>a.x-b.x); lastQuad=[top[0],top[1],bot[1],bot[0]];
+     ctx.strokeStyle='#32e6aa';ctx.lineWidth=Math.max(5,W/220);ctx.beginPath();ctx.moveTo(lastQuad[0].x,lastQuad[0].y);for(let p of lastQuad.slice(1))ctx.lineTo(p.x,p.y);ctx.closePath();ctx.stroke();
+     for(let p of lastQuad){ctx.fillStyle='#32e6aa';ctx.beginPath();ctx.arc(p.x,p.y,Math.max(7,W/90),0,Math.PI*2);ctx.fill()}
+     state.textContent='OMR detected ✓';state.className='badge ok';hint.textContent='Great — keep all 4 corners inside the border';capture.disabled=false;
+   } else {lastQuad=null;state.textContent='Align sheet';state.className='badge';hint.textContent='Point the camera at the FULL OMR sheet';capture.disabled=true}
+   img.delete();gray.delete();blur.delete();edges.delete();contours.delete();hierarchy.delete();if(best)best.delete();
+ }catch(e){/* keep camera usable even if detection is temporarily unavailable */}
+ requestAnimationFrame(draw);
+}
+async function openCamera(){
+ try{
+   if(stream)stream.getTracks().forEach(t=>t.stop());
+   stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:facing},width:{ideal:1920},height:{ideal:1080}},audio:false});
+   video.srcObject=stream; await video.play(); start.classList.add('hidden'); flip.classList.remove('hidden');
+   try{document.getElementById('app').requestFullscreen?.()}catch(e){}
+   resizeCanvas(); requestAnimationFrame(draw); setHeight();
+ }catch(e){sendValue({error:String(e&&e.message||e)});state.textContent='Camera blocked';hint.textContent='Allow camera access in Chrome settings, then try again';}
+}
+start.onclick=openCamera;
+flip.onclick=async()=>{facing=facing==='environment'?'user':'environment';await openCamera()};
+capture.onclick=()=>{
+ if(!lastQuad)return;
+ const out=document.createElement('canvas');out.width=video.videoWidth;out.height=video.videoHeight;out.getContext('2d').drawImage(video,0,0);
+ const data=out.toDataURL('image/jpeg',.94); if(stream)stream.getTracks().forEach(t=>t.stop()); try{document.exitFullscreen?.()}catch(e){}
+ sendValue({captured:data,quad:lastQuad}); capture.disabled=true; hint.textContent='Captured — processing…';
+};
+window.addEventListener('load',()=>{sendReady();setHeight()});
+</script>
+</body></html>
