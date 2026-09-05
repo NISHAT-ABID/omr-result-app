@@ -35,6 +35,28 @@ import sheets_helper as sh
 
 st.set_page_config(page_title="The Med Venture — by Bushra", page_icon="🩺", layout="wide")
 
+
+def _reset_submission_state():
+    """Clear transient state for the current OMR upload/calibration flow."""
+    for k in (
+        "submit_file_sig",
+        "submit_prepared_image",
+        "submit_original_bytes",
+        "submit_validation",
+        "submit_calib_points",
+        "submit_grid",
+        "submit_detected_answers",
+        "submit_final_answers",
+        "submit_double_touch",
+        "submit_review_ready",
+        "submit_review_photo",
+        "submit_review_focus_q",
+        "submit_review_filter",
+        "submit_omr_view",
+    ):
+        st.session_state.pop(k, None)
+
+
 # =========================================================================
 # Brand — The Med Venture (by Bushra)
 # A small, reusable logo mark + header block used on the entry screens.
