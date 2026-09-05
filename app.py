@@ -32,6 +32,7 @@ from streamlit_image_coordinates import streamlit_image_coordinates
 
 import omr_scanner
 import sheets_helper as sh
+import omr_image_scanner
 
 st.set_page_config(page_title="The Med Venture — by Bushra", page_icon="🩺", layout="wide")
 
@@ -5716,22 +5717,60 @@ def page_omr_submit():
             else:
                 total_q = active["total_questions"]
                 st.caption(f"Active test: **{active['exam_name'] or active['key_id']}** · {total_q} questions")
-                uploaded = st.file_uploader(
-                    "Upload a clear, straight photo of your FULL filled OMR sheet (camera or gallery). Make sure all 4 corners of the sheet are visible in the frame.",
-                    type=["png", "jpg", "jpeg"], key="omr_upload",
-                )
+                # Camera Scanner is a preprocessing layer only. The existing
+                # calibration + answer scanner below remains unchanged.
+                from omr_image_scanner import camera_available, render_live_camera
 
-                if uploaded is None:
+                camera_tab, upload_tab = st.tabs(["📷 Scan with Camera", "📁 Upload Photo"])
+
+                camera_processed = None
+                with camera_tab:
+                    if not camera_available():
+                        st.warning("Live camera scanner needs streamlit-webrtc and av. You can still use Upload Photo below.")
+                    else:
+                        st.caption("Point the camera at the FULL OMR sheet. A green border will appear when the sheet is detected.")
+                        camera_processed = render_live_camera(key=f"omr_live_camera_{active['key_id']}")
+                        if camera_processed is not None:
+                            if st.button("📸 Use This Scanned OMR", type="primary", use_container_width=True, key="use_camera_omr"):
+                                encoded_ok, encoded = cv2.imencode(".jpg", camera_processed, [cv2.IMWRITE_JPEG_QUALITY, 94])
+                                if encoded_ok:
+                                    st.session_state["camera_omr_bytes"] = encoded.tobytes()
+                                    st.session_state["camera_omr_sig"] = f"camera_{active['key_id']}_{len(encoded)}"
+                                    st.session_state["camera_omr_preview"] = camera_processed
+                                    _reset_submission_state()
+                                    st.session_state["submit_file_sig"] = st.session_state["camera_omr_sig"]
+                                    st.rerun()
+
+                with upload_tab:
+                    uploaded = st.file_uploader(
+                        "Upload a clear photo of your FULL filled OMR sheet. All 4 corners should be visible.",
+                        type=["png", "jpg", "jpeg"], key="omr_upload",
+                    )
+
+                camera_bytes = st.session_state.get("camera_omr_bytes")
+                camera_sig = st.session_state.get("camera_omr_sig")
+                if camera_bytes:
+                    source_bytes = camera_bytes
+                    file_sig = camera_sig or "camera_omr"
+                    source_label = "Camera-scanned OMR"
+                elif uploaded is not None:
+                    source_bytes = uploaded.getvalue()
+                    file_sig = f"{uploaded.name}_{uploaded.size}"
+                    source_label = uploaded.name
+                else:
+                    source_bytes = None
+                    file_sig = None
+                    source_label = None
+
+                if source_bytes is None:
                     _reset_submission_state()
                 else:
-                    file_sig = f"{uploaded.name}_{uploaded.size}"
                     if st.session_state.get("submit_file_sig") != file_sig:
                         _reset_submission_state()
                         st.session_state["submit_file_sig"] = file_sig
 
                     if "submit_prepared_image" not in st.session_state:
-                        pil_img = ImageOps.exif_transpose(Image.open(uploaded).convert("RGB"))
-                        original_bytes = uploaded.getvalue()
+                        pil_img = ImageOps.exif_transpose(Image.open(io.BytesIO(source_bytes)).convert("RGB"))
                         orig_bgr = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
                         ok, errors, warnings_ = omr_scanner.validate_omr_image(orig_bgr)
                         # Mild blur alone must not block an otherwise usable OMR.
@@ -5741,7 +5780,7 @@ def page_omr_submit():
                         )
                         proc_bgr = omr_scanner.resize_max_dim(orig_bgr) if ok else orig_bgr
                         st.session_state["submit_prepared_image"] = proc_bgr
-                        st.session_state["submit_original_bytes"] = original_bytes
+                        st.session_state["submit_original_bytes"] = source_bytes
                         st.session_state["submit_validation"] = (ok, errors, warnings_)
 
                     img_bgr = st.session_state["submit_prepared_image"]
