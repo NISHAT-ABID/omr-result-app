@@ -34,6 +34,29 @@ TARGET_ASPECT_MAX = 0.92
 # still gets picked up.
 MIN_AREA_RATIO = 0.05
 
+# The detection search above is intentionally lenient (to not miss a real
+# sheet). But a lenient search also occasionally locks onto the WRONG
+# rectangle (a table edge, notebook, phone case, etc.), and warping to a
+# bad quad produces an image that's MORE skewed than the original photo -
+# worse than not warping at all. This second, stricter check gates
+# whether a found quad is actually trusted enough to warp: if its aspect
+# ratio doesn't look like a real OMR sheet, skip the warp and fall back
+# to the enhanced-but-unwarped photo instead (see process_captured_frame).
+WARP_ACCEPT_ASPECT_MIN = 0.45
+WARP_ACCEPT_ASPECT_MAX = 0.85
+
+
+def _quad_aspect(quad: np.ndarray) -> float:
+    q = _order_quad(quad)
+    tl, tr, br, bl = q
+    top = np.linalg.norm(tr - tl)
+    bottom = np.linalg.norm(br - bl)
+    left = np.linalg.norm(bl - tl)
+    right = np.linalg.norm(br - tr)
+    width = max(1.0, (top + bottom) * 0.5)
+    height = max(1.0, (left + right) * 0.5)
+    return min(width, height) / max(width, height)
+
 
 def _order_quad(points: np.ndarray) -> np.ndarray:
     pts = np.asarray(points, dtype=np.float32).reshape(4, 2)
@@ -270,7 +293,7 @@ def process_captured_frame(frame_bgr: np.ndarray) -> Tuple[Optional[np.ndarray],
         return None, None
 
     quad = detect_sheet_quad(frame_bgr)
-    if quad is not None:
+    if quad is not None and WARP_ACCEPT_ASPECT_MIN <= _quad_aspect(quad) <= WARP_ACCEPT_ASPECT_MAX:
         try:
             flat = perspective_flatten(frame_bgr, quad)
             return moderate_enhance(flat), quad
