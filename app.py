@@ -934,6 +934,25 @@ def inject_global_css():
             padding-bottom: 3.0rem;
             max-width: 1180px;
         }
+
+        /* ---- PC desktop working area ----
+           The app was previously capped at ~1180px, which squeezed the
+           navigation labels even on wide monitors.  Give desktop/PC users
+           a substantially wider canvas while leaving tablet/mobile layout
+           rules untouched. */
+        @media (min-width: 901px) {
+            .block-container {
+                width: 100% !important;
+                max-width: 1500px !important;
+                margin-left: auto !important;
+                margin-right: auto !important;
+            }
+
+            .st-key-top_nav {
+                width: 100% !important;
+            }
+        }
+
         /* opacity intentionally left OUT of this transition: Streamlit
            already fades stale content to low opacity while a rerun is in
            progress (e.g. right after login, when the page swaps from the
