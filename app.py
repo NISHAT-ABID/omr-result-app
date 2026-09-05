@@ -57,6 +57,40 @@ def _reset_submission_state():
         st.session_state.pop(k, None)
 
 
+def _relax_blur_only_validation(ok, errors, warnings_):
+    """Allow usable OMR photos through when validation rejects only for blur.
+
+    OMR calibration is performed on the uploaded image afterwards, so a mildly
+    soft/mobile-camera photo should not be rejected before the user gets a
+    chance to calibrate it. Structural/image-integrity validation errors are
+    still kept intact.
+    """
+    errors = list(errors or [])
+    warnings_ = list(warnings_ or [])
+
+    blur_terms = (
+        "blur", "blurry", "sharpness", "sharp", "focus",
+        "out of focus", "not focused", "too soft",
+    )
+
+    def is_blur_error(message):
+        s = str(message).lower()
+        return any(term in s for term in blur_terms)
+
+    non_blur_errors = [e for e in errors if not is_blur_error(e)]
+    blur_errors = [e for e in errors if is_blur_error(e)]
+
+    # Only relax the validation when blur/focus is the sole reason for failure.
+    if (not ok) and blur_errors and not non_blur_errors:
+        warnings_ = warnings_ + [
+            "Image sharpness is below the preferred level, but the photo is"
+            " usable. Continue with calibration and make sure all bubbles are visible."
+        ]
+        return True, [], warnings_
+
+    return ok, errors, warnings_
+
+
 # =========================================================================
 # Brand — The Med Venture (by Bushra)
 # A small, reusable logo mark + header block used on the entry screens.
@@ -5645,6 +5679,11 @@ def page_omr_submit():
                         original_bytes = uploaded.getvalue()
                         orig_bgr = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
                         ok, errors, warnings_ = omr_scanner.validate_omr_image(orig_bgr)
+                        # Mild blur alone must not block an otherwise usable OMR.
+                        # Keep all structural/format validation errors strict.
+                        ok, errors, warnings_ = _relax_blur_only_validation(
+                            ok, errors, warnings_
+                        )
                         proc_bgr = omr_scanner.resize_max_dim(orig_bgr) if ok else orig_bgr
                         st.session_state["submit_prepared_image"] = proc_bgr
                         st.session_state["submit_original_bytes"] = original_bytes
