@@ -27,7 +27,7 @@ from PIL import Image, ImageOps
 # ================= FINAL OMR REVIEW BUILD =================
 # Original OMR photo + full Digital OMR + immutable double-touch audit +
 # compact mobile tables. Existing exam/OMR features are intentionally preserved.
-OMR_REVIEW_BUILD = "2026-09-05-nav-cleanup-v11"
+OMR_REVIEW_BUILD = "2026-09-05-omr-setup-inside-create-exam-v15"
 from streamlit_image_coordinates import streamlit_image_coordinates
 
 import omr_scanner
@@ -934,25 +934,6 @@ def inject_global_css():
             padding-bottom: 3.0rem;
             max-width: 1180px;
         }
-
-        /* ---- PC desktop working area ----
-           The app was previously capped at ~1180px, which squeezed the
-           navigation labels even on wide monitors.  Give desktop/PC users
-           a substantially wider canvas while leaving tablet/mobile layout
-           rules untouched. */
-        @media (min-width: 901px) {
-            .block-container {
-                width: 100% !important;
-                max-width: 1500px !important;
-                margin-left: auto !important;
-                margin-right: auto !important;
-            }
-
-            .st-key-top_nav {
-                width: 100% !important;
-            }
-        }
-
         /* opacity intentionally left OUT of this transition: Streamlit
            already fades stale content to low opacity while a rerun is in
            progress (e.g. right after login, when the page swaps from the
@@ -1001,21 +982,6 @@ def inject_global_css():
             background: var(--mv-surface);
             box-shadow: 0 10px 30px rgba(0,0,0,.10);
         }
-
-        /* ---- Wide PC navigation bar ----
-           Keep the main content comfortably centered, but let the navigation
-           use more horizontal space on a desktop monitor. This prevents the
-           mentor labels from being squeezed into ellipses. */
-        @media (min-width: 901px) {
-            .st-key-top_nav {
-                position: relative !important;
-                left: 50% !important;
-                transform: translateX(-50%) !important;
-                width: min(1550px, calc(100vw - 100px)) !important;
-                max-width: none !important;
-                box-sizing: border-box !important;
-            }
-        }
         /* Subtle desktop-only depth for real content cards. No animation on
            mobile, where hover does not exist and extra paint work is wasted. */
         @media (hover:hover) and (min-width: 769px) {
@@ -1047,7 +1013,6 @@ def inject_global_css():
         }
         .st-key-top_nav button {
             width: 100%;
-            min-width: max-content !important;
             min-height: 40px;
             border-radius: 6px !important;
             border: none !important;
@@ -1959,7 +1924,7 @@ def inject_global_css():
             .app-card, [class*="st-key-card_"], div[data-testid="stForm"] { padding: 10px 12px !important; }
         }
         @media (min-width: 1400px) {
-            .block-container { max-width: 1500px; }
+            .block-container { max-width: 1280px; }
         }
 
         /* ---- Mobile layout hardening ----
@@ -3907,7 +3872,7 @@ def render_top_nav(current_page):
     # that's the Bug-2 fix (avatar not lining up with the pill buttons).
     desktop_nav_items = [item for item in STUDENT_NAV if item[0] != "profile"]
     with st.container(key="top_nav"):
-        logo_col, nav_col = st.columns([1.35, 8.65])
+        logo_col, nav_col = st.columns([1.6, 6.4])
         with logo_col:
             st.markdown(
                 f"<div style='display:flex; align-items:center; gap:8px; height:100%; padding-top:2px;'>"
@@ -3920,7 +3885,7 @@ def render_top_nav(current_page):
             # Give longer labels a little more room so they never get
             # unnecessarily squeezed on desktop. Profile remains the
             # circular avatar at the far right.
-            nav_widths = [1.15, 1.70, 1.30, 1.50, 0.60]
+            nav_widths = [1.05, 1.45, 1.10, 1.25, 0.78]
             cols = st.columns(nav_widths)
             for col, (page_key, label) in zip(cols[:-1], desktop_nav_items):
                 with col:
@@ -7536,6 +7501,23 @@ def render_answer_key_tab():
 def _render_create_exam_form():
     st.subheader("🗓️ Create Exam & Set Answer Key")
 
+    # OMR Sheet Setup is intentionally not a permanent navigation item.
+    # Keep it available during exam creation as a separate page, while
+    # preserving the exact existing calibration/setup functionality.
+    with st.container(key="create_exam_omr_setup_card"):
+        st.markdown(
+            "<div class='mentor-create-card'><div class='title'>🎯 OMR Sheet Setup</div>"
+            "<div class='sub'>Set up the physical OMR sheet layout before creating the exam. "
+            "This opens the existing OMR setup page without changing its functions.</div></div>",
+            unsafe_allow_html=True,
+        )
+        if st.button("🎯 Open OMR Setup", use_container_width=True, key="mentor_create_open_omr_setup"):
+            st.session_state["mentor_page"] = "m_calibration"
+            st.session_state["mentor_return_from_omr_setup"] = "m_answerkey"
+            st.rerun()
+
+    st.divider()
+
     st.markdown("#### ① How many MCQs? (Exam Style)")
     exam_style = st.radio(
         "Exam Style", [
@@ -7970,6 +7952,12 @@ def _calibration_status_summary(all_calibration):
 
 
 def page_mentor_calibration():
+    if st.session_state.get("mentor_return_from_omr_setup") == "m_answerkey":
+        if st.button("← Back to Create Exam", use_container_width=False, key="mentor_omr_setup_back_to_create"):
+            st.session_state["mentor_page"] = "m_answerkey"
+            st.session_state.pop("mentor_return_from_omr_setup", None)
+            st.rerun()
+
     st.subheader("🎯 OMR Sheet Setup (only needed once per layout)")
     st.caption("This records where each answer bubble sits on your blank OMR sheet, for each "
                "exam layout. Students will still calibrate their own photo before every "
@@ -8270,7 +8258,6 @@ def is_mentor():
 MENTOR_NAV = [
     ("m_dashboard", "Dashboard"),
     ("m_answerkey", "Create Exam"),
-    ("m_calibration", "OMR Sheet Setup"),
     ("m_students", "Students"),
     ("m_results", "Results"),
     ("m_leaderboard", "Leaderboard"),
@@ -8305,7 +8292,7 @@ def render_mentor_top_nav(current_page):
     as the student side, and is excluded from the desktop pill row."""
     desktop_nav_items = [item for item in MENTOR_NAV if item[0] != "m_profile"]
     with st.container(key="top_nav"):
-        logo_col, nav_col = st.columns([1.35, 8.65])
+        logo_col, nav_col = st.columns([1.6, 8.4])
         with logo_col:
             st.markdown(
                 f"<div style='display:flex; align-items:center; gap:8px; height:100%; padding-top:2px;'>"
@@ -8317,7 +8304,7 @@ def render_mentor_top_nav(current_page):
         with nav_col:
             # Custom proportions keep "OMR Sheet Setup" fully visible while
             # preserving a compact single-row desktop navigation.
-            nav_widths = [1.10, 1.45, 1.85, 1.10, 1.00, 1.40, 0.55]
+            nav_widths = [0.95, 1.15, 1.60, 0.95, 0.90, 1.25, 0.70]
             cols = st.columns(nav_widths)
             for col, (page_key, label) in zip(cols[:-1], desktop_nav_items):
                 with col:
@@ -8434,33 +8421,6 @@ def page_mentor():
 
 def main():
     inject_global_css()
-
-    # FINAL PC NAV WIDTH OVERRIDE: the stylesheet contains older desktop
-    # max-width rules later in the file, so this scoped runtime style is
-    # deliberately injected after all global CSS.  It gives desktop users
-    # enough real horizontal space for every navigation label.
-    st.markdown("""
-    <style>
-    @media (min-width: 901px) {
-        [data-testid="stAppViewContainer"] .main .block-container {
-            width: 100% !important;
-            max-width: 1700px !important;
-            margin-left: auto !important;
-            margin-right: auto !important;
-        }
-        .st-key-top_nav {
-            width: 100% !important;
-            max-width: 100% !important;
-        }
-        .st-key-top_nav .stButton > button {
-            white-space: nowrap !important;
-            overflow: visible !important;
-            text-overflow: clip !important;
-            min-width: 0 !important;
-        }
-    }
-    </style>
-    """, unsafe_allow_html=True)
 
     # Final mobile auth layout override: scoped ONLY to the OUTER login columns.
     # Do not target every HorizontalBlock inside the login card, because the
