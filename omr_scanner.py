@@ -38,9 +38,9 @@ LAYOUT_PRESETS = {100: (25, 4), 50: (25, 2), 40: (25, 2)}
 # then validates candidates against the other bubbles in the same question.
 FILL_SCORE_THRESHOLD = 16.0
 STRONG_FILL_SCORE = 24.0
-MULTI_SECOND_SCORE = 19.0
+MULTI_SECOND_SCORE = 23.0
 MIN_STRONG_INK_FRACTION = 0.055
-MULTI_MIN_INK_FRACTION = 0.105
+MULTI_MIN_INK_FRACTION = 0.135
 
 # Value-channel threshold used after the printed pink/red ink is removed.
 # It is intentionally moderate; the decision is also based on local contrast,
@@ -445,7 +445,7 @@ def read_answers(
             if (
                 best_score >= STRONG_FILL_SCORE
                 and second_strong in strong
-                and second_score >= best_score * 0.62
+                and second_score >= best_score * 0.72
             ):
                 answers[q_no] = "MULTI"
                 continue
