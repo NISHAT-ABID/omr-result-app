@@ -1,4 +1,4 @@
-streamlit>=1.37
+streamlit>=1.49
 opencv-python-headless
 numpy
 pandas
@@ -9,7 +9,5 @@ Pillow
 xlsxwriter
 google-api-python-client>=2.0.0
 google-auth-oauthlib
-
-# Camera-based OMR document scanner
 streamlit-webrtc
 av
