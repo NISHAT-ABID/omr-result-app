@@ -27,13 +27,71 @@ from PIL import Image, ImageOps
 # ================= FINAL OMR REVIEW BUILD =================
 # Original OMR photo + full Digital OMR + immutable double-touch audit +
 # compact mobile tables. Existing exam/OMR features are intentionally preserved.
-OMR_REVIEW_BUILD = "2026-09-04-exam-gated-omr-v7-mentor-evidence-review"
+OMR_REVIEW_BUILD = "2026-09-05-omr-setup-inside-create-exam-v15"
 from streamlit_image_coordinates import streamlit_image_coordinates
 
 import omr_scanner
 import sheets_helper as sh
+import omr_image_scanner
+from omr_camera_component import omr_camera
 
 st.set_page_config(page_title="The Med Venture — by Bushra", page_icon="🩺", layout="wide")
+
+
+def _mv_reset_submission_state():
+    """Clear transient state for the current OMR upload/calibration flow."""
+    for k in (
+        "submit_file_sig",
+        "submit_prepared_image",
+        "submit_original_bytes",
+        "submit_validation",
+        "submit_calib_points",
+        "submit_grid",
+        "submit_detected_answers",
+        "submit_final_answers",
+        "submit_double_touch",
+        "submit_review_ready",
+        "submit_review_photo",
+        "submit_review_focus_q",
+        "submit_review_filter",
+        "submit_omr_view",
+    ):
+        st.session_state.pop(k, None)
+
+
+def _relax_blur_only_validation(ok, errors, warnings_):
+    """Allow usable OMR photos through when validation rejects only for blur.
+
+    OMR calibration is performed on the uploaded image afterwards, so a mildly
+    soft/mobile-camera photo should not be rejected before the user gets a
+    chance to calibrate it. Structural/image-integrity validation errors are
+    still kept intact.
+    """
+    errors = list(errors or [])
+    warnings_ = list(warnings_ or [])
+
+    blur_terms = (
+        "blur", "blurry", "sharpness", "sharp", "focus",
+        "out of focus", "not focused", "too soft",
+    )
+
+    def is_blur_error(message):
+        s = str(message).lower()
+        return any(term in s for term in blur_terms)
+
+    non_blur_errors = [e for e in errors if not is_blur_error(e)]
+    blur_errors = [e for e in errors if is_blur_error(e)]
+
+    # Only relax the validation when blur/focus is the sole reason for failure.
+    if (not ok) and blur_errors and not non_blur_errors:
+        warnings_ = warnings_ + [
+            "Image sharpness is below the preferred level, but the photo is"
+            " usable. Continue with calibration and make sure all bubbles are visible."
+        ]
+        return True, [], warnings_
+
+    return ok, errors, warnings_
+
 
 # =========================================================================
 # Brand — The Med Venture (by Bushra)
@@ -1752,17 +1810,6 @@ def inject_global_css():
         }
         .st-key-card_profile_stats .stButton > button:not([kind="primary"]):hover {
             text-decoration: underline; background: transparent !important; transform: none !important;
-        }
-
-        /* ---- Small down-chevron next to the top-nav avatar (student and
-           mentor) - purely decorative, matching the reference design's
-           "avatar + caret" combo. The avatar button itself still does all
-           the actual navigation (click anywhere on the circle -> Profile);
-           the chevron is a plain, non-interactive span sitting in its own
-           narrow column right next to it. ---- */
-        .mv-nav-avatar-chevron {
-            display: flex; align-items: center; justify-content: center;
-            height: 34px; color: var(--mv-muted); font-size: 13px;
         }
 
         /* ---- Neon-glow profile cards: every card on the Profile page
@@ -3893,7 +3940,11 @@ def render_top_nav(current_page):
                 unsafe_allow_html=True,
             )
         with nav_col:
-            cols = st.columns([1] * len(desktop_nav_items) + [0.85])
+            # Give longer labels a little more room so they never get
+            # unnecessarily squeezed on desktop. Profile remains the
+            # circular avatar at the far right.
+            nav_widths = [1.05, 1.45, 1.10, 1.25, 0.78]
+            cols = st.columns(nav_widths)
             for col, (page_key, label) in zip(cols[:-1], desktop_nav_items):
                 with col:
                     is_active = current_page == page_key or (page_key == "tests" and current_page == "test_detail")
@@ -3920,17 +3971,11 @@ def render_top_nav(current_page):
                     f"font-weight:700 !important; }}</style>",
                     unsafe_allow_html=True,
                 )
-                # Avatar + a small decorative chevron beside it, matching
-                # the reference design - the chevron itself is inert
-                # markup (not a separate button); clicking the avatar
-                # circle is what navigates to Profile, same as before.
-                avatar_sub, chevron_sub = st.columns([2, 1])
-                with avatar_sub:
-                    with st.container(key="top_nav_avatar_btn"):
-                        if st.button(initials, key="top_nav_avatar_click", help="Profile"):
-                            go_to("profile")
-                with chevron_sub:
-                    st.markdown("<div class='mv-nav-avatar-chevron'>⌄</div>", unsafe_allow_html=True)
+                # The avatar itself is the Profile control. No
+                # decorative caret/arrow is rendered beside it.
+                with st.container(key="top_nav_avatar_btn"):
+                    if st.button(initials, key="top_nav_avatar_click", help="Profile"):
+                        go_to("profile")
 
     # Mobile: a simplified header showing ONLY the logo (left) and the
     # hamburger/close toggle (right) - no inline avatar button any more,
@@ -4458,47 +4503,161 @@ def render_omr_review(rows):
 
 
 
-def _grid_points_json_safe(grid_points):
-    """Convert Q->A/B/C/D point tuples to JSON-safe lists."""
+def _grid_points_json_safe(grid_points, image_size=None, calibration=None):
+    """JSON-safe saved OMR geometry.
+
+    The student's calibration is the authoritative geometry for that photo.
+    We keep both the generated option grid and the exact calibration clicks so
+    Past Exam can rebuild the same grid instead of trying to rediscover bubbles
+    from the photograph.
+    """
     out = {}
     for q, opts in (grid_points or {}).items():
-        out[str(q)] = {str(o): [float(pt[0]), float(pt[1])] for o, pt in (opts or {}).items() if _coord_pair(pt)}
+        out[str(q)] = {
+            str(o): [float(pt[0]), float(pt[1])]
+            for o, pt in (opts or {}).items()
+            if _coord_pair(pt)
+        }
+    meta = {}
+    if image_size and len(image_size) >= 2:
+        meta["image_width"] = int(image_size[0])
+        meta["image_height"] = int(image_size[1])
+    if calibration:
+        meta["calibration"] = {
+            str(k): [float(pt[0]), float(pt[1])]
+            for k, pt in (calibration or {}).items()
+            if _coord_pair(pt)
+        }
+    if meta:
+        out["_meta"] = meta
     return out
 
 
-def _draw_omr_answer_overlay(img_bgr, grid_points, answers, correct_answers=None, *, show_labels=True):
-    """Draw detected/final/correct answer markers directly on the submitted photo."""
+def _calibration_grid_for_photo(grid_points, grid_json_raw, total_questions, dst_size):
+    """Rebuild the option grid from the student's calibration clicks.
+
+    This is deliberately the ONLY geometry source for new Past Exam overlays.
+    The calibration was performed on the processed image used by the scanner;
+    if the original uploaded photo is larger, the calibration points are scaled
+    into that original photo's coordinate system before build_grid() runs.
+    """
+    if not isinstance(grid_json_raw, dict):
+        grid_json_raw = {}
+    meta = grid_json_raw.get("_meta", {})
+    saved_cal = meta.get("calibration", {}) if isinstance(meta, dict) else {}
+
+    try:
+        total_questions = int(total_questions or 0)
+    except Exception:
+        total_questions = 0
+
+    if saved_cal and total_questions > 0:
+        try:
+            src_w = float(meta.get("image_width", 0) or 0)
+            src_h = float(meta.get("image_height", 0) or 0)
+            dst_w, dst_h = float(dst_size[0]), float(dst_size[1])
+            sx = dst_w / src_w if src_w > 0 else 1.0
+            sy = dst_h / src_h if src_h > 0 else 1.0
+
+            calibration = {
+                str(k): (float(pt[0]) * sx, float(pt[1]) * sy)
+                for k, pt in saved_cal.items()
+                if _coord_pair(pt)
+            }
+            if calibration:
+                rebuilt = omr_scanner.build_grid(
+                    calibration,
+                    total_questions=total_questions,
+                )
+                if rebuilt:
+                    return _extract_question_option_points(rebuilt, total_questions)
+        except Exception:
+            pass
+
+    # Backward-compatible fallback for results created before calibration
+    # clicks were stored. These points are still the scanner's saved grid; no
+    # Hough/visual bubble detection is used.
+    return grid_points or {}
+
+
+def _draw_past_exam_correct_answer_glow(
+    img_bgr,
+    grid_points,
+    correct_answers,
+    total_questions=None,
+    source_size=None,
+    calibration=None,
+):
+    """Past Exam ONLY: highlight correct answers using calibration geometry.
+
+    No bubble detection, Hough circles, image sharpening, or full-image blur is
+    used here. The exact calibration points chosen by the student are the base
+    geometry, just like during answer detection/scoring.
+    """
     canvas = img_bgr.copy()
-    correct_answers = correct_answers or {}
-    for q, opts in (grid_points or {}).items():
+    dst_h, dst_w = canvas.shape[:2]
+
+    # If the caller supplied calibration separately (older internal callers),
+    # construct a temporary metadata object so the same rebuild path is used.
+    raw_grid = {str(q): opts for q, opts in (grid_points or {}).items()}
+    raw_grid["_meta"] = {
+        "image_width": int(source_size[0]) if source_size and source_size[0] else dst_w,
+        "image_height": int(source_size[1]) if source_size and source_size[1] else dst_h,
+        "calibration": calibration or {},
+    }
+
+    points_to_use = _calibration_grid_for_photo(
+        grid_points,
+        raw_grid,
+        total_questions,
+        (dst_w, dst_h),
+    )
+
+    scale = max(0.75, min(1.5, min(dst_w, dst_h) / 1100.0))
+    ring_r = max(7, int(round(9 * scale)))
+    halo_r = max(11, int(round(14 * scale)))
+
+    for q, opts in points_to_use.items():
         try:
             qn = int(q)
         except Exception:
             continue
-        final = _normalise_answer_value(answers.get(qn, answers.get(str(qn))))
-        correct = _normalise_answer_value(correct_answers.get(qn, correct_answers.get(str(qn))))
-        # Correct key: green ring. Final answer: blue ring. MULTI: red rings.
-        if correct in opts:
-            x, y = map(int, opts[correct])
-            cv2.circle(canvas, (x, y), 14, (60, 210, 90), 3)
-            if show_labels:
-                cv2.putText(canvas, "KEY", (x+16, y-12), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (60,210,90), 1, cv2.LINE_AA)
-        if final == "MULTI":
-            for opt, pt in opts.items():
-                x, y = map(int, pt)
-                cv2.circle(canvas, (x, y), 17, (60, 70, 230), 3)
-            if show_labels:
-                # Put the issue label near the first option point.
-                first = next(iter(opts.values()))
-                cv2.putText(canvas, f"Q{qn} DOUBLE", (int(first[0])+18, int(first[1])+18),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.40, (60,70,230), 1, cv2.LINE_AA)
-        elif final in opts:
-            x, y = map(int, opts[final])
-            cv2.circle(canvas, (x, y), 18, (230, 150, 40), 3)
-            if show_labels:
-                cv2.putText(canvas, f"Q{qn} {final}", (x+16, y+16),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.40, (230,150,40), 1, cv2.LINE_AA)
+
+        correct = _normalise_answer_value(
+            correct_answers.get(qn, correct_answers.get(str(qn)))
+        )
+        if correct not in opts:
+            continue
+
+        px, py = opts[correct]
+        x = int(round(px))
+        y = int(round(py))
+        if not (0 <= x < dst_w and 0 <= y < dst_h):
+            continue
+
+        # Blur ONLY the tiny local halo mask. The original OMR remains sharp.
+        mask = np.zeros_like(canvas)
+        cv2.circle(mask, (x, y), halo_r, (75, 235, 115), -1, cv2.LINE_AA)
+        mask = cv2.GaussianBlur(
+            mask,
+            (0, 0),
+            sigmaX=max(2.0, 3.0 * scale),
+            sigmaY=max(2.0, 3.0 * scale),
+        )
+        canvas = cv2.addWeighted(canvas, 1.0, mask, 0.10, 0)
+
+        # Small ring; never cover the original ink.
+        cv2.circle(
+            canvas,
+            (x, y),
+            ring_r,
+            (70, 220, 105),
+            max(2, int(round(2 * scale))),
+            cv2.LINE_AA,
+        )
+
     return cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
+
 
 
 def _answer_key_map(key_row, total):
@@ -4518,65 +4677,6 @@ def _answer_key_map(key_row, total):
     return out
 
 
-def _render_readonly_digital_omr(result_row, key_row, mentor_mode=False):
-    """Render the final, read-only Digital OMR used on result/review pages.
-
-    Result pages are intentionally non-editable for students. Mentor editing is
-    handled by the dedicated review workspace below, so both roles see the same
-    visual OMR model.
-    """
-    total = int(result_row.get("total", 0) or 0)
-    try:
-        final = json.loads(result_row.get("omr_final_answers_json") or "{}")
-    except Exception:
-        final = {}
-    try:
-        original = json.loads(result_row.get("omr_original_answers_json") or "{}")
-    except Exception:
-        original = {}
-    if not final:
-        final = original
-    correct_map = _answer_key_map(key_row, total)
-    try:
-        review_set = set(int(q) for q in json.loads(result_row.get("omr_double_touch_json") or "[]"))
-    except Exception:
-        review_set = set()
-
-    for q in range(1, total + 1):
-        ans = _normalise_answer_value(final.get(str(q), final.get(q)))
-        original_ans = _normalise_answer_value(original.get(str(q), original.get(q)))
-        correct = _normalise_answer_value(correct_map.get(q))
-        if q in review_set:
-            status, cls = "REVIEW NEEDED", "d-double"
-        elif ans == "MULTI":
-            status, cls = "DOUBLE TOUCH", "d-double"
-        elif ans is None:
-            status, cls = "SKIPPED", "d-skip"
-        elif correct and ans == correct:
-            status, cls = "CORRECT", "d-ok"
-        else:
-            status, cls = "INCORRECT", "d-bad"
-
-        bubbles = " ".join(
-            f"<span class='digital-bubble {'selected' if ans == o else ''} "
-            f"{'key' if correct == o else ''} "
-            f"{'wrong-selected' if ans not in (None, 'MULTI') and ans != correct and ans == o else ''} "
-            f"{'review-bubble' if q in review_set else ''}'>{o}</span>"
-            for o in "ABCD"
-        )
-        your = "Multiple" if ans == "MULTI" else (ans or "Skipped")
-        detected = "Multiple" if original_ans == "MULTI" else (original_ans or "Skipped")
-        detected_note = "" if detected == your else f" · Detected: <b>{detected}</b>"
-        st.markdown(
-            f"<div class='result-digital-row'>"
-            f"<div class='result-digital-main'><b>Q{q:02d}</b><span class='result-digital-bubbles'>{bubbles}</span></div>"
-            f"<span class='digital-status {cls}'>{status}</span>"
-            f"<div class='result-digital-meta'>Your: <b>{your}</b> · Correct: <b>{correct or '—'}</b>{detected_note}</div>"
-            f"</div>",
-            unsafe_allow_html=True,
-        )
-
-
 def _load_result_omr_context(result_row, key_row):
     """Load submitted OMR bytes and saved scanner grid without changing either."""
     omr_photo_id = str(result_row.get("omr_photo_file_id", "") or "")
@@ -4592,39 +4692,12 @@ def _load_result_omr_context(result_row, key_row):
         grid_points = {
             int(q): {o: tuple(pt) for o, pt in opts.items()}
             for q, opts in grid_json.items()
+            if str(q) != "_meta" and isinstance(opts, dict)
         }
         radius = omr_scanner.compute_bubble_radius(photo_bgr)
         return omr_bytes, grid_points, (photo_bgr, radius)
     except Exception:
         return None, {}, None
-
-
-def _multi_marked_options_from_image(img_bgr, q_points, radius):
-    """Estimate which bubbles are physically dark for a scanner MULTI question."""
-    measurements = []
-    r = max(3, int(radius or 12))
-    inner_r = max(2, int(round(r * 0.58)))
-    for opt, pt in (q_points or {}).items():
-        x, y = int(round(pt[0])), int(round(pt[1]))
-        y0, y1 = max(0, y-inner_r), min(img_bgr.shape[0], y+inner_r+1)
-        x0, x1 = max(0, x-inner_r), min(img_bgr.shape[1], x+inner_r+1)
-        if y1 <= y0 or x1 <= x0:
-            continue
-        gray = cv2.cvtColor(img_bgr[y0:y1, x0:x1], cv2.COLOR_BGR2GRAY)
-        yy, xx = np.ogrid[:gray.shape[0], :gray.shape[1]]
-        cx, cy = gray.shape[1] / 2.0, gray.shape[0] / 2.0
-        mask = (xx-cx)**2 + (yy-cy)**2 <= (inner_r*0.82)**2
-        if np.any(mask):
-            measurements.append((opt, (x, y), 255.0 - float(np.mean(gray[mask]))))
-    if not measurements:
-        return []
-    vals = [m[2] for m in measurements]
-    threshold = max(34.0, float(np.median(vals)) + 8.0, float(max(vals)) * 0.38)
-    selected = [m for m in measurements if m[2] >= threshold]
-    if len(selected) < 2 and len(measurements) >= 2:
-        selected = sorted(measurements, key=lambda m: m[2], reverse=True)[:2]
-    return [(m[0], m[1]) for m in selected[:4]]
-
 
 def _draw_result_review_overlay(img_bgr, grid_points, final_answers, original_answers, correct_answers, radius):
     """Overlay analysis on the submitted OMR while preserving every original mark."""
@@ -4899,8 +4972,35 @@ def render_result_detail(result_row, key_row, mentor_mode=False):
                 photo_bgr, radius = image_ctx
                 final = json.loads(result_row.get("omr_final_answers_json") or "{}")
                 original = json.loads(result_row.get("omr_original_answers_json") or "{}")
-                overlay = _draw_result_review_overlay(photo_bgr, grid_points, final, original, _answer_key_map(key_row, total), radius)
-                st.image(overlay, caption="Green = correct answer · Red = your wrong answer · Purple = multiple marks. Original ink remains visible.", use_container_width=True)
+                # Past Exam is intentionally simple: highlight ONLY the real
+                # correct answer using the student's saved calibration grid.
+                grid_json_raw = {}
+                try:
+                    grid_json_raw = json.loads(result_row.get("omr_grid_json") or "{}")
+                except Exception:
+                    grid_json_raw = {}
+                meta = grid_json_raw.get("_meta", {}) if isinstance(grid_json_raw, dict) else {}
+                source_size = (
+                    int(meta.get("image_width", 0) or 0),
+                    int(meta.get("image_height", 0) or 0),
+                )
+                if source_size[0] <= 0 or source_size[1] <= 0:
+                    source_size = None
+
+                saved_calibration = meta.get("calibration", {}) if isinstance(meta, dict) else {}
+                overlay = _draw_past_exam_correct_answer_glow(
+                    photo_bgr,
+                    grid_points,
+                    _answer_key_map(key_row, total),
+                    total_questions=total,
+                    source_size=source_size,
+                    calibration=saved_calibration,
+                )
+                st.image(
+                    overlay,
+                    caption="Correct answers highlighted using your calibration",
+                    use_container_width=True,
+                )
                 with st.expander("View original OMR without analysis overlay"):
                     st.image(cv2.cvtColor(photo_bgr, cv2.COLOR_BGR2RGB), use_container_width=True)
             else:
@@ -5618,27 +5718,79 @@ def page_omr_submit():
             else:
                 total_q = active["total_questions"]
                 st.caption(f"Active test: **{active['exam_name'] or active['key_id']}** · {total_q} questions")
-                uploaded = st.file_uploader(
-                    "Upload a clear, straight photo of your FULL filled OMR sheet (camera or gallery). Make sure all 4 corners of the sheet are visible in the frame.",
-                    type=["png", "jpg", "jpeg"], key="omr_upload",
-                )
+                # Camera Scanner is a preprocessing layer only. The existing
+                # calibration + answer scanner below remains unchanged.
+                camera_tab, upload_tab = st.tabs(["📷 Scan with Camera", "📁 Upload Photo"])
 
-                if uploaded is None:
-                    _reset_submission_state()
-                else:
+                with camera_tab:
+                    st.caption("Camera scanner: align the FULL OMR sheet. The scanner will detect the paper, show a green border, and straighten it after capture.")
+                    camera_result = omr_camera(key=f"omr_camera_{active['key_id']}")
+                    if isinstance(camera_result, dict) and camera_result.get("error"):
+                        st.error(f"Camera could not start: {camera_result['error']}")
+                    elif isinstance(camera_result, dict) and camera_result.get("captured"):
+                        try:
+                            import base64
+                            raw_b64 = str(camera_result["captured"])
+                            raw_bytes = base64.b64decode(raw_b64.split(",", 1)[-1])
+                            raw_arr = np.frombuffer(raw_bytes, dtype=np.uint8)
+                            raw_bgr = cv2.imdecode(raw_arr, cv2.IMREAD_COLOR)
+                            processed_bgr, detected_quad = omr_image_scanner.process_captured_frame(raw_bgr)
+                            if processed_bgr is None:
+                                st.error("OMR sheet boundary could not be confirmed. Please capture the full sheet with all 4 corners visible.")
+                            else:
+                                encoded_ok, encoded = cv2.imencode(".jpg", processed_bgr, [cv2.IMWRITE_JPEG_QUALITY, 94])
+                                if encoded_ok:
+                                    camera_sig = f"camera_{active['key_id']}_{len(encoded)}_{hash(encoded.tobytes())}"
+                                    if st.session_state.get("camera_omr_sig") != camera_sig:
+                                        st.session_state["camera_omr_bytes"] = encoded.tobytes()
+                                        st.session_state["camera_omr_sig"] = camera_sig
+                                        st.session_state["camera_omr_preview"] = processed_bgr
+                                        _mv_reset_submission_state()
+                                        st.session_state["submit_file_sig"] = camera_sig
+                                        st.rerun()
+                        except Exception as e:
+                            st.error(f"Camera image processing failed: {e}")
+
+                with upload_tab:
+                    uploaded = st.file_uploader(
+                        "Upload a clear photo of your FULL filled OMR sheet. All 4 corners should be visible.",
+                        type=["png", "jpg", "jpeg"], key="omr_upload",
+                    )
+
+                camera_bytes = st.session_state.get("camera_omr_bytes")
+                camera_sig = st.session_state.get("camera_omr_sig")
+                if camera_bytes:
+                    source_bytes = camera_bytes
+                    file_sig = camera_sig or "camera_omr"
+                    source_label = "Camera-scanned OMR"
+                elif uploaded is not None:
+                    source_bytes = uploaded.getvalue()
                     file_sig = f"{uploaded.name}_{uploaded.size}"
+                    source_label = uploaded.name
+                else:
+                    source_bytes = None
+                    file_sig = None
+                    source_label = None
+
+                if source_bytes is None:
+                    _mv_reset_submission_state()
+                else:
                     if st.session_state.get("submit_file_sig") != file_sig:
-                        _reset_submission_state()
+                        _mv_reset_submission_state()
                         st.session_state["submit_file_sig"] = file_sig
 
                     if "submit_prepared_image" not in st.session_state:
-                        pil_img = ImageOps.exif_transpose(Image.open(uploaded).convert("RGB"))
-                        original_bytes = uploaded.getvalue()
+                        pil_img = ImageOps.exif_transpose(Image.open(io.BytesIO(source_bytes)).convert("RGB"))
                         orig_bgr = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
                         ok, errors, warnings_ = omr_scanner.validate_omr_image(orig_bgr)
+                        # Mild blur alone must not block an otherwise usable OMR.
+                        # Keep all structural/format validation errors strict.
+                        ok, errors, warnings_ = _relax_blur_only_validation(
+                            ok, errors, warnings_
+                        )
                         proc_bgr = omr_scanner.resize_max_dim(orig_bgr) if ok else orig_bgr
                         st.session_state["submit_prepared_image"] = proc_bgr
-                        st.session_state["submit_original_bytes"] = original_bytes
+                        st.session_state["submit_original_bytes"] = source_bytes
                         st.session_state["submit_validation"] = (ok, errors, warnings_)
 
                     img_bgr = st.session_state["submit_prepared_image"]
@@ -5761,7 +5913,7 @@ def page_omr_submit():
                             cb1, cb2 = st.columns(2)
                             with cb1:
                                 if st.button("🔄 Redo Calibration Points", use_container_width=True, disabled=is_submitting):
-                                    _reset_submission_state()
+                                    _mv_reset_submission_state()
                                     st.session_state["submit_file_sig"] = file_sig
                                     st.rerun()
                             with cb2:
@@ -5795,7 +5947,17 @@ def page_omr_submit():
                                             result["omr_original_answers"] = dict(detected)
                                             result["omr_final_answers"] = dict(final_answers)
                                             result["omr_double_touch"] = list(double_qs)
-                                            result["omr_grid"] = _grid_points_json_safe(grid_points)
+                                            result["omr_grid"] = _grid_points_json_safe(
+                                                grid_points,
+                                                image_size=(img_bgr.shape[1], img_bgr.shape[0]),
+                                                calibration={
+                                                    info["key"]: pt
+                                                    for info, pt in zip(
+                                                        omr_scanner.calibration_points_info(total_q),
+                                                        st.session_state.get("submit_calib_points", []),
+                                                    )
+                                                },
+                                            )
                                             neg_enabled = sh._to_bool(active_now.get("negative_marking", False))
                                             if neg_enabled:
                                                 neg_per_wrong = max(0.0, float(active_now.get("negative_marks_value", 0.0) or 0.0))
@@ -5817,7 +5979,7 @@ def page_omr_submit():
                                             else:
                                                 sh.set_exam_session_status(sid, submit_key_id, "submitted")
                                                 st.session_state.pop("submit_key_id", None)
-                                                _reset_submission_state()
+                                                _mv_reset_submission_state()
                                                 st.success("✅ Result saved!")
                                                 with st.container(key="card_submit_result"):
                                                     r1, r2, r3, r4 = st.columns(4)
@@ -7514,6 +7676,23 @@ def render_answer_key_tab():
 def _render_create_exam_form():
     st.subheader("🗓️ Create Exam & Set Answer Key")
 
+    # OMR Sheet Setup is intentionally not a permanent navigation item.
+    # Keep it available during exam creation as a separate page, while
+    # preserving the exact existing calibration/setup functionality.
+    with st.container(key="create_exam_omr_setup_card"):
+        st.markdown(
+            "<div class='mentor-create-card'><div class='title'>🎯 OMR Sheet Setup</div>"
+            "<div class='sub'>Set up the physical OMR sheet layout before creating the exam. "
+            "This opens the existing OMR setup page without changing its functions.</div></div>",
+            unsafe_allow_html=True,
+        )
+        if st.button("🎯 Open OMR Setup", use_container_width=True, key="mentor_create_open_omr_setup"):
+            st.session_state["mentor_page"] = "m_calibration"
+            st.session_state["mentor_return_from_omr_setup"] = "m_answerkey"
+            st.rerun()
+
+    st.divider()
+
     st.markdown("#### ① How many MCQs? (Exam Style)")
     exam_style = st.radio(
         "Exam Style", [
@@ -7948,6 +8127,12 @@ def _calibration_status_summary(all_calibration):
 
 
 def page_mentor_calibration():
+    if st.session_state.get("mentor_return_from_omr_setup") == "m_answerkey":
+        if st.button("← Back to Create Exam", use_container_width=False, key="mentor_omr_setup_back_to_create"):
+            st.session_state["mentor_page"] = "m_answerkey"
+            st.session_state.pop("mentor_return_from_omr_setup", None)
+            st.rerun()
+
     st.subheader("🎯 OMR Sheet Setup (only needed once per layout)")
     st.caption("This records where each answer bubble sits on your blank OMR sheet, for each "
                "exam layout. Students will still calibrate their own photo before every "
@@ -8248,7 +8433,6 @@ def is_mentor():
 MENTOR_NAV = [
     ("m_dashboard", "Dashboard"),
     ("m_answerkey", "Create Exam"),
-    ("m_calibration", "OMR Sheet Setup"),
     ("m_students", "Students"),
     ("m_results", "Results"),
     ("m_leaderboard", "Leaderboard"),
@@ -8293,7 +8477,10 @@ def render_mentor_top_nav(current_page):
                 unsafe_allow_html=True,
             )
         with nav_col:
-            cols = st.columns([1] * len(desktop_nav_items) + [0.85])
+            # Custom proportions keep "OMR Sheet Setup" fully visible while
+            # preserving a compact single-row desktop navigation.
+            nav_widths = [0.95, 1.15, 1.60, 0.95, 0.90, 1.25, 0.70]
+            cols = st.columns(nav_widths)
             for col, (page_key, label) in zip(cols[:-1], desktop_nav_items):
                 with col:
                     is_active = current_page == page_key
@@ -8320,18 +8507,14 @@ def render_mentor_top_nav(current_page):
                     f"font-weight:700 !important; }}</style>",
                     unsafe_allow_html=True,
                 )
-                # Avatar + a small decorative chevron beside it, same
-                # visual pattern as the student nav's avatar.
-                avatar_sub, chevron_sub = st.columns([2, 1])
-                with avatar_sub:
-                    with st.container(key="top_nav_avatar_btn"):
-                        if st.button(initials, key="top_nav_mentor_avatar_click", help="Profile"):
-                            st.session_state["mentor_page"] = "m_profile"
-                            st.session_state.pop("mentor_analysis_sid", None)
-                            st.session_state.pop("mentor_analysis_view_key_id", None)
-                            go_to("mentor")
-                with chevron_sub:
-                    st.markdown("<div class='mv-nav-avatar-chevron'>⌄</div>", unsafe_allow_html=True)
+                # The avatar itself is the Profile control. No
+                # decorative caret/arrow is rendered beside it.
+                with st.container(key="top_nav_avatar_btn"):
+                    if st.button(initials, key="top_nav_mentor_avatar_click", help="Profile"):
+                        st.session_state["mentor_page"] = "m_profile"
+                        st.session_state.pop("mentor_analysis_sid", None)
+                        st.session_state.pop("mentor_analysis_view_key_id", None)
+                        go_to("mentor")
 
     # Mobile: same simplified logo + hamburger/close toggle bar as the
     # student panel - no separate quick-access icon button, since Profile
