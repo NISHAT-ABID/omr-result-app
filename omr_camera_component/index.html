@@ -1,145 +1,145 @@
 <!doctype html>
 <html>
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-<style>
-*{box-sizing:border-box}
-html,body{margin:0;padding:0;background:#050908;color:#fff;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;overflow:hidden}
-#app{width:100%;height:118px;position:relative;background:#050908;border-radius:16px;overflow:hidden}
-#app.active{height:100dvh;min-height:100svh;max-height:none;border-radius:0}
-#app.confirm{height:100dvh;min-height:100svh;max-height:none;border-radius:0}
-video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:block;background:#050908}
-#overlay{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:3}
-#top{position:absolute;top:0;left:0;right:0;padding:12px 14px;padding-top:max(12px,env(safe-area-inset-top));display:flex;justify-content:space-between;align-items:center;background:linear-gradient(#000c,transparent);z-index:4}
-.badge{padding:8px 11px;border-radius:999px;background:#0009;font-size:12px;font-weight:750}.ok{background:#0d9488ed}
-.hint{position:absolute;left:14px;right:14px;bottom:92px;text-align:center;z-index:4;text-shadow:0 2px 6px #000;font-weight:650;font-size:13px}
-#controls{position:absolute;left:0;right:0;bottom:0;padding:12px 16px;padding-bottom:max(14px,env(safe-area-inset-bottom));display:flex;justify-content:center;gap:12px;align-items:center;background:linear-gradient(transparent,#000d 38%);z-index:5}
-button{border:0;border-radius:999px;color:#fff;background:#26322f;padding:11px 17px;font-size:14px;font-weight:750;min-height:46px}
-#capture{width:72px;height:72px;padding:0;border:5px solid #fff;background:#0d9488;box-shadow:0 0 0 4px #0d948866;font-size:0}
-#capture:after{content:"";display:block;width:40px;height:40px;margin:auto;border-radius:50%;background:#fff}
-#capture:disabled{opacity:.4}
-#start{background:#0d9488}
-.iconbtn{height:46px;min-width:46px;padding:0;font-size:19px}
-.iconbtn.active{background:#0d9488}.iconbtn:disabled{opacity:.55}
-.hidden{display:none!important}
-#status{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:6;background:#050908ed;text-align:center;padding:24px}
-.panel{max-width:420px}.panel h3{margin:0 0 8px}.panel p{margin:0 0 18px;color:#c9d5d2;line-height:1.5}
-#confirmView{position:absolute;inset:0;z-index:7;background:#050908;display:flex;flex-direction:column}
-#capturedPreview{flex:1;width:100%;height:100%;object-fit:contain;min-height:0;background:#050908}
-#confirmBar{padding:12px 14px;padding-bottom:max(12px,env(safe-area-inset-bottom));display:flex;gap:10px;justify-content:center;background:#050908}
-#retry{background:#26322f}#usePhoto{background:#0d9488}
-#processing{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#050908df;z-index:8;font-weight:750}
-</style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover" />
+  <style>
+    html,body{margin:0;padding:0;background:#000;color:#fff;font-family:system-ui,-apple-system,Segoe UI,sans-serif;overflow:hidden}
+    #app{position:relative;width:100%;height:100vh;min-height:560px;background:#000;display:flex;flex-direction:column}
+    #stage{position:relative;flex:1;min-height:0;background:#000;overflow:hidden}
+    video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#000}
+    #overlay{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+    #top{position:absolute;top:0;left:0;right:0;z-index:5;padding:calc(env(safe-area-inset-top) + 12px) 14px 14px;background:linear-gradient(#000b,transparent)}
+    #status{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;background:#0009;font-size:14px;font-weight:650}
+    #dot{width:9px;height:9px;border-radius:50%;background:#f0a44c}
+    #dot.good{background:#18c49a;box-shadow:0 0 0 4px #18c49a22}
+    #hint{margin-top:8px;font-size:12px;opacity:.86;text-shadow:0 1px 3px #000}
+    #bottom{z-index:5;padding:12px 18px calc(env(safe-area-inset-bottom) + 16px);background:linear-gradient(transparent,#000e 24%);display:flex;align-items:center;justify-content:center;gap:18px}
+    #capture{width:76px;height:76px;border-radius:50%;border:5px solid #fff;background:#eee;box-shadow:0 2px 18px #0008;cursor:pointer;position:relative}
+    #capture:after{content:'';position:absolute;inset:6px;border-radius:50%;background:#fff}
+    #capture:disabled{opacity:.45;cursor:not-allowed}
+    .small{position:absolute;left:14px;bottom:20px;color:#ddd;font-size:11px;opacity:.8}
+    #error{position:absolute;z-index:20;inset:auto 14px 110px 14px;background:#2a1111;color:#ffdede;border:1px solid #7a3333;border-radius:12px;padding:12px;display:none}
+    #loading{position:absolute;z-index:10;inset:0;display:flex;align-items:center;justify-content:center;background:#000;color:#ddd}
+    @media(min-width:700px){#app{max-width:760px;margin:auto;height:88vh;border-radius:18px;overflow:hidden}#stage{min-height:0}}
+  </style>
+  <script src="https://docs.opencv.org/4.x/opencv.js" async></script>
+  <script src="https://unpkg.com/streamlit-component-lib@1.5.0/dist/index.js"></script>
 </head>
 <body>
 <div id="app">
-  <video id="video" autoplay playsinline muted></video>
-  <canvas id="overlay"></canvas>
-  <div id="top"><span class="badge">The Med Venture · OMR Scanner</span><span id="state" class="badge">Ready</span></div>
-  <div id="hint" class="hint">Tap Start Camera to scan your OMR</div>
-  <div id="controls">
-    <button id="start">📷 Start Camera</button>
-    <button id="torch" class="iconbtn hidden" aria-label="Flashlight">⚡</button>
-    <button id="capture" disabled aria-label="Capture"></button>
-    <button id="flip" class="iconbtn hidden" aria-label="Switch camera">↔</button>
+  <div id="loading">Opening camera…</div>
+  <div id="stage">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="overlay"></canvas>
+    <div id="top">
+      <div id="status"><span id="dot"></span><span id="statusText">Looking for OMR sheet…</span></div>
+      <div id="hint">Keep the FULL OMR sheet and all 4 corners inside the frame.</div>
+    </div>
+    <div id="error"></div>
   </div>
-  <div id="status" class="hidden"><div class="panel"><h3>Camera access needed</h3><p>Allow camera access, then place the complete OMR sheet inside the frame.</p><button id="allow">Open Camera</button></div></div>
-  <div id="confirmView" class="hidden">
-    <img id="capturedPreview" alt="Captured OMR preview">
-    <div id="confirmBar"><button id="retry">↻ Retry</button><button id="usePhoto">✓ Use Photo</button></div>
-    <div id="processing" class="hidden">Processing OMR…</div>
-  </div>
+  <div id="bottom"><button id="capture" disabled aria-label="Capture"></button></div>
 </div>
 <script>
-function sendMessage(type,data={}){parent.postMessage({isStreamlitMessage:true,type,...data},'*')}
-function sendReady(){sendMessage('streamlit:componentReady',{apiVersion:1})}
-function setHeight(h){sendMessage('streamlit:setFrameHeight',{height:h||Math.max(118,window.innerHeight||document.documentElement.scrollHeight||118)})}
-function sendValue(value){sendMessage('streamlit:setComponentValue',{value})}
-const app=document.getElementById('app'),video=document.getElementById('video'),overlay=document.getElementById('overlay'),octx=overlay.getContext('2d');
-const start=document.getElementById('start'),capture=document.getElementById('capture'),flip=document.getElementById('flip'),torchBtn=document.getElementById('torch'),state=document.getElementById('state'),hint=document.getElementById('hint');
-const confirmView=document.getElementById('confirmView'),capturedPreview=document.getElementById('capturedPreview'),retry=document.getElementById('retry'),usePhoto=document.getElementById('usePhoto'),processing=document.getElementById('processing');
-let stream=null,facing='environment',detectorTimer=null,cvReady=false,cvLoading=false,lastQuad=null,capturedData=null,torchOn=false,cameraStarted=false,detectionBusy=false;
-function setIdleHeight(){app.className='';setHeight(118)}
-function setActiveHeight(){app.className='active';setHeight(Math.max(600,window.innerHeight||window.screen.height||800))}
-function setConfirmHeight(){app.className='confirm';setHeight(Math.max(600,window.innerHeight||window.screen.height||800))}
-function resizeOverlay(){overlay.width=video.videoWidth||640;overlay.height=video.videoHeight||480}
-function clearOverlay(){octx.clearRect(0,0,overlay.width,overlay.height)}
-function drawGuide(){
-  clearOverlay(); if(!overlay.width)return;
-  const W=overlay.width,H=overlay.height, target=.7071;
-  let bw=Math.min(W*.84,H*.82*target),bh=bw/target;
-  if(bh>H*.82){bh=H*.82;bw=bh*target}
-  const x=(W-bw)/2,y=(H-bh)/2;
-  octx.strokeStyle='#ffffffcc';octx.lineWidth=Math.max(4,W/280);octx.setLineDash([18,12]);octx.strokeRect(x,y,bw,bh);octx.setLineDash([]);
+const video=document.getElementById('video'), overlay=document.getElementById('overlay'), ctx=overlay.getContext('2d');
+const statusText=document.getElementById('statusText'), dot=document.getElementById('dot'), capture=document.getElementById('capture');
+const loading=document.getElementById('loading'), errorBox=document.getElementById('error');
+let stream=null, lastCorners=null, ready=false, cvReady=false, detecting=false, captured=false;
+
+function setHeight(){ if(window.Streamlit) Streamlit.setFrameHeight(document.getElementById('app').scrollHeight); }
+function showError(s){ errorBox.textContent=s; errorBox.style.display='block'; loading.style.display='none'; }
+function orderPts(p){
+  const pts=p.map(x=>({x:x.x,y:x.y}));
+  const sum=pts.map(a=>a.x+a.y), diff=pts.map(a=>a.x-a.y);
+  return [pts[sum.indexOf(Math.min(...sum))],pts[diff.indexOf(Math.max(...diff))],pts[sum.indexOf(Math.max(...sum))],pts[diff.indexOf(Math.min(...diff))]];
 }
-function drawQuad(q){
-  clearOverlay();octx.strokeStyle='#20e6a3';octx.lineWidth=Math.max(5,overlay.width/230);octx.beginPath();octx.moveTo(q[0].x,q[0].y);for(let i=1;i<q.length;i++)octx.lineTo(q[i].x,q[i].y);octx.closePath();octx.stroke();
-  for(const p of q){octx.fillStyle='#20e6a3';octx.beginPath();octx.arc(p.x,p.y,Math.max(8,overlay.width/95),0,Math.PI*2);octx.fill()}
-}
-function loadOpenCV(){
-  if(cvReady||cvLoading||window.cv)return;
-  cvLoading=true;const s=document.createElement('script');s.src='https://docs.opencv.org/4.x/opencv.js';s.async=true;
-  s.onload=()=>{const wait=()=>{if(window.cv&&typeof window.cv.Mat==='function'){cvReady=true;cvLoading=false}else setTimeout(wait,80)};wait()};s.onerror=()=>{cvLoading=false};document.head.appendChild(s);
-}
-function orderQuad(arr){
-  const s=arr.map(p=>p.x+p.y),d=arr.map(p=>p.x-p.y);return [arr[s.indexOf(Math.min(...s))],arr[d.indexOf(Math.max(...d))],arr[s.indexOf(Math.max(...s))],arr[d.indexOf(Math.min(...d))]];
-}
-function detectLiveQuad(){
-  if(!cameraStarted||!cvReady||detectionBusy||!video.videoWidth)return;
-  detectionBusy=true;
+function resizeCanvas(){ const r=video.getBoundingClientRect(); overlay.width=Math.max(1,Math.floor(r.width*devicePixelRatio)); overlay.height=Math.max(1,Math.floor(r.height*devicePixelRatio)); overlay.style.width=r.width+'px';overlay.style.height=r.height+'px'; setHeight(); }
+window.addEventListener('resize',resizeCanvas);
+
+async function start(){
   try{
-    const maxW=520,scale=Math.min(1,maxW/video.videoWidth),w=Math.max(320,Math.round(video.videoWidth*scale)),h=Math.max(320,Math.round(video.videoHeight*scale));
-    const work=document.createElement('canvas');work.width=w;work.height=h;const wc=work.getContext('2d',{willReadFrequently:true});wc.drawImage(video,0,0,w,h);
-    const src=cv.imread(work),gray=new cv.Mat(),blur=new cv.Mat(),edges=new cv.Mat(),hsv=new cv.Mat(),bright=new cv.Mat(),mask=new cv.Mat();
-    cv.cvtColor(src,gray,cv.COLOR_RGBA2GRAY);cv.GaussianBlur(gray,blur,new cv.Size(5,5),0);cv.Canny(blur,22,100,edges);cv.morphologyEx(edges,edges,cv.MORPH_CLOSE,cv.Mat.ones(7,7,cv.CV_8U),new cv.Point(-1,-1),2);
-    cv.cvtColor(src,hsv,cv.COLOR_RGBA2RGB);cv.cvtColor(hsv,hsv,cv.COLOR_RGB2HSV);cv.inRange(hsv,new cv.Scalar(0,0,115,0),new cv.Scalar(179,150,255,0),bright);cv.morphologyEx(bright,bright,cv.MORPH_CLOSE,cv.Mat.ones(11,11,cv.CV_8U),new cv.Point(-1,-1),2);
-    cv.bitwise_or(edges,bright,mask);
-    const contours=new cv.MatVector(),hierarchy=new cv.Mat();cv.findContours(mask,contours,hierarchy,cv.RETR_LIST,cv.CHAIN_APPROX_SIMPLE);
-    let best=null,bestScore=0,total=w*h;
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}},audio:false});
+    video.srcObject=stream;
+    await video.play();
+    loading.style.display='none'; resizeCanvas();
+    setTimeout(()=>{ready=true; loop();},500);
+  }catch(e){showError('Camera could not be opened. Please allow camera access in Chrome and try again.');}
+}
+
+function detect(){
+  if(!cvReady||!ready||detecting||video.videoWidth<10) return;
+  detecting=true;
+  const W=720, H=Math.max(480,Math.round(W*video.videoHeight/video.videoWidth));
+  const c=document.createElement('canvas'); c.width=W;c.height=H; const cctx=c.getContext('2d');cctx.drawImage(video,0,0,W,H);
+  try{
+    let src=cv.imread(c), gray=new cv.Mat(), blur=new cv.Mat(), edges=new cv.Mat(), contours=new cv.MatVector(), hier=new cv.Mat();
+    cv.cvtColor(src,gray,cv.COLOR_RGBA2GRAY); cv.GaussianBlur(gray,blur,new cv.Size(5,5),0); cv.Canny(blur,45,140,edges);
+    let kernel=cv.Mat.ones(5,5,cv.CV_8U); cv.dilate(edges,edges,kernel); cv.morphologyEx(edges,edges,cv.MORPH_CLOSE,kernel);
+    cv.findContours(edges,contours,hier,cv.RETR_EXTERNAL,cv.CHAIN_APPROX_SIMPLE);
+    let best=null,bestArea=0;
     for(let i=0;i<contours.size();i++){
-      const c=contours.get(i),area=cv.contourArea(c);if(area<total*.07){c.delete();continue}
-      const peri=cv.arcLength(c,true),approx=new cv.Mat();cv.approxPolyDP(c,approx,.035*peri,true);
-      if(approx.rows===4&&cv.isContourConvex(approx)){
-        const r=cv.boundingRect(approx),asp=Math.min(r.width,r.height)/Math.max(r.width,r.height),fill=area/(r.width*r.height||1);
-        if(asp>=.34&&asp<=.90&&r.width>w*.35&&r.height>h*.48){
-          const centerX=(r.x+r.width/2)/w,centerY=(r.y+r.height/2)/h;const center=1-Math.min(1,Math.abs(centerX-.5)*1.3+Math.abs(centerY-.5)*.35);
-          const score=(area/total)*(0.7+0.3*Math.min(1,fill))*(0.8+0.2*center)*(1+asp*.25);
-          if(score>bestScore){bestScore=score;if(best)best.delete();best=approx;approx=null}
-        }
-      }
-      c.delete();if(approx)approx.delete();
+      const cnt=contours.get(i), area=cv.contourArea(cnt); if(area< W*H*0.12 || area<bestArea) {cnt.delete();continue;}
+      const peri=cv.arcLength(cnt,true), approx=new cv.Mat(); cv.approxPolyDP(cnt,approx,0.025*peri,true);
+      if(approx.rows===4){
+        const rr=cv.boundingRect(approx), ratio=rr.height/Math.max(1,rr.width);
+        if(ratio>1.15 && ratio<3.5){best=approx;bestArea=area;}
+        else approx.delete();
+      } else approx.delete(); cnt.delete();
     }
     if(best){
-      const pts=[];for(let i=0;i<4;i++)pts.push({x:best.intAt(i,0)/scale,y:best.intAt(i,1)/scale});lastQuad=orderQuad(pts);drawQuad(lastQuad);state.textContent='OMR detected ✓';state.className='badge ok';hint.textContent='4 corners found — keep steady and capture';capture.disabled=false;
-    }else{
-      lastQuad=null;drawGuide();state.textContent='Align sheet';state.className='badge';hint.textContent='Full sheet inside the guide — capture is still available';capture.disabled=false;
-    }
-    src.delete();gray.delete();blur.delete();edges.delete();hsv.delete();bright.delete();mask.delete();contours.delete();hierarchy.delete();if(best)best.delete();
-  }catch(e){capture.disabled=false;drawGuide()}
-  detectionBusy=false;
+      const raw=[]; for(let i=0;i<4;i++) raw.push({x:best.intPtr(i,0)[0],y:best.intPtr(i,0)[1]});
+      lastCorners=orderPts(raw).map(p=>({x:p.x/W,y:p.y/H}));
+      drawCorners(lastCorners); statusText.textContent='OMR sheet detected ✓'; dot.classList.add('good'); capture.disabled=false;
+      best.delete();
+    }else{lastCorners=null;drawCorners(null);statusText.textContent='Looking for OMR sheet…';dot.classList.remove('good');capture.disabled=true;}
+    src.delete();gray.delete();blur.delete();edges.delete();contours.delete();hier.delete();kernel.delete();
+  }catch(e){}
+  detecting=false;
 }
-function startDetectionLoop(){stopDetectionLoop();detectorTimer=setInterval(detectLiveQuad,180)}
-function stopDetectionLoop(){if(detectorTimer){clearInterval(detectorTimer);detectorTimer=null}}
-function stopCamera(){stopDetectionLoop();if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}cameraStarted=false;torchOn=false;torchBtn.classList.remove('active')}
-function getTrack(){return stream?.getVideoTracks?.()[0]||null}
-async function toggleTorch(){const t=getTrack();if(!t)return;const caps=t.getCapabilities?.()||{};if(!caps.torch){torchBtn.textContent='⚡';torchBtn.title='Flash not supported by this camera';return}try{torchOn=!torchOn;await t.applyConstraints({advanced:[{torch:torchOn}]});torchBtn.classList.toggle('active',torchOn);torchBtn.title=torchOn?'Flash on':'Flash off'}catch(e){torchOn=false;torchBtn.classList.remove('active')}}
-async function requestFull(){try{if(document.fullscreenEnabled&&app.requestFullscreen)await app.requestFullscreen()}catch(e){}}
-async function openCamera(){
+function drawCorners(c){
+  ctx.clearRect(0,0,overlay.width,overlay.height); if(!c)return;
+  ctx.save();ctx.scale(overlay.width,overlay.height);ctx.lineWidth=4/Math.min(overlay.width,overlay.height)*2;ctx.strokeStyle='#18d3aa';ctx.fillStyle='#18d3aa';ctx.shadowColor='#000';ctx.shadowBlur=5;
+  ctx.beginPath();ctx.moveTo(c[0].x,c[0].y);for(let i=1;i<4;i++)ctx.lineTo(c[i].x,c[i].y);ctx.closePath();ctx.stroke();
+  for(const p of c){ctx.beginPath();ctx.arc(p.x,p.y,0.012,0,Math.PI*2);ctx.fill();}ctx.restore();
+}
+function loop(){if(captured)return;detect();setTimeout(loop,280);}
+
+async function processCapture(){
+  if(!lastCorners||captured)return; captured=true; capture.disabled=true; statusText.textContent='Processing OMR…';
+  const vw=video.videoWidth, vh=video.videoHeight;
+  const source=document.createElement('canvas'); source.width=vw;source.height=vh;source.getContext('2d').drawImage(video,0,0,vw,vh);
+  let resultCanvas=document.createElement('canvas');
   try{
-    // Called from the Start button gesture; request fullscreen before awaits so mobile browsers retain permission.
-    await requestFull();stopCamera();
-    if(!navigator.mediaDevices?.getUserMedia)throw new Error('Camera API is not available in this browser.');
-    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:facing},width:{ideal:1920,min:1280},height:{ideal:1080,min:720},frameRate:{ideal:30,max:30}},audio:false});
-    video.srcObject=stream;await video.play();cameraStarted=true;resizeOverlay();setActiveHeight();start.classList.add('hidden');flip.classList.remove('hidden');capture.disabled=false;
-    const t=getTrack(),caps=t?.getCapabilities?.()||{};torchBtn.classList.remove('hidden');torchBtn.disabled=!caps.torch;torchBtn.title=caps.torch?'Flash on/off':'Flash not supported by this camera';
-    state.textContent='Camera ready';state.className='badge';hint.textContent='Finding OMR boundary…';drawGuide();loadOpenCV();startDetectionLoop();
-  }catch(e){cameraStarted=false;capture.disabled=true;state.textContent='Camera blocked';hint.textContent='Allow camera access, then try again';sendValue({error:String(e&&e.message||e)})}
+    const pts=lastCorners.map(p=>({x:p.x*vw,y:p.y*vh}));
+    const topW=Math.hypot(pts[1].x-pts[0].x,pts[1].y-pts[0].y), botW=Math.hypot(pts[2].x-pts[3].x,pts[2].y-pts[3].y);
+    const leftH=Math.hypot(pts[3].x-pts[0].x,pts[3].y-pts[0].y), rightH=Math.hypot(pts[2].x-pts[1].x,pts[2].y-pts[1].y);
+    const outW=Math.min(1800,Math.max(900,Math.round(Math.max(topW,botW))));
+    const outH=Math.min(2600,Math.max(1200,Math.round(Math.max(leftH,rightH)*outW/Math.max(1,Math.max(topW,botW)))));
+    resultCanvas.width=outW;resultCanvas.height=outH;
+    const src=cv.imread(source), dst=new cv.Mat();
+    const s=cv.matFromArray(4,1,cv.CV_32FC2,[pts[0].x,pts[0].y,pts[1].x,pts[1].y,pts[2].x,pts[2].y,pts[3].x,pts[3].y]);
+    const d=cv.matFromArray(4,1,cv.CV_32FC2,[0,0,outW-1,0,outW-1,outH-1,0,outH-1]);
+    const M=cv.getPerspectiveTransform(s,d); cv.warpPerspective(src,dst,M,new cv.Size(outW,outH),cv.INTER_CUBIC,cv.BORDER_REPLICATE,new cv.Scalar());
+    // Moderate document enhancement: mild CLAHE + very gentle unsharp mask.
+    const gray=new cv.Mat();cv.cvtColor(dst,gray,cv.COLOR_RGBA2GRAY);
+    const clahe=new cv.Mat();const cobj=cv.createCLAHE(2.0,new cv.Size(8,8));cobj.apply(gray,clahe);
+    const smooth=new cv.Mat();cv.GaussianBlur(clahe,smooth,new cv.Size(0,0),1.0);
+    const enhanced=new cv.Mat();cv.addWeighted(clahe,1.12,smooth,-0.12,0,enhanced);
+    cv.cvtColor(enhanced,dst,cv.COLOR_GRAY2RGBA);cv.imshow(resultCanvas,dst);
+    [src,dst,s, d,M,gray,clahe,smooth,enhanced,cobj].forEach(x=>{try{x.delete()}catch(e){}});
+    const data=resultCanvas.toDataURL('image/jpeg',0.90);
+    Streamlit.setComponentValue({type:'capture',image:data});
+    if(stream){stream.getTracks().forEach(t=>t.stop()); stream=null;}
+    statusText.textContent='Captured ✓';
+  }catch(e){
+    const data=source.toDataURL('image/jpeg',0.90); Streamlit.setComponentValue({type:'capture',image:data});
+  }
 }
-function captureFrame(){if(!cameraStarted||!video.videoWidth)return;const out=document.createElement('canvas');out.width=video.videoWidth;out.height=video.videoHeight;const c=out.getContext('2d',{alpha:false});c.imageSmoothingEnabled=true;c.drawImage(video,0,0,out.width,out.height);capturedData=out.toDataURL('image/jpeg',.99);capturedPreview.src=capturedData;stopCamera();try{document.exitFullscreen?.()}catch(e){}capture.disabled=true;flip.classList.add('hidden');torchBtn.classList.add('hidden');confirmView.classList.remove('hidden');setConfirmHeight();state.textContent='Review photo';state.className='badge ok';hint.textContent='Check the photo, then Use Photo';}
-function retryCapture(){capturedData=null;confirmView.classList.add('hidden');setIdleHeight();openCamera()}
-function useCapturedPhoto(){if(!capturedData)return;processing.classList.remove('hidden');retry.disabled=true;usePhoto.disabled=true;setIdleHeight();sendValue({captured:capturedData,quad:lastQuad})}
-start.addEventListener('click',openCamera);document.getElementById('allow').addEventListener('click',openCamera);capture.addEventListener('click',captureFrame);retry.addEventListener('click',retryCapture);usePhoto.addEventListener('click',useCapturedPhoto);flip.addEventListener('click',async()=>{facing=facing==='environment'?'user':'environment';await openCamera()});torchBtn.addEventListener('click',toggleTorch);video.addEventListener('loadedmetadata',()=>{resizeOverlay();if(cameraStarted)drawGuide()});window.addEventListener('resize',()=>{if(cameraStarted){resizeOverlay();setActiveHeight()}else if(confirmView.classList.contains('hidden'))setIdleHeight()});window.addEventListener('beforeunload',stopCamera);sendReady();setIdleHeight();
+capture.addEventListener('click',processCapture);
+
+function waitCV(){if(window.cv&&cv.Mat){cvReady=true;return;}setTimeout(waitCV,150);}
+if(window.Streamlit){Streamlit.setComponentReady();Streamlit.events.addEventListener(Streamlit.RENDER_EVENT,()=>{Streamlit.setFrameHeight(document.getElementById('app').scrollHeight);});}
+waitCV();start();
 </script>
 </body>
 </html>
