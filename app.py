@@ -4501,13 +4501,13 @@ def render_omr_review(rows):
 
 
 
-def _grid_points_json_safe(grid_points, image_size=None):
-    """Convert Q->A/B/C/D point tuples to JSON-safe lists.
+def _grid_points_json_safe(grid_points, image_size=None, calibration=None):
+    """JSON-safe saved OMR geometry.
 
-    When image_size is supplied, keep the exact pixel dimensions of the image
-    on which the student's calibration/grid was created. Past Exam can then
-    map those calibrated coordinates back onto the original uploaded photo
-    without touching the live submission/detection pipeline.
+    The student's calibration is the authoritative geometry for that photo.
+    We keep both the generated option grid and the exact calibration clicks so
+    Past Exam can rebuild the same grid instead of trying to rediscover bubbles
+    from the photograph.
     """
     out = {}
     for q, opts in (grid_points or {}).items():
@@ -4516,348 +4516,101 @@ def _grid_points_json_safe(grid_points, image_size=None):
             for o, pt in (opts or {}).items()
             if _coord_pair(pt)
         }
+    meta = {}
     if image_size and len(image_size) >= 2:
-        out["_meta"] = {
-            "image_width": int(image_size[0]),
-            "image_height": int(image_size[1]),
+        meta["image_width"] = int(image_size[0])
+        meta["image_height"] = int(image_size[1])
+    if calibration:
+        meta["calibration"] = {
+            str(k): [float(pt[0]), float(pt[1])]
+            for k, pt in (calibration or {}).items()
+            if _coord_pair(pt)
         }
+    if meta:
+        out["_meta"] = meta
     return out
 
 
-def _draw_omr_answer_overlay(img_bgr, grid_points, answers, correct_answers=None, *, show_labels=True):
-    """Draw detected/final/correct answer markers directly on the submitted photo."""
-    canvas = img_bgr.copy()
-    correct_answers = correct_answers or {}
-    for q, opts in (grid_points or {}).items():
+def _calibration_grid_for_photo(grid_points, grid_json_raw, total_questions, dst_size):
+    """Rebuild the option grid from the student's calibration clicks.
+
+    This is deliberately the ONLY geometry source for new Past Exam overlays.
+    The calibration was performed on the processed image used by the scanner;
+    if the original uploaded photo is larger, the calibration points are scaled
+    into that original photo's coordinate system before build_grid() runs.
+    """
+    if not isinstance(grid_json_raw, dict):
+        grid_json_raw = {}
+    meta = grid_json_raw.get("_meta", {})
+    saved_cal = meta.get("calibration", {}) if isinstance(meta, dict) else {}
+
+    try:
+        total_questions = int(total_questions or 0)
+    except Exception:
+        total_questions = 0
+
+    if saved_cal and total_questions > 0:
         try:
-            qn = int(q)
-        except Exception:
-            continue
-        final = _normalise_answer_value(answers.get(qn, answers.get(str(qn))))
-        correct = _normalise_answer_value(correct_answers.get(qn, correct_answers.get(str(qn))))
-        # Correct key: green ring. Final answer: blue ring. MULTI: red rings.
-        if correct in opts:
-            x, y = map(int, opts[correct])
-            cv2.circle(canvas, (x, y), 14, (60, 210, 90), 3)
-            if show_labels:
-                cv2.putText(canvas, "KEY", (x+16, y-12), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (60,210,90), 1, cv2.LINE_AA)
-        if final == "MULTI":
-            for opt, pt in opts.items():
-                x, y = map(int, pt)
-                cv2.circle(canvas, (x, y), 17, (60, 70, 230), 3)
-            if show_labels:
-                # Put the issue label near the first option point.
-                first = next(iter(opts.values()))
-                cv2.putText(canvas, f"Q{qn} DOUBLE", (int(first[0])+18, int(first[1])+18),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.40, (60,70,230), 1, cv2.LINE_AA)
-        elif final in opts:
-            x, y = map(int, opts[final])
-            cv2.circle(canvas, (x, y), 18, (230, 150, 40), 3)
-            if show_labels:
-                cv2.putText(canvas, f"Q{qn} {final}", (x+16, y+16),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.40, (230,150,40), 1, cv2.LINE_AA)
-    return cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
+            src_w = float(meta.get("image_width", 0) or 0)
+            src_h = float(meta.get("image_height", 0) or 0)
+            dst_w, dst_h = float(dst_size[0]), float(dst_size[1])
+            sx = dst_w / src_w if src_w > 0 else 1.0
+            sy = dst_h / src_h if src_h > 0 else 1.0
 
-
-def _answer_key_map(key_row, total):
-    """Build a simple Q->correct-option map, honoring per-question rules."""
-    rules = {}
-    try:
-        raw = key_row.get("answer_rules_json", "{}")
-        rules = json.loads(raw) if raw else {}
-    except Exception:
-        rules = {}
-    key_string = str(key_row.get("answer_string", "") or "")
-    out = {}
-    for q in range(1, total + 1):
-        rule = rules.get(str(q), {}) or {}
-        accepted = [str(x).upper() for x in rule.get("accepted", []) if str(x).upper() in "ABCD"]
-        out[q] = accepted[0] if accepted else (key_string[q-1].upper() if q <= len(key_string) and key_string[q-1].upper() in "ABCD" else None)
-    return out
-
-
-def _render_readonly_digital_omr(result_row, key_row, mentor_mode=False):
-    """Render the final, read-only Digital OMR used on result/review pages.
-
-    Result pages are intentionally non-editable for students. Mentor editing is
-    handled by the dedicated review workspace below, so both roles see the same
-    visual OMR model.
-    """
-    total = int(result_row.get("total", 0) or 0)
-    try:
-        final = json.loads(result_row.get("omr_final_answers_json") or "{}")
-    except Exception:
-        final = {}
-    try:
-        original = json.loads(result_row.get("omr_original_answers_json") or "{}")
-    except Exception:
-        original = {}
-    if not final:
-        final = original
-    correct_map = _answer_key_map(key_row, total)
-    try:
-        review_set = set(int(q) for q in json.loads(result_row.get("omr_double_touch_json") or "[]"))
-    except Exception:
-        review_set = set()
-
-    for q in range(1, total + 1):
-        ans = _normalise_answer_value(final.get(str(q), final.get(q)))
-        original_ans = _normalise_answer_value(original.get(str(q), original.get(q)))
-        correct = _normalise_answer_value(correct_map.get(q))
-        if q in review_set:
-            status, cls = "REVIEW NEEDED", "d-double"
-        elif ans == "MULTI":
-            status, cls = "DOUBLE TOUCH", "d-double"
-        elif ans is None:
-            status, cls = "SKIPPED", "d-skip"
-        elif correct and ans == correct:
-            status, cls = "CORRECT", "d-ok"
-        else:
-            status, cls = "INCORRECT", "d-bad"
-
-        bubbles = " ".join(
-            f"<span class='digital-bubble {'selected' if ans == o else ''} "
-            f"{'key' if correct == o else ''} "
-            f"{'wrong-selected' if ans not in (None, 'MULTI') and ans != correct and ans == o else ''} "
-            f"{'review-bubble' if q in review_set else ''}'>{o}</span>"
-            for o in "ABCD"
-        )
-        your = "Multiple" if ans == "MULTI" else (ans or "Skipped")
-        detected = "Multiple" if original_ans == "MULTI" else (original_ans or "Skipped")
-        detected_note = "" if detected == your else f" · Detected: <b>{detected}</b>"
-        st.markdown(
-            f"<div class='result-digital-row'>"
-            f"<div class='result-digital-main'><b>Q{q:02d}</b><span class='result-digital-bubbles'>{bubbles}</span></div>"
-            f"<span class='digital-status {cls}'>{status}</span>"
-            f"<div class='result-digital-meta'>Your: <b>{your}</b> · Correct: <b>{correct or '—'}</b>{detected_note}</div>"
-            f"</div>",
-            unsafe_allow_html=True,
-        )
-
-
-def _load_result_omr_context(result_row, key_row):
-    """Load submitted OMR bytes and saved scanner grid without changing either."""
-    omr_photo_id = str(result_row.get("omr_photo_file_id", "") or "")
-    if not omr_photo_id:
-        return None, {}, None
-    try:
-        omr_bytes = sh.get_student_omr_image_bytes(omr_photo_id)
-        if not omr_bytes:
-            return None, {}, None
-        pil = ImageOps.exif_transpose(Image.open(io.BytesIO(omr_bytes)).convert("RGB"))
-        photo_bgr = cv2.cvtColor(np.array(pil), cv2.COLOR_RGB2BGR)
-        grid_json = json.loads(result_row.get("omr_grid_json") or "{}")
-        grid_points = {
-            int(q): {o: tuple(pt) for o, pt in opts.items()}
-            for q, opts in grid_json.items()
-            if str(q) != "_meta" and isinstance(opts, dict)
-        }
-        radius = omr_scanner.compute_bubble_radius(photo_bgr)
-        return omr_bytes, grid_points, (photo_bgr, radius)
-    except Exception:
-        return None, {}, None
-
-
-def _multi_marked_options_from_image(img_bgr, q_points, radius):
-    """Estimate which bubbles are physically dark for a scanner MULTI question."""
-    measurements = []
-    r = max(3, int(radius or 12))
-    inner_r = max(2, int(round(r * 0.58)))
-    for opt, pt in (q_points or {}).items():
-        x, y = int(round(pt[0])), int(round(pt[1]))
-        y0, y1 = max(0, y-inner_r), min(img_bgr.shape[0], y+inner_r+1)
-        x0, x1 = max(0, x-inner_r), min(img_bgr.shape[1], x+inner_r+1)
-        if y1 <= y0 or x1 <= x0:
-            continue
-        gray = cv2.cvtColor(img_bgr[y0:y1, x0:x1], cv2.COLOR_BGR2GRAY)
-        yy, xx = np.ogrid[:gray.shape[0], :gray.shape[1]]
-        cx, cy = gray.shape[1] / 2.0, gray.shape[0] / 2.0
-        mask = (xx-cx)**2 + (yy-cy)**2 <= (inner_r*0.82)**2
-        if np.any(mask):
-            measurements.append((opt, (x, y), 255.0 - float(np.mean(gray[mask]))))
-    if not measurements:
-        return []
-    vals = [m[2] for m in measurements]
-    threshold = max(34.0, float(np.median(vals)) + 8.0, float(max(vals)) * 0.38)
-    selected = [m for m in measurements if m[2] >= threshold]
-    if len(selected) < 2 and len(measurements) >= 2:
-        selected = sorted(measurements, key=lambda m: m[2], reverse=True)[:2]
-    return [(m[0], m[1]) for m in selected[:4]]
-
-
-def _recover_photo_bubble_centers(img_bgr, total_questions):
-    """Recover the *real printed bubble centers* from the original photo.
-
-    This is used ONLY for the visual Past Exam highlight. It does not feed the
-    scanner, scoring, calibration, or review pipeline.
-
-    For the standard 50-question sheet, the photo itself contains 25 rows x
-    8 bubbles (4 options in each of the two blocks). Detecting those printed
-    circles directly prevents a saved/serialized grid from being drawn at an
-    offset position on the original photograph.
-    """
-    if img_bgr is None or getattr(img_bgr, "ndim", 0) != 3:
-        return {}
-
-    h, w = img_bgr.shape[:2]
-    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
-    gray = cv2.GaussianBlur(gray, (5, 5), 0)
-
-    # Bubble area only. This removes most header/text circles before Hough.
-    y0 = int(h * 0.18)
-    y1 = int(h * 0.97)
-    roi = gray[y0:y1, :]
-
-    # Bubble radius scales with the photographed sheet size.
-    base_r = max(8, int(round(min(w, h) / 62.0)))
-    min_r = max(7, int(round(base_r * 0.55)))
-    max_r = max(min_r + 4, int(round(base_r * 1.45)))
-    min_dist = max(12, int(round(base_r * 1.05)))
-
-    circles = None
-    for p2 in (30, 28, 26, 24):
-        circles = cv2.HoughCircles(
-            roi,
-            cv2.HOUGH_GRADIENT,
-            dp=1.2,
-            minDist=min_dist,
-            param1=80,
-            param2=p2,
-            minRadius=min_r,
-            maxRadius=max_r,
-        )
-        if circles is not None and len(circles[0]) >= min(8, total_questions * 2):
-            break
-
-    if circles is None:
-        return {}
-
-    pts = np.round(circles[0]).astype(int)
-    pts[:, 1] += y0
-
-    # Keep only the answer-grid vertical region and discard obvious outliers.
-    pts = pts[
-        (pts[:, 1] >= int(h * 0.20)) &
-        (pts[:, 1] <= int(h * 0.96)) &
-        (pts[:, 0] >= int(w * 0.12)) &
-        (pts[:, 0] <= int(w * 0.92))
-    ]
-    if len(pts) < 8:
-        return {}
-
-    # For the standard 50-Q sheet, solve 8 option columns directly.
-    # 1D k-means keeps this robust to perspective/slight horizontal skew.
-    k = 8 if total_questions == 50 else None
-    if k is None or len(pts) < k * 12:
-        return {}
-
-    samples = np.float32(pts[:, 0].reshape(-1, 1))
-    criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 40, 0.2)
-    _compact, labels, centers = cv2.kmeans(
-        samples, k, None, criteria, 12, cv2.KMEANS_PP_CENTERS
-    )
-    x_centers = np.sort(centers.reshape(-1))
-
-    columns = []
-    for xc in x_centers:
-        idx = int(np.argmin(np.abs(centers.reshape(-1) - xc)))
-        col = pts[labels.ravel() == idx]
-        if len(col) < 15:
-            continue
-
-        # A valid column has one bubble per question row. If Hough produced
-        # extras, choose points whose y positions best match the dominant
-        # 25-row rhythm.
-        col = col[np.argsort(col[:, 1])]
-        if len(col) > 25:
-            ys = col[:, 1].astype(float)
-            # Select 25 points closest to evenly spaced rank positions.
-            target_idx = np.linspace(0, len(col) - 1, 25)
-            chosen = []
-            used = set()
-            for ti in target_idx:
-                center_i = int(round(float(ti)))
-                candidates = range(max(0, center_i - 2), min(len(col), center_i + 3))
-                best = min(
-                    (i for i in candidates if i not in used),
-                    key=lambda i: abs(i - ti),
-                    default=None,
-                )
-                if best is not None:
-                    chosen.append(best)
-                    used.add(best)
-            col = col[chosen]
-        if len(col) != 25:
-            continue
-        columns.append(col)
-
-    if len(columns) != 8:
-        return {}
-
-    # Ensure left-to-right order follows the sorted x-center order.
-    columns = sorted(columns, key=lambda c: float(np.mean(c[:, 0])))
-
-    out = {}
-    for block in range(2):
-        block_cols = columns[block * 4:(block + 1) * 4]
-        if len(block_cols) != 4:
-            continue
-        for row in range(25):
-            q = block * 25 + row + 1
-            out[q] = {
-                "A": (float(block_cols[0][row, 0]), float(block_cols[0][row, 1])),
-                "B": (float(block_cols[1][row, 0]), float(block_cols[1][row, 1])),
-                "C": (float(block_cols[2][row, 0]), float(block_cols[2][row, 1])),
-                "D": (float(block_cols[3][row, 0]), float(block_cols[3][row, 1])),
+            calibration = {
+                str(k): (float(pt[0]) * sx, float(pt[1]) * sy)
+                for k, pt in saved_cal.items()
+                if _coord_pair(pt)
             }
-    return out
+            if calibration:
+                rebuilt = omr_scanner.build_grid(
+                    calibration,
+                    total_questions=total_questions,
+                )
+                if rebuilt:
+                    return _extract_question_option_points(rebuilt, total_questions)
+        except Exception:
+            pass
+
+    # Backward-compatible fallback for results created before calibration
+    # clicks were stored. These points are still the scanner's saved grid; no
+    # Hough/visual bubble detection is used.
+    return grid_points or {}
 
 
-def _draw_past_exam_correct_answer_glow(img_bgr, grid_points, correct_answers, total_questions=None, source_size=None):
-    """Past Exam ONLY: highlight the real correct bubble on the original photo.
+def _draw_past_exam_correct_answer_glow(
+    img_bgr,
+    grid_points,
+    correct_answers,
+    total_questions=None,
+    source_size=None,
+    calibration=None,
+):
+    """Past Exam ONLY: highlight correct answers using calibration geometry.
 
-    Important: this function never changes the original photo and never uses
-    scanner detections. For a standard 50-Q sheet it first locates the actual
-    printed bubble centers in the original photo, so the highlight cannot
-    inherit an offset from a resized calibration grid. Saved calibration/grid
-    coordinates remain a fallback for non-standard layouts.
+    No bubble detection, Hough circles, image sharpening, or full-image blur is
+    used here. The exact calibration points chosen by the student are the base
+    geometry, just like during answer detection/scoring.
     """
     canvas = img_bgr.copy()
     dst_h, dst_w = canvas.shape[:2]
 
-    # Use the original photograph's own bubble geometry for the visual layer.
-    # This is intentionally independent of answer detection/scoring.
-    photo_points = {}
-    if int(total_questions or 0) == 50:
-        try:
-            photo_points = _recover_photo_bubble_centers(canvas, 50)
-        except Exception:
-            photo_points = {}
+    # If the caller supplied calibration separately (older internal callers),
+    # construct a temporary metadata object so the same rebuild path is used.
+    raw_grid = {str(q): opts for q, opts in (grid_points or {}).items()}
+    raw_grid["_meta"] = {
+        "image_width": int(source_size[0]) if source_size and source_size[0] else dst_w,
+        "image_height": int(source_size[1]) if source_size and source_size[1] else dst_h,
+        "calibration": calibration or {},
+    }
 
-    if photo_points:
-        points_to_use = photo_points
-    else:
-        # Fallback for other layouts / older results.
-        points_to_use = {}
-        if source_size and len(source_size) >= 2:
-            src_w, src_h = float(source_size[0]), float(source_size[1])
-        else:
-            src_w, src_h = float(dst_w), float(dst_h)
-        sx = dst_w / src_w if src_w > 0 else 1.0
-        sy = dst_h / src_h if src_h > 0 else 1.0
-        for q, opts in (grid_points or {}).items():
-            try:
-                qn = int(q)
-            except Exception:
-                continue
-            points_to_use[qn] = {
-                o: (float(pt[0]) * sx, float(pt[1]) * sy)
-                for o, pt in (opts or {}).items()
-                if _coord_pair(pt)
-            }
+    points_to_use = _calibration_grid_for_photo(
+        grid_points,
+        raw_grid,
+        total_questions,
+        (dst_w, dst_h),
+    )
 
-    # Subtle glow: blur ONLY a transparent-looking mask around the target.
-    # Never blur a copy of the entire OMR photo.
     scale = max(0.75, min(1.5, min(dst_w, dst_h) / 1100.0))
     ring_r = max(7, int(round(9 * scale)))
     halo_r = max(11, int(round(14 * scale)))
@@ -4880,22 +4633,28 @@ def _draw_past_exam_correct_answer_glow(img_bgr, grid_points, correct_answers, t
         if not (0 <= x < dst_w and 0 <= y < dst_h):
             continue
 
-        # Transparent black base -> only the small local halo is blurred.
+        # Blur ONLY the tiny local halo mask. The original OMR remains sharp.
         mask = np.zeros_like(canvas)
         cv2.circle(mask, (x, y), halo_r, (75, 235, 115), -1, cv2.LINE_AA)
         mask = cv2.GaussianBlur(
-            mask, (0, 0), sigmaX=max(2.0, 3.0 * scale), sigmaY=max(2.0, 3.0 * scale)
+            mask,
+            (0, 0),
+            sigmaX=max(2.0, 3.0 * scale),
+            sigmaY=max(2.0, 3.0 * scale),
         )
         canvas = cv2.addWeighted(canvas, 1.0, mask, 0.10, 0)
 
-        # Clean, small ring only. Original black/pink ink stays untouched.
+        # Small ring; never cover the original ink.
         cv2.circle(
-            canvas, (x, y), ring_r,
-            (70, 220, 105), max(2, int(round(2 * scale))), cv2.LINE_AA
+            canvas,
+            (x, y),
+            ring_r,
+            (70, 220, 105),
+            max(2, int(round(2 * scale))),
+            cv2.LINE_AA,
         )
 
     return cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
-
 
 
 def _draw_result_review_overlay(img_bgr, grid_points, final_answers, original_answers, correct_answers, radius):
@@ -5186,12 +4945,14 @@ def render_result_detail(result_row, key_row, mentor_mode=False):
                 if source_size[0] <= 0 or source_size[1] <= 0:
                     source_size = None
 
+                saved_calibration = meta.get("calibration", {}) if isinstance(meta, dict) else {}
                 overlay = _draw_past_exam_correct_answer_glow(
                     photo_bgr,
                     grid_points,
                     _answer_key_map(key_row, total),
                     total_questions=total,
                     source_size=source_size,
+                    calibration=saved_calibration,
                 )
                 st.image(
                     overlay,
@@ -5287,101 +5048,6 @@ def _coord_pair(value):
         except Exception:
             return None
     return None
-
-
-
-def _refine_calibrated_option_centers(img_bgr, grid, radius=None):
-    """Refine option centers locally, using the student's calibration grid as the anchor.
-
-    The calibration is the source of truth for *where each question/options live*.
-    We never run a global circle detector and never replace the calibration with
-    a guessed sheet geometry.  For every calibrated option we only look for the
-    printed bubble in a small neighborhood around that calibrated coordinate.
-    """
-    if img_bgr is None or not grid:
-        return grid
-
-    h, w = img_bgr.shape[:2]
-    base_r = max(7, int(radius or omr_scanner.compute_bubble_radius(img_bgr)))
-    # The search window is deliberately small so a nearby question/option can
-    # never steal the coordinate from the user's calibration.
-    search_r = max(10, int(round(base_r * 1.65)))
-    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
-    gray = cv2.GaussianBlur(gray, (3, 3), 0)
-
-    refined = {}
-    for q, options in (grid or {}).items():
-        refined[q] = {}
-        for opt, pt in (options or {}).items():
-            try:
-                px, py = float(pt[0]), float(pt[1])
-            except Exception:
-                continue
-
-            x0 = max(0, int(round(px - search_r - 3)))
-            x1 = min(w, int(round(px + search_r + 4)))
-            y0 = max(0, int(round(py - search_r - 3)))
-            y1 = min(h, int(round(py + search_r + 4)))
-            roi = gray[y0:y1, x0:x1]
-            if roi.size == 0:
-                refined[q][opt] = (int(round(px)), int(round(py)))
-                continue
-
-            local = None
-            for p2 in (16, 14, 12, 10):
-                try:
-                    circles = cv2.HoughCircles(
-                        roi,
-                        cv2.HOUGH_GRADIENT,
-                        dp=1.0,
-                        minDist=max(5, int(round(base_r * 0.75))),
-                        param1=70,
-                        param2=p2,
-                        minRadius=max(4, int(round(base_r * 0.55))),
-                        maxRadius=max(6, int(round(base_r * 1.35))),
-                    )
-                except Exception:
-                    circles = None
-                if circles is None:
-                    continue
-
-                candidates = []
-                for c in np.round(circles[0]).astype(float):
-                    cx, cy, rr = c
-                    gx, gy = cx + x0, cy + y0
-                    dist = float(np.hypot(gx - px, gy - py))
-                    if dist <= search_r:
-                        # Prefer a circle close to the calibrated point and a
-                        # radius close to the expected bubble radius.
-                        score = dist + abs(float(rr) - base_r) * 1.8
-                        candidates.append((score, gx, gy))
-                if candidates:
-                    local = min(candidates, key=lambda z: z[0])
-                    break
-
-            if local is None:
-                refined[q][opt] = (int(round(px)), int(round(py)))
-            else:
-                refined[q][opt] = (int(round(local[1])), int(round(local[2])))
-
-    return refined
-
-
-def _read_answers_from_student_calibration(img_bgr, calibration, total_questions):
-    """Read answers strictly from the student's own calibration.
-
-    Flow: user clicks anchors -> build calibrated grid -> locally refine each
-    option around that calibrated coordinate -> run the existing scanner on the
-    refined grid.  No global Hough/layout detection is used for answer reading.
-    """
-    grid = omr_scanner.build_grid(calibration, total_questions=total_questions)
-    radius = omr_scanner.compute_bubble_radius(img_bgr)
-    calibrated_grid = _refine_calibrated_option_centers(img_bgr, grid, radius=radius)
-    detected = _normalise_answers(
-        omr_scanner.read_answers(img_bgr, calibrated_grid, radius=radius),
-        total_questions,
-    )
-    return calibrated_grid, detected, radius
 
 
 def _extract_question_option_points(grid, total_q):
@@ -6115,8 +5781,11 @@ def page_omr_submit():
                                 # FULL rerun after the final popup click, so scanning starts
                                 # here automatically—there is no intermediate "All done" state.
                                 calibration = {info["key"]: pt for info, pt in zip(points_info, calib_points)}
-                                grid, detected, radius = _read_answers_from_student_calibration(
-                                    img_bgr, calibration, total_q
+                                grid = omr_scanner.build_grid(calibration, total_questions=total_q)
+                                radius = omr_scanner.compute_bubble_radius(img_bgr)
+                                detected = _normalise_answers(
+                                    omr_scanner.read_answers(img_bgr, grid, radius=radius),
+                                    total_q,
                                 )
                                 double_qs = [q for q, a in detected.items() if a == "MULTI"]
 
@@ -6192,6 +5861,13 @@ def page_omr_submit():
                                             result["omr_grid"] = _grid_points_json_safe(
                                                 grid_points,
                                                 image_size=(img_bgr.shape[1], img_bgr.shape[0]),
+                                                calibration={
+                                                    info["key"]: pt
+                                                    for info, pt in zip(
+                                                        omr_scanner.calibration_points_info(total_q),
+                                                        st.session_state.get("submit_calib_points", []),
+                                                    )
+                                                },
                                             )
                                             neg_enabled = sh._to_bool(active_now.get("negative_marking", False))
                                             if neg_enabled:
