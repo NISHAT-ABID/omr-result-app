@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
@@ -9,187 +9,176 @@ html,body{margin:0;padding:0;background:#071311;color:#fff;font-family:system-ui
 body{overflow:hidden}
 #app{width:100%;min-height:520px;height:78vh;max-height:820px;position:relative;background:#050908;border-radius:18px;overflow:hidden}
 video{width:100%;height:100%;object-fit:cover;display:block;background:#050908}
-#guide{position:absolute;left:7%;right:7%;top:8%;bottom:13%;border:3px solid #32e6aa;border-radius:14px;box-shadow:0 0 0 9999px rgba(0,0,0,.12),0 0 22px rgba(50,230,170,.18);pointer-events:none;z-index:3}
-#guide:before,#guide:after{content:"";position:absolute;width:34px;height:34px;border-color:#32e6aa;border-style:solid}
-#guide:before{left:-3px;top:-3px;border-width:5px 0 0 5px;border-radius:10px 0 0 0}
-#guide:after{right:-3px;bottom:-3px;border-width:0 5px 5px 0;border-radius:0 0 10px 0}
 #top{position:absolute;top:0;left:0;right:0;padding:12px 14px;padding-top:max(12px,env(safe-area-inset-top));display:flex;justify-content:space-between;align-items:center;background:linear-gradient(#0009,transparent);z-index:4}
 .badge{padding:8px 11px;border-radius:999px;background:#0008;font-size:13px;font-weight:700}.ok{background:#0d9488e8}
 .hint{position:absolute;left:14px;right:14px;bottom:90px;text-align:center;z-index:4;text-shadow:0 2px 5px #000;font-weight:600;font-size:14px}
 #controls{position:absolute;left:0;right:0;bottom:0;padding:12px 16px;padding-bottom:max(14px,env(safe-area-inset-bottom));display:flex;justify-content:center;gap:14px;align-items:center;background:linear-gradient(transparent,#000b 35%);z-index:5}
 button{border:0;border-radius:999px;color:white;background:#26322f;padding:13px 20px;font-size:15px;font-weight:750;min-height:48px}
 #capture{width:68px;height:68px;padding:0;border:5px solid #fff;background:#0d9488;box-shadow:0 0 0 4px #0d948866}
-#capture:disabled{opacity:.35}#start{background:#0d9488}.hidden{display:none!important}
+#capture:disabled{opacity:.35}
+#start{background:#0d9488}
+.hidden{display:none!important}
 #status{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:6;background:#050908e8;text-align:center;padding:24px}
 .panel{max-width:420px}.panel h3{margin:0 0 8px}.panel p{margin:0 0 18px;color:#c9d5d2;line-height:1.5}
-#error{position:absolute;left:14px;right:14px;top:68px;z-index:7;background:#3b1111dd;border:1px solid #ff7777;color:#fff;padding:12px 14px;border-radius:12px;font-size:13px;line-height:1.4;display:none}
-:fullscreen #app{height:100vh;max-height:none;border-radius:0}:-webkit-full-screen #app{height:100vh;max-height:none;border-radius:0}
+:fullscreen #app{height:100vh;max-height:none;border-radius:0}
+:-webkit-full-screen #app{height:100vh;max-height:none;border-radius:0}
 </style>
 </head>
 <body>
 <div id="app">
   <video id="video" autoplay playsinline muted></video>
-  <div id="guide"></div>
-  <div id="top"><span class="badge">The Med Venture · OMR Scanner</span><span id="state" class="badge">Camera off</span></div>
-  <div id="hint" class="hint">Tap Start Camera, then place the FULL OMR sheet inside the frame</div>
-  <div id="error"></div>
-  <div id="controls"><button id="start">📷 Start Camera</button><button id="capture" disabled aria-label="Capture">●</button><button id="flip" class="hidden">↔ Camera</button></div>
-  <div id="status" class="hidden"><div class="panel"><h3>Camera ready</h3><p>Allow camera access, then place the complete OMR sheet inside the frame.</p><button id="allow">Open Camera</button></div></div>
+  <div id="top"><span class="badge">The Med Venture · OMR Scanner</span><span id="state" class="badge">Ready</span></div>
+  <div id="hint" class="hint">Point the camera at the FULL OMR sheet</div>
+  <div id="controls">
+    <button id="start">📷 Start Camera</button>
+    <button id="capture" disabled aria-label="Capture">●</button>
+    <button id="flip" class="hidden">↔ Camera</button>
+  </div>
+  <div id="status" class="hidden"><div class="panel"><h3>Camera ready</h3><p>Allow camera access, then place the complete OMR sheet inside the camera view.</p><button id="allow">Open Camera</button></div></div>
 </div>
+
 <script>
-(function(){
-  'use strict';
+// Streamlit Component V1 protocol helpers.
+// The isStreamlitMessage flag is required so Streamlit recognizes these messages.
+const COMPONENT_READY = "streamlit:componentReady";
+const SET_FRAME_HEIGHT = "streamlit:setFrameHeight";
+const SET_COMPONENT_VALUE = "streamlit:setComponentValue";
 
-  // Keep this component dependency-free. The actual OMR boundary detection and
-  // image processing happen in Python after capture, so the camera frontend
-  // does not depend on an external OpenCV CDN.
-  const post=(type,data)=>{
-    try{parent.postMessage(Object.assign({type:type},data||{}),'*')}catch(e){}
-  };
-  const sendReady=()=>post('streamlit:componentReady',{apiVersion:1});
-  const setHeight=()=>post('streamlit:setFrameHeight',{height:Math.max(520,document.documentElement.scrollHeight)});
-  const sendValue=v=>post('streamlit:setComponentValue',{value:v});
+function sendMessage(type, data = {}) {
+  window.parent.postMessage({
+    isStreamlitMessage: true,
+    type,
+    ...data
+  }, "*");
+}
 
-  const video=document.getElementById('video');
-  const start=document.getElementById('start');
-  const capture=document.getElementById('capture');
-  const flip=document.getElementById('flip');
-  const state=document.getElementById('state');
-  const hint=document.getElementById('hint');
-  const allow=document.getElementById('allow');
-  const errorBox=document.getElementById('error');
+function sendReady() {
+  sendMessage(COMPONENT_READY, {apiVersion: 1});
+}
 
-  let stream=null;
-  let facing='environment';
-  let cameraStarted=false;
+function setHeight() {
+  const height = Math.max(
+    document.documentElement.scrollHeight || 0,
+    document.body.scrollHeight || 0,
+    520
+  );
+  sendMessage(SET_FRAME_HEIGHT, {height});
+}
 
-  function showError(message){
-    errorBox.textContent=message||'Unable to access the camera.';
-    errorBox.style.display='block';
+function sendValue(value) {
+  sendMessage(SET_COMPONENT_VALUE, {value});
+}
+
+const video = document.getElementById("video");
+const start = document.getElementById("start");
+const capture = document.getElementById("capture");
+const flip = document.getElementById("flip");
+const state = document.getElementById("state");
+const hint = document.getElementById("hint");
+const app = document.getElementById("app");
+
+let stream = null;
+let facing = "environment";
+let cameraStarted = false;
+let captured = false;
+
+function stopCamera() {
+  if (stream) {
+    stream.getTracks().forEach(track => track.stop());
+    stream = null;
   }
+}
 
-  function clearError(){
-    errorBox.textContent='';
-    errorBox.style.display='none';
-  }
-
-  function stopCamera(){
-    if(stream){
-      stream.getTracks().forEach(function(track){try{track.stop()}catch(e){}});
-      stream=null;
-    }
-    cameraStarted=false;
-  }
-
-  async function openCamera(){
-    clearError();
-
-    if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
-      const msg='Camera is not available in this browser/context. Please use Chrome or Edge over HTTPS.';
-      showError(msg);
-      sendValue({error:msg});
-      return;
-    }
-
+async function openCamera() {
+  try {
     stopCamera();
 
-    try{
-      const constraints={
-        audio:false,
-        video:{
-          facingMode:{ideal:facing},
-          width:{ideal:1920},
-          height:{ideal:1080}
-        }
-      };
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error("Camera API is not available in this browser.");
+    }
 
-      stream=await navigator.mediaDevices.getUserMedia(constraints);
-      video.srcObject=stream;
-      await video.play();
-      cameraStarted=true;
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: {ideal: facing},
+        width: {ideal: 1920},
+        height: {ideal: 1080}
+      },
+      audio: false
+    });
 
-      start.classList.add('hidden');
-      flip.classList.remove('hidden');
-      capture.disabled=false;
-      state.textContent='Camera ready';
-      state.className='badge ok';
-      hint.textContent='Keep the FULL OMR sheet inside the green frame, then capture';
+    video.srcObject = stream;
+    await video.play();
 
-      // Fullscreen is best-effort only. It must never prevent camera startup.
-      try{
-        const app=document.getElementById('app');
-        if(app && app.requestFullscreen) await app.requestFullscreen();
-      }catch(e){}
+    cameraStarted = true;
+    captured = false;
+    start.classList.add("hidden");
+    flip.classList.remove("hidden");
+    capture.disabled = false;
+    state.textContent = "Camera ready ✓";
+    state.className = "badge ok";
+    hint.textContent = "Keep the FULL OMR sheet visible, then capture";
 
-      setHeight();
-    }catch(e){
-      stopCamera();
-      const name=e && e.name ? e.name : '';
-      let msg='Could not open the camera.';
-      if(name==='NotAllowedError' || name==='PermissionDeniedError'){
-        msg='Camera permission was denied. Allow camera access for this site in Chrome, then try again.';
-      }else if(name==='NotFoundError' || name==='DevicesNotFoundError'){
-        msg='No camera was found on this device.';
-      }else if(name==='NotReadableError' || name==='TrackStartError'){
-        msg='The camera is already being used by another app or browser tab.';
-      }else if(name==='SecurityError'){
-        msg='Camera access was blocked by the browser security policy. Use the deployed HTTPS site.';
-      }else if(e && e.message){
-        msg=e.message;
+    try {
+      if (document.fullscreenEnabled && app.requestFullscreen) {
+        await app.requestFullscreen();
       }
-      state.textContent='Camera blocked';
-      state.className='badge';
-      hint.textContent='Allow camera access and try again';
-      capture.disabled=true;
-      showError(msg);
-      sendValue({error:msg});
-      setHeight();
-    }
-  }
+    } catch (e) {}
 
-  start.addEventListener('click',openCamera);
-  allow.addEventListener('click',openCamera);
-
-  flip.addEventListener('click',async function(){
-    facing=facing==='environment'?'user':'environment';
-    await openCamera();
-  });
-
-  capture.addEventListener('click',function(){
-    if(!cameraStarted || !video.videoWidth || !video.videoHeight) return;
-
-    try{
-      const out=document.createElement('canvas');
-      out.width=video.videoWidth;
-      out.height=video.videoHeight;
-      const outCtx=out.getContext('2d',{alpha:false});
-      outCtx.drawImage(video,0,0,out.width,out.height);
-
-      const data=out.toDataURL('image/jpeg',0.94);
-      stopCamera();
-
-      try{if(document.exitFullscreen) document.exitFullscreen()}catch(e){}
-
-      capture.disabled=true;
-      flip.classList.add('hidden');
-      state.textContent='Captured';
-      state.className='badge ok';
-      hint.textContent='Captured — processing…';
-      sendValue({captured:data});
-      setHeight();
-    }catch(e){
-      showError('Could not capture the camera image. Please try again.');
-      sendValue({error:String(e&&e.message||e)});
-    }
-  });
-
-  window.addEventListener('beforeunload',stopCamera);
-  window.addEventListener('load',function(){
-    sendReady();
     setHeight();
-  });
-  window.addEventListener('resize',setHeight);
-})();
+  } catch (e) {
+    cameraStarted = false;
+    capture.disabled = true;
+    state.textContent = "Camera blocked";
+    state.className = "badge";
+    hint.textContent = "Allow camera access in Chrome settings, then try again";
+    sendValue({error: String(e && e.message ? e.message : e)});
+  }
+}
+
+function captureFrame() {
+  if (!cameraStarted || !video.videoWidth || captured) return;
+
+  const out = document.createElement("canvas");
+  out.width = video.videoWidth;
+  out.height = video.videoHeight;
+
+  const outCtx = out.getContext("2d", {alpha: false});
+  outCtx.drawImage(video, 0, 0, out.width, out.height);
+
+  const data = out.toDataURL("image/jpeg", 0.94);
+  captured = true;
+  capture.disabled = true;
+  state.textContent = "Captured ✓";
+  state.className = "badge ok";
+  hint.textContent = "Captured — processing…";
+
+  stopCamera();
+  try { document.exitFullscreen?.(); } catch (e) {}
+
+  // Boundary detection, perspective correction and enhancement are intentionally
+  // handled by the existing Python OMR image-processing pipeline after capture.
+  sendValue({captured: data, quad: null});
+}
+
+start.addEventListener("click", openCamera);
+
+const allow = document.getElementById("allow");
+if (allow) allow.addEventListener("click", openCamera);
+
+capture.addEventListener("click", captureFrame);
+
+flip.addEventListener("click", async () => {
+  facing = facing === "environment" ? "user" : "environment";
+  await openCamera();
+});
+
+window.addEventListener("resize", setHeight);
+window.addEventListener("beforeunload", stopCamera);
+
+// Signal readiness immediately. No external CDN/library is loaded, so the
+// component can complete its Streamlit handshake without waiting on a network asset.
+sendReady();
+setHeight();
 </script>
 </body>
 </html>
