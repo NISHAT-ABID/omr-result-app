@@ -1,0 +1,259 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: transparent; font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+    body { min-height: 520px; }
+    .app { width: 100%; overflow: hidden; border-radius: 18px; background: #080b0b; color: #fff; border: 1px solid #263535; box-shadow: 0 12px 32px rgba(0,0,0,.28); }
+    .top { height: 54px; display:flex; align-items:center; justify-content:space-between; padding:0 14px; background:linear-gradient(#090d0d,#070909); }
+    .top .left,.top .right { display:flex; align-items:center; gap:12px; }
+    .icon { width:34px;height:34px;border:0;background:transparent;color:#fff;font-size:22px;border-radius:50%; }
+    .mode { font-size:13px; font-weight:700; letter-spacing:.2px; opacity:.92; }
+    .stage { position:relative; width:100%; background:#111; min-height:390px; display:flex; align-items:center; justify-content:center; overflow:hidden; }
+    video { width:100%; height:auto; max-height:62vh; min-height:390px; object-fit:cover; display:block; background:#111; }
+    canvas.overlay { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
+    .shade { position:absolute; inset:0; pointer-events:none; background:radial-gradient(ellipse at center, transparent 48%, rgba(0,0,0,.42) 100%); }
+    .hint { position:absolute; top:16px; left:50%; transform:translateX(-50%); padding:8px 14px; border-radius:999px; background:rgba(0,0,0,.55); backdrop-filter:blur(8px); font-size:13px; white-space:nowrap; }
+    .hint.good { background:rgba(9,88,63,.84); }
+    .error { padding:18px; background:#151919; color:#ffd9d9; font-size:14px; line-height:1.5; }
+    .bottom { padding:13px 15px 17px; background:#080b0b; }
+    .status { text-align:center; min-height:22px; font-size:13px; color:#aab8b8; margin-bottom:10px; }
+    .status.good { color:#5de4b6; font-weight:700; }
+    .controls { display:flex; align-items:center; justify-content:space-between; }
+    .side { width:74px; display:flex; align-items:center; justify-content:center; color:#ddd; font-size:12px; }
+    .capture { width:76px; height:76px; border-radius:50%; border:4px solid #fff; background:#fff; padding:5px; box-shadow:0 0 0 2px rgba(255,255,255,.25); cursor:pointer; }
+    .capture span { display:block; width:100%; height:100%; border-radius:50%; background:#f7f7f7; border:1px solid #d8d8d8; transition:.12s transform; }
+    .capture:active span { transform:scale(.9); }
+    .capture:disabled { opacity:.35; cursor:not-allowed; }
+    .start { width:100%; padding:14px 16px; border:0; border-radius:12px; background:#36c9a1; color:#06110e; font-weight:800; font-size:16px; cursor:pointer; }
+    .small { text-align:center; color:#819090; font-size:11px; margin-top:9px; }
+    .permission { padding:24px 18px; text-align:center; }
+    .permission .big { font-size:42px; margin-bottom:8px; }
+    .permission p { color:#aebaba; line-height:1.5; margin:7px 0 17px; }
+    .flash-on { color:#ffd76b; }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+(function() {
+  const root = document.getElementById('root');
+  let stream = null;
+  let running = false;
+  let detected = false;
+  let lastQuad = null;
+  let cvReady = false;
+  let cvLoading = false;
+  let scanTimer = null;
+  let torchOn = false;
+  let lastSent = 0;
+  let args = {};
+
+  function postValue(value) {
+    window.parent.postMessage({isStreamlitMessage:true, type:'streamlit:setComponentValue', value:value}, '*');
+  }
+  function setHeight() {
+    window.parent.postMessage({isStreamlitMessage:true, type:'streamlit:setFrameHeight', height: root.scrollHeight + 8}, '*');
+  }
+  function ready() {
+    window.parent.postMessage({isStreamlitMessage:true, type:'streamlit:componentReady', apiVersion:1}, '*');
+  }
+
+  function loadOpenCV() {
+    if (cvReady || cvLoading) return;
+    cvLoading = true;
+    const s = document.createElement('script');
+    s.async = true;
+    s.src = 'https://docs.opencv.org/4.x/opencv.js';
+    s.onload = function() {
+      const wait = setInterval(function() {
+        if (window.cv && window.cv.Mat) { clearInterval(wait); cvReady = true; cvLoading = false; }
+      }, 100);
+    };
+    s.onerror = function() { cvLoading = false; };
+    document.head.appendChild(s);
+  }
+
+  function drawOverlay(canvas, video, quad) {
+    const rect = video.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.max(1, Math.round(rect.width*dpr));
+    canvas.height = Math.max(1, Math.round(rect.height*dpr));
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.clearRect(0,0,rect.width,rect.height);
+    if (!quad) return;
+    const sx = rect.width / video.videoWidth;
+    const sy = rect.height / video.videoHeight;
+    ctx.beginPath();
+    quad.forEach((p,i) => {
+      const x=p[0]*sx, y=p[1]*sy;
+      if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    });
+    ctx.closePath();
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#39e0ae';
+    ctx.shadowColor = '#39e0ae';
+    ctx.shadowBlur = 9;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = 'rgba(57,224,174,.08)';
+    ctx.fill();
+    quad.forEach(p => { ctx.beginPath(); ctx.arc(p[0]*sx,p[1]*sy,5,0,Math.PI*2); ctx.fillStyle='#39e0ae'; ctx.fill(); });
+  }
+
+  function orderQuad(pts) {
+    const sum = pts.map(p=>p[0]+p[1]);
+    const diff = pts.map(p=>p[1]-p[0]);
+    return [pts[sum.indexOf(Math.min(...sum))], pts[diff.indexOf(Math.min(...diff))], pts[sum.indexOf(Math.max(...sum))], pts[diff.indexOf(Math.max(...diff))]];
+  }
+
+  function detect(video, work, overlay) {
+    if (!cvReady || !video.videoWidth || !video.videoHeight) return null;
+    const maxW = 720;
+    const scale = Math.min(1, maxW/video.videoWidth);
+    work.width = Math.round(video.videoWidth*scale);
+    work.height = Math.round(video.videoHeight*scale);
+    const ctx = work.getContext('2d', {willReadFrequently:true});
+    ctx.drawImage(video,0,0,work.width,work.height);
+    let src=null, gray=null, blur=null, edges=null, contours=null, hierarchy=null, kernel=null;
+    let best=null, bestScore=0;
+    try {
+      src = cv.imread(work);
+      gray = new cv.Mat(); blur = new cv.Mat(); edges = new cv.Mat();
+      cv.cvtColor(src,gray,cv.COLOR_RGBA2GRAY);
+      cv.GaussianBlur(gray,blur,new cv.Size(5,5),0,0,cv.BORDER_DEFAULT);
+      cv.Canny(blur,edges,35,115);
+      kernel = cv.Mat.ones(5,5,cv.CV_8U);
+      cv.morphologyEx(edges,edges,cv.MORPH_CLOSE,kernel);
+      cv.dilate(edges,edges,cv.Mat.ones(3,3,cv.CV_8U));
+      contours = new cv.MatVector(); hierarchy = new cv.Mat();
+      cv.findContours(edges,contours,hierarchy,cv.RETR_EXTERNAL,cv.CHAIN_APPROX_SIMPLE);
+      const frameArea = work.width*work.height;
+      for(let i=0;i<contours.size();i++) {
+        const c=contours.get(i), area=cv.contourArea(c);
+        if(area < frameArea*.12) { c.delete(); continue; }
+        const peri=cv.arcLength(c,true), approx=new cv.Mat();
+        cv.approxPolyDP(c,approx,.025*peri,true);
+        if(approx.rows===4 && cv.isContourConvex(approx)) {
+          const pts=[];
+          for(let j=0;j<4;j++) pts.push([approx.intAt(j,0),approx.intAt(j,1)]);
+          const xs=pts.map(p=>p[0]), ys=pts.map(p=>p[1]);
+          const bw=Math.max(...xs)-Math.min(...xs), bh=Math.max(...ys)-Math.min(...ys);
+          const aspect=Math.min(bw,bh)/Math.max(bw,bh);
+          const ratio=area/frameArea;
+          if(aspect>=.38 && aspect<=.82 && ratio>=.18) {
+            const score=ratio*(1+.25*aspect);
+            if(score>bestScore) { bestScore=score; best=orderQuad(pts); }
+          }
+        }
+        approx.delete(); c.delete();
+      }
+    } catch(e) { best=null; }
+    [src,gray,blur,edges,contours,hierarchy,kernel].forEach(x=>{ if(x && x.delete) x.delete(); });
+    if(!best) return null;
+    return best.map(p=>[p[0]/scale,p[1]/scale]);
+  }
+
+  function ui() {
+    root.innerHTML = `
+      <div class="app">
+        <div class="top">
+          <div class="left"><button class="icon" id="close">×</button><span class="mode">Scan</span></div>
+          <div class="right"><button class="icon" id="flash">⌁</button><button class="icon" id="quality">HD</button><button class="icon">⋮</button></div>
+        </div>
+        <div class="stage">
+          <video id="video" playsinline autoplay muted></video>
+          <canvas class="overlay" id="overlay"></canvas>
+          <div class="shade"></div>
+          <div class="hint" id="hint">Point your camera at the full OMR sheet</div>
+        </div>
+        <div class="bottom">
+          <div class="status" id="status">Camera is preparing…</div>
+          <div class="controls">
+            <div class="side">AUTO</div>
+            <button class="capture" id="capture" disabled aria-label="Capture OMR"><span></span></button>
+            <div class="side">OMR</div>
+          </div>
+          <div class="small">Keep all 4 corners visible • hold the phone steady</div>
+        </div>
+      </div>`;
+
+    const video=document.getElementById('video'), overlay=document.getElementById('overlay');
+    const capture=document.getElementById('capture'), status=document.getElementById('status'), hint=document.getElementById('hint');
+    const work=document.createElement('canvas');
+
+    document.getElementById('close').onclick=()=>stopCamera();
+    document.getElementById('flash').onclick=async()=>{
+      if(!stream) return;
+      const track=stream.getVideoTracks()[0];
+      const caps=track.getCapabilities ? track.getCapabilities() : {};
+      if(!caps.torch) { status.textContent='Flash control is not available on this device.'; return; }
+      torchOn=!torchOn;
+      try { await track.applyConstraints({advanced:[{torch:torchOn}]}); document.getElementById('flash').classList.toggle('flash-on',torchOn); } catch(e){}
+    };
+    capture.onclick=()=>{
+      if(!detected || !video.videoWidth) return;
+      const c=document.createElement('canvas');
+      c.width=video.videoWidth; c.height=video.videoHeight;
+      const cx=c.getContext('2d'); cx.drawImage(video,0,0,c.width,c.height);
+      const data=c.toDataURL('image/jpeg',0.97);
+      postValue({captured:data, detected:true, width:c.width, height:c.height});
+      status.textContent='Photo captured — preparing final scan…';
+      capture.disabled=true;
+    };
+
+    async function startCamera() {
+      try {
+        stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}},audio:false});
+        video.srcObject=stream;
+        await video.play();
+        status.textContent='Align the complete OMR sheet inside the frame.';
+        loadOpenCV();
+        running=true;
+        scanLoop();
+      } catch(e) {
+        root.innerHTML=`<div class="app"><div class="permission"><div class="big">📷</div><h3>Camera permission needed</h3><p>Allow camera access in your browser, then reload this page and try again.</p><button class="start" id="retry">Try Camera Again</button></div></div>`;
+        document.getElementById('retry').onclick=()=>ui();
+        setHeight();
+      }
+    }
+    function scanLoop() {
+      if(!running) return;
+      if(cvReady && video.readyState>=2) {
+        const q=detect(video,work,overlay);
+        detected=!!q; lastQuad=q;
+        drawOverlay(overlay,video,q);
+        capture.disabled=!detected;
+        if(detected) { hint.textContent='OMR sheet detected • ready to capture'; hint.classList.add('good'); status.textContent='🟢 Sheet detected — keep it steady'; status.classList.add('good'); }
+        else { hint.textContent='Move until the full OMR sheet is visible'; hint.classList.remove('good'); status.textContent=cvLoading?'Preparing live OMR detection…':'🟡 Looking for the OMR sheet…'; status.classList.remove('good'); }
+      }
+      scanTimer=setTimeout(scanLoop,220);
+    }
+    function stopCamera() {
+      running=false; if(scanTimer) clearTimeout(scanTimer);
+      if(stream) stream.getTracks().forEach(t=>t.stop()); stream=null;
+      postValue({closed:true});
+    }
+    startCamera();
+    setTimeout(setHeight,250);
+    window.addEventListener('resize',setHeight);
+  }
+
+  window.addEventListener('message', function(event) {
+    const data=event.data || {};
+    if(data.type==='streamlit:render') {
+      args=data.args || {};
+      if(!document.querySelector('.app')) ui();
+    }
+  });
+  ready();
+  setTimeout(()=>{ if(!document.querySelector('.app')) ui(); },250);
+})();
+</script>
+</body>
+</html>
