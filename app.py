@@ -5738,7 +5738,7 @@ def page_omr_submit():
                             if processed_bgr is None:
                                 st.error("OMR sheet boundary could not be confirmed. Please capture the full sheet with all 4 corners visible.")
                             else:
-                                encoded_ok, encoded = cv2.imencode(".jpg", processed_bgr, [cv2.IMWRITE_JPEG_QUALITY, 94])
+                                encoded_ok, encoded = cv2.imencode(".jpg", processed_bgr, [cv2.IMWRITE_JPEG_QUALITY, 98])
                                 if encoded_ok:
                                     camera_sig = f"camera_{active['key_id']}_{len(encoded)}_{hash(encoded.tobytes())}"
                                     if st.session_state.get("camera_omr_sig") != camera_sig:
@@ -5788,7 +5788,14 @@ def page_omr_submit():
                         ok, errors, warnings_ = _relax_blur_only_validation(
                             ok, errors, warnings_
                         )
-                        proc_bgr = omr_scanner.resize_max_dim(orig_bgr) if ok else orig_bgr
+                        # Camera output has already been perspective-corrected at
+                        # high resolution. Keep that resolution instead of applying
+                        # the normal upload-display downscale. Gallery uploads keep
+                        # the existing behavior unchanged.
+                        if camera_bytes and ok:
+                            proc_bgr = orig_bgr
+                        else:
+                            proc_bgr = omr_scanner.resize_max_dim(orig_bgr) if ok else orig_bgr
                         st.session_state["submit_prepared_image"] = proc_bgr
                         st.session_state["submit_original_bytes"] = source_bytes
                         st.session_state["submit_validation"] = (ok, errors, warnings_)
