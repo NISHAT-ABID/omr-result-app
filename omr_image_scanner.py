@@ -186,18 +186,63 @@ def perspective_flatten(frame_bgr: np.ndarray, quad: np.ndarray, max_width: int 
 
 
 def moderate_enhance(image_bgr: np.ndarray) -> np.ndarray:
-    """Correct mild phone-camera lighting while preserving original OMR marks."""
-    img = image_bgr.copy()
+    """Deblur + normalize a captured OMR photo while keeping bubble
+    darkness measurements reliable (i.e. without creating fake
+    double-touch marks).
 
-    lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
-    l, a, b = cv2.split(lab)
-    clahe = cv2.createCLAHE(clipLimit=1.05, tileGridSize=(10, 10))
-    l = clahe.apply(l)
-    enhanced = cv2.cvtColor(cv2.merge((l, a, b)), cv2.COLOR_LAB2BGR)
+    Pipeline, in order, and why each step exists:
+    1. Shadow/illumination normalization - estimate the paper's local
+       background brightness (a big blurred/closed version of the
+       grayscale image) and divide the image by it. This flattens
+       uneven lighting/shadows across the sheet, so a bubble on the
+       shaded side of the paper doesn't read as "darker" than an
+       identical empty bubble on the bright side. This is the #1 cause
+       of false double-touch flags on real phone photos.
+    2. Mild denoise (bilateral filter) BEFORE sharpening - sharpening a
+       noisy image amplifies sensor noise/paper grain into fake dark
+       specks, which can look like a stray mark inside a bubble. Denoise
+       first so sharpening only strengthens real edges (pen strokes,
+       printed circles), not noise.
+    3. CLAHE for local contrast - makes pen marks vs. paper more
+       distinct without blowing out whites (unlike a flat brightness/
+       contrast boost, which would risk washing out light pencil marks).
+    4. Unsharp mask - recovers edge definition lost to mild camera blur/
+       motion blur, so bubble outlines and pen fill read cleanly even
+       from a slightly soft photo.
 
-    blur = cv2.GaussianBlur(enhanced, (0, 0), 0.75)
-    sharp = cv2.addWeighted(enhanced, 1.05, blur, -0.05, 0)
-    return np.clip(sharp, 0, 255).astype(np.uint8)
+    Output is a 3-channel BGR image (grayscale duplicated across
+    channels) so it stays a drop-in replacement everywhere a BGR image
+    is expected downstream.
+    """
+    gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
+    h, w = gray.shape[:2]
+
+    # --- 1. Shadow / illumination normalization ---
+    # Kernel scales with image size so this works the same whether the
+    # captured frame is a small preview or a full-resolution photo.
+    k = max(21, (min(h, w) // 12) | 1)  # odd kernel size
+    background = cv2.morphologyEx(
+        gray, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
+    )
+    background = cv2.GaussianBlur(background, (0, 0), sigmaX=k / 3.0)
+    # Avoid divide-by-zero on pure-black regions.
+    background_safe = np.where(background < 5, 5, background).astype(np.float32)
+    normalized = (gray.astype(np.float32) / background_safe) * 255.0
+    normalized = np.clip(normalized, 0, 255).astype(np.uint8)
+
+    # --- 2. Denoise before sharpening ---
+    denoised = cv2.bilateralFilter(normalized, d=5, sigmaColor=45, sigmaSpace=45)
+
+    # --- 3. Local contrast (CLAHE) ---
+    clahe = cv2.createCLAHE(clipLimit=1.6, tileGridSize=(12, 12))
+    contrasted = clahe.apply(denoised)
+
+    # --- 4. Unsharp mask (deblur) ---
+    blur = cv2.GaussianBlur(contrasted, (0, 0), sigmaX=1.2)
+    sharp = cv2.addWeighted(contrasted, 1.6, blur, -0.6, 0)
+    sharp = np.clip(sharp, 0, 255).astype(np.uint8)
+
+    return cv2.cvtColor(sharp, cv2.COLOR_GRAY2BGR)
 
 
 def _resize_max_dim(image_bgr: np.ndarray, max_dim: int = 1600) -> np.ndarray:
