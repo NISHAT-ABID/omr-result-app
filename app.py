@@ -4657,6 +4657,24 @@ def _draw_past_exam_correct_answer_glow(
     return cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
 
 
+
+def _answer_key_map(key_row, total):
+    """Build a simple Q->correct-option map, honoring per-question rules."""
+    rules = {}
+    try:
+        raw = key_row.get("answer_rules_json", "{}")
+        rules = json.loads(raw) if raw else {}
+    except Exception:
+        rules = {}
+    key_string = str(key_row.get("answer_string", "") or "")
+    out = {}
+    for q in range(1, total + 1):
+        rule = rules.get(str(q), {}) or {}
+        accepted = [str(x).upper() for x in rule.get("accepted", []) if str(x).upper() in "ABCD"]
+        out[q] = accepted[0] if accepted else (key_string[q-1].upper() if q <= len(key_string) and key_string[q-1].upper() in "ABCD" else None)
+    return out
+
+
 def _load_result_omr_context(result_row, key_row):
     """Load submitted OMR bytes and saved scanner grid without changing either."""
     omr_photo_id = str(result_row.get("omr_photo_file_id", "") or "")
