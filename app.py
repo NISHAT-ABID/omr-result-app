@@ -4657,6 +4657,28 @@ def _draw_past_exam_correct_answer_glow(
     return cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
 
 
+def _load_result_omr_context(result_row, key_row):
+    """Load submitted OMR bytes and saved scanner grid without changing either."""
+    omr_photo_id = str(result_row.get("omr_photo_file_id", "") or "")
+    if not omr_photo_id:
+        return None, {}, None
+    try:
+        omr_bytes = sh.get_student_omr_image_bytes(omr_photo_id)
+        if not omr_bytes:
+            return None, {}, None
+        pil = ImageOps.exif_transpose(Image.open(io.BytesIO(omr_bytes)).convert("RGB"))
+        photo_bgr = cv2.cvtColor(np.array(pil), cv2.COLOR_RGB2BGR)
+        grid_json = json.loads(result_row.get("omr_grid_json") or "{}")
+        grid_points = {
+            int(q): {o: tuple(pt) for o, pt in opts.items()}
+            for q, opts in grid_json.items()
+            if str(q) != "_meta" and isinstance(opts, dict)
+        }
+        radius = omr_scanner.compute_bubble_radius(photo_bgr)
+        return omr_bytes, grid_points, (photo_bgr, radius)
+    except Exception:
+        return None, {}, None
+
 def _draw_result_review_overlay(img_bgr, grid_points, final_answers, original_answers, correct_answers, radius):
     """Overlay analysis on the submitted OMR while preserving every original mark."""
     canvas = img_bgr.copy()
