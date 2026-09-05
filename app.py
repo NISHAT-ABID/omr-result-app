@@ -3891,7 +3891,7 @@ def render_top_nav(current_page):
     # that's the Bug-2 fix (avatar not lining up with the pill buttons).
     desktop_nav_items = [item for item in STUDENT_NAV if item[0] != "profile"]
     with st.container(key="top_nav"):
-        logo_col, nav_col = st.columns([1.6, 6.4])
+        logo_col, nav_col = st.columns([1.35, 8.65])
         with logo_col:
             st.markdown(
                 f"<div style='display:flex; align-items:center; gap:8px; height:100%; padding-top:2px;'>"
@@ -3904,7 +3904,7 @@ def render_top_nav(current_page):
             # Give longer labels a little more room so they never get
             # unnecessarily squeezed on desktop. Profile remains the
             # circular avatar at the far right.
-            nav_widths = [1.05, 1.45, 1.10, 1.25, 0.78]
+            nav_widths = [1.10, 1.65, 1.25, 1.45, 0.68]
             cols = st.columns(nav_widths)
             for col, (page_key, label) in zip(cols[:-1], desktop_nav_items):
                 with col:
@@ -8289,7 +8289,7 @@ def render_mentor_top_nav(current_page):
     as the student side, and is excluded from the desktop pill row."""
     desktop_nav_items = [item for item in MENTOR_NAV if item[0] != "m_profile"]
     with st.container(key="top_nav"):
-        logo_col, nav_col = st.columns([1.6, 8.4])
+        logo_col, nav_col = st.columns([1.35, 8.65])
         with logo_col:
             st.markdown(
                 f"<div style='display:flex; align-items:center; gap:8px; height:100%; padding-top:2px;'>"
@@ -8301,7 +8301,7 @@ def render_mentor_top_nav(current_page):
         with nav_col:
             # Custom proportions keep "OMR Sheet Setup" fully visible while
             # preserving a compact single-row desktop navigation.
-            nav_widths = [0.95, 1.15, 1.60, 0.95, 0.90, 1.25, 0.70]
+            nav_widths = [1.05, 1.35, 1.75, 1.05, 1.00, 1.35, 0.62]
             cols = st.columns(nav_widths)
             for col, (page_key, label) in zip(cols[:-1], desktop_nav_items):
                 with col:
@@ -8418,6 +8418,33 @@ def page_mentor():
 
 def main():
     inject_global_css()
+
+    # FINAL PC NAV WIDTH OVERRIDE: the stylesheet contains older desktop
+    # max-width rules later in the file, so this scoped runtime style is
+    # deliberately injected after all global CSS.  It gives desktop users
+    # enough real horizontal space for every navigation label.
+    st.markdown("""
+    <style>
+    @media (min-width: 901px) {
+        [data-testid="stAppViewContainer"] .main .block-container {
+            width: 100% !important;
+            max-width: 1700px !important;
+            margin-left: auto !important;
+            margin-right: auto !important;
+        }
+        .st-key-top_nav {
+            width: 100% !important;
+            max-width: 100% !important;
+        }
+        .st-key-top_nav .stButton > button {
+            white-space: nowrap !important;
+            overflow: visible !important;
+            text-overflow: clip !important;
+            min-width: 0 !important;
+        }
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
     # Final mobile auth layout override: scoped ONLY to the OUTER login columns.
     # Do not target every HorizontalBlock inside the login card, because the
