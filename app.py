@@ -4501,11 +4501,26 @@ def render_omr_review(rows):
 
 
 
-def _grid_points_json_safe(grid_points):
-    """Convert Q->A/B/C/D point tuples to JSON-safe lists."""
+def _grid_points_json_safe(grid_points, image_size=None):
+    """Convert Q->A/B/C/D point tuples to JSON-safe lists.
+
+    When image_size is supplied, keep the exact pixel dimensions of the image
+    on which the student's calibration/grid was created. Past Exam can then
+    map those calibrated coordinates back onto the original uploaded photo
+    without touching the live submission/detection pipeline.
+    """
     out = {}
     for q, opts in (grid_points or {}).items():
-        out[str(q)] = {str(o): [float(pt[0]), float(pt[1])] for o, pt in (opts or {}).items() if _coord_pair(pt)}
+        out[str(q)] = {
+            str(o): [float(pt[0]), float(pt[1])]
+            for o, pt in (opts or {}).items()
+            if _coord_pair(pt)
+        }
+    if image_size and len(image_size) >= 2:
+        out["_meta"] = {
+            "image_width": int(image_size[0]),
+            "image_height": int(image_size[1]),
+        }
     return out
 
 
@@ -4635,6 +4650,7 @@ def _load_result_omr_context(result_row, key_row):
         grid_points = {
             int(q): {o: tuple(pt) for o, pt in opts.items()}
             for q, opts in grid_json.items()
+            if str(q) != "_meta" and isinstance(opts, dict)
         }
         radius = omr_scanner.compute_bubble_radius(photo_bgr)
         return omr_bytes, grid_points, (photo_bgr, radius)
@@ -4667,6 +4683,75 @@ def _multi_marked_options_from_image(img_bgr, q_points, radius):
     if len(selected) < 2 and len(measurements) >= 2:
         selected = sorted(measurements, key=lambda m: m[2], reverse=True)[:2]
     return [(m[0], m[1]) for m in selected[:4]]
+
+
+def _draw_past_exam_correct_answer_glow(img_bgr, grid_points, correct_answers, source_size=None):
+    """Past Exam ONLY: highlight the real correct bubble on the original photo.
+
+    This is deliberately separate from scanner detection/review. It never
+    redraws detected answers, wrong answers, MULTI flags, labels, or question
+    numbers. The saved student calibration grid is the only answer-position
+    source, mapped from calibration-image pixels to the original uploaded-photo
+    pixels.
+    """
+    canvas = img_bgr.copy()
+    dst_h, dst_w = canvas.shape[:2]
+
+    if source_size and len(source_size) >= 2:
+        src_w, src_h = float(source_size[0]), float(source_size[1])
+    else:
+        src_w, src_h = float(dst_w), float(dst_h)
+
+    if src_w <= 0 or src_h <= 0:
+        src_w, src_h = float(dst_w), float(dst_h)
+
+    sx = dst_w / src_w
+    sy = dst_h / src_h
+    scale = max(0.65, min(1.45, (sx + sy) / 2.0))
+
+    for q, opts in (grid_points or {}).items():
+        try:
+            qn = int(q)
+        except Exception:
+            continue
+
+        correct = _normalise_answer_value(
+            correct_answers.get(qn, correct_answers.get(str(qn)))
+        )
+        if correct not in opts:
+            continue
+
+        px, py = opts[correct]
+        x = int(round(float(px) * sx))
+        y = int(round(float(py) * sy))
+
+        if not (0 <= x < dst_w and 0 <= y < dst_h):
+            continue
+
+        # Very subtle green halo + clean ring. Original ink remains untouched.
+        halo_r = max(8, int(round(12 * scale)))
+        ring_r = max(6, int(round(9 * scale)))
+        glow = canvas.copy()
+
+        cv2.circle(glow, (x, y), halo_r, (95, 235, 125), -1, cv2.LINE_AA)
+        glow = cv2.GaussianBlur(
+            glow,
+            (0, 0),
+            sigmaX=max(2.0, 3.2 * scale),
+            sigmaY=max(2.0, 3.2 * scale),
+        )
+        canvas = cv2.addWeighted(canvas, 0.88, glow, 0.12, 0)
+
+        cv2.circle(
+            canvas, (x, y), ring_r,
+            (75, 220, 105), max(2, int(round(2 * scale))), cv2.LINE_AA
+        )
+        cv2.circle(
+            canvas, (x, y), max(2, int(round(3 * scale))),
+            (75, 220, 105), -1, cv2.LINE_AA
+        )
+
+    return cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
 
 
 def _draw_result_review_overlay(img_bgr, grid_points, final_answers, original_answers, correct_answers, radius):
@@ -4942,8 +5027,32 @@ def render_result_detail(result_row, key_row, mentor_mode=False):
                 photo_bgr, radius = image_ctx
                 final = json.loads(result_row.get("omr_final_answers_json") or "{}")
                 original = json.loads(result_row.get("omr_original_answers_json") or "{}")
-                overlay = _draw_result_review_overlay(photo_bgr, grid_points, final, original, _answer_key_map(key_row, total), radius)
-                st.image(overlay, caption="Green = correct answer · Red = your wrong answer · Purple = multiple marks. Original ink remains visible.", use_container_width=True)
+                # Past Exam is intentionally simple: highlight ONLY the real
+                # correct answer using the student's saved calibration grid.
+                grid_json_raw = {}
+                try:
+                    grid_json_raw = json.loads(result_row.get("omr_grid_json") or "{}")
+                except Exception:
+                    grid_json_raw = {}
+                meta = grid_json_raw.get("_meta", {}) if isinstance(grid_json_raw, dict) else {}
+                source_size = (
+                    int(meta.get("image_width", 0) or 0),
+                    int(meta.get("image_height", 0) or 0),
+                )
+                if source_size[0] <= 0 or source_size[1] <= 0:
+                    source_size = None
+
+                overlay = _draw_past_exam_correct_answer_glow(
+                    photo_bgr,
+                    grid_points,
+                    _answer_key_map(key_row, total),
+                    source_size=source_size,
+                )
+                st.image(
+                    overlay,
+                    caption="Correct answers highlighted using your calibration",
+                    use_container_width=True,
+                )
                 with st.expander("View original OMR without analysis overlay"):
                     st.image(cv2.cvtColor(photo_bgr, cv2.COLOR_BGR2RGB), use_container_width=True)
             else:
@@ -5843,7 +5952,10 @@ def page_omr_submit():
                                             result["omr_original_answers"] = dict(detected)
                                             result["omr_final_answers"] = dict(final_answers)
                                             result["omr_double_touch"] = list(double_qs)
-                                            result["omr_grid"] = _grid_points_json_safe(grid_points)
+                                            result["omr_grid"] = _grid_points_json_safe(
+                                                grid_points,
+                                                image_size=(img_bgr.shape[1], img_bgr.shape[0]),
+                                            )
                                             neg_enabled = sh._to_bool(active_now.get("negative_marking", False))
                                             if neg_enabled:
                                                 neg_per_wrong = max(0.0, float(active_now.get("negative_marks_value", 0.0) or 0.0))
