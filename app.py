@@ -4992,6 +4992,118 @@ def _normalise_answer_value(value):
     return None
 
 
+
+def _read_answers_from_calibrated_bubbles(img_bgr, grid, total_questions, radius=None):
+    """High-confidence OMR read using the student's calibrated bubble centers.
+
+    The generic scanner is intentionally not used for this pass.  Each A/B/C/D
+    position comes directly from the student's calibration grid, then we compare
+    the dark ink inside that bubble with its own local paper/print ring.  This is
+    much more tolerant of perspective, uneven lighting and the pink printed
+    bubble outlines than a global darkness threshold.
+    """
+    try:
+        q_points = _extract_question_option_points(grid, total_questions)
+    except Exception:
+        q_points = {}
+    if not q_points:
+        return {str(q): "" for q in range(1, int(total_questions) + 1)}
+
+    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+    # A light denoise removes JPEG/camera noise without washing out black ink.
+    gray = cv2.GaussianBlur(gray, (3, 3), 0)
+    r = max(7, int(round(radius or 16)))
+    inner_r = max(4, int(round(r * 0.52)))
+    ring_in = max(inner_r + 2, int(round(r * 0.78)))
+    ring_out = max(ring_in + 2, int(round(r * 1.04)))
+
+    def _bubble_score(x, y):
+        x, y = int(round(x)), int(round(y))
+        pad = ring_out + 2
+        x0, x1 = max(0, x-pad), min(gray.shape[1], x+pad+1)
+        y0, y1 = max(0, y-pad), min(gray.shape[0], y+pad+1)
+        patch = gray[y0:y1, x0:x1]
+        if patch.size < 25:
+            return -999.0, 0.0
+        yy, xx = np.ogrid[:patch.shape[0], :patch.shape[1]]
+        cx, cy = x-x0, y-y0
+        d2 = (xx-cx)**2 + (yy-cy)**2
+        inner = d2 <= inner_r**2
+        ring = (d2 >= ring_in**2) & (d2 <= ring_out**2)
+        if not np.any(inner) or not np.any(ring):
+            return -999.0, 0.0
+
+        iv = patch[inner].astype(np.float32)
+        rv = patch[ring].astype(np.float32)
+        # Local contrast: filled black ink is much darker than its surrounding
+        # paper/printed ring. Percentiles make the score robust to blur.
+        contrast = float(np.median(rv) - np.median(iv))
+        contrast += 0.35 * float(np.percentile(rv, 30) - np.percentile(iv, 30))
+        local_floor = float(np.median(rv) - 38.0)
+        dark_fraction = float(np.mean(iv < local_floor))
+        score = contrast + 18.0 * dark_fraction
+        return score, dark_fraction
+
+    measurements = {}
+    all_scores = []
+    for q in range(1, int(total_questions) + 1):
+        opts = q_points.get(q, {}) or q_points.get(str(q), {}) or {}
+        row = {}
+        for opt in ("A", "B", "C", "D"):
+            pt = opts.get(opt)
+            if pt is None:
+                continue
+            s, dark = _bubble_score(pt[0], pt[1])
+            row[opt] = (s, dark)
+            if s > -900:
+                all_scores.append(s)
+        measurements[q] = row
+
+    if all_scores:
+        med = float(np.median(all_scores))
+        mad = float(np.median(np.abs(np.asarray(all_scores) - med)))
+        # Keep a conservative floor so printed letters/rings don't become hits.
+        global_threshold = max(24.0, med + 6.0 * max(mad, 1.0))
+    else:
+        global_threshold = 24.0
+
+    result = {}
+    for q in range(1, int(total_questions) + 1):
+        row = measurements.get(q, {})
+        ranked = sorted(row.items(), key=lambda kv: kv[1][0], reverse=True)
+        if not ranked:
+            result[str(q)] = ""
+            continue
+
+        best_opt, (best_score, best_dark) = ranked[0]
+        second_score = ranked[1][1][0] if len(ranked) > 1 else -999.0
+        margin = best_score - second_score
+
+        # A real filled bubble has both strong local contrast and a substantial
+        # amount of dark ink.  The margin prevents ordinary printed circles/text
+        # from winning when all four bubbles are effectively empty.
+        best_hit = (
+            best_score >= global_threshold
+            and best_dark >= 0.16
+            and (margin >= 7.0 or best_score >= global_threshold + 18.0)
+        )
+
+        # Preserve MULTI detection when two physically dark bubbles are genuinely
+        # present. Both candidates must independently pass a stricter test.
+        strong = [
+            opt for opt, (score, dark) in ranked
+            if score >= global_threshold + 3.0 and dark >= 0.18
+        ]
+        if len(strong) >= 2:
+            result[str(q)] = "MULTI"
+        elif best_hit:
+            result[str(q)] = best_opt
+        else:
+            result[str(q)] = ""
+
+    return result
+
+
 def _normalise_answers(raw, total_q):
     """Return a stable {question_number: answer} dict from scanner output."""
     out = {}
@@ -5769,7 +5881,9 @@ def page_omr_submit():
                                 grid = omr_scanner.build_grid(calibration, total_questions=total_q)
                                 radius = omr_scanner.compute_bubble_radius(img_bgr)
                                 detected = _normalise_answers(
-                                    omr_scanner.read_answers(img_bgr, grid, radius=radius),
+                                    _read_answers_from_calibrated_bubbles(
+                                        img_bgr, grid, total_q, radius=radius
+                                    ),
                                     total_q,
                                 )
                                 double_qs = [q for q, a in detected.items() if a == "MULTI"]
