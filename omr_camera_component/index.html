@@ -8,25 +8,24 @@
 html,body{margin:0;padding:0;background:#071311;color:#fff;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
 body{overflow:hidden}
 #app{width:100%;min-height:520px;height:78vh;max-height:820px;position:relative;background:#050908;border-radius:18px;overflow:hidden}
-video{width:100%;height:100%;object-fit:cover;display:block;background:#050908}
+video{width:100%;height:100%;object-fit:contain;display:block;background:#050908}
+#overlay{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:3}
 #top{position:absolute;top:0;left:0;right:0;padding:12px 14px;padding-top:max(12px,env(safe-area-inset-top));display:flex;justify-content:space-between;align-items:center;background:linear-gradient(#0009,transparent);z-index:4}
 .badge{padding:8px 11px;border-radius:999px;background:#0008;font-size:13px;font-weight:700}.ok{background:#0d9488e8}
 .hint{position:absolute;left:14px;right:14px;bottom:90px;text-align:center;z-index:4;text-shadow:0 2px 5px #000;font-weight:600;font-size:14px}
 #controls{position:absolute;left:0;right:0;bottom:0;padding:12px 16px;padding-bottom:max(14px,env(safe-area-inset-bottom));display:flex;justify-content:center;gap:14px;align-items:center;background:linear-gradient(transparent,#000b 35%);z-index:5}
 button{border:0;border-radius:999px;color:white;background:#26322f;padding:13px 20px;font-size:15px;font-weight:750;min-height:48px}
 #capture{width:68px;height:68px;padding:0;border:5px solid #fff;background:#0d9488;box-shadow:0 0 0 4px #0d948866}
-#capture:disabled{opacity:.35}
-#start{background:#0d9488}
-.hidden{display:none!important}
-#status{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:6;background:#050908e8;text-align:center;padding:24px}
-.panel{max-width:420px}.panel h3{margin:0 0 8px}.panel p{margin:0 0 18px;color:#c9d5d2;line-height:1.5}
-:fullscreen #app{height:100vh;max-height:none;border-radius:0}
-:-webkit-full-screen #app{height:100vh;max-height:none;border-radius:0}
+#capture:disabled{opacity:.35}#start{background:#0d9488}.hidden{display:none!important}
+#status{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:6;background:#050908e8;text-align:center;padding:24px}.panel{max-width:420px}.panel h3{margin:0 0 8px}.panel p{margin:0 0 18px;color:#c9d5d2;line-height:1.5}
+:fullscreen #app{height:100vh;max-height:none;border-radius:0}:-webkit-full-screen #app{height:100vh;max-height:none;border-radius:0}
 </style>
 </head>
 <body>
 <div id="app">
   <video id="video" autoplay playsinline muted></video>
+  <canvas id="overlay"></canvas>
+  <canvas id="detect" class="hidden"></canvas>
   <div id="top"><span class="badge">The Med Venture · OMR Scanner</span><span id="state" class="badge">Ready</span></div>
   <div id="hint" class="hint">Point the camera at the FULL OMR sheet</div>
   <div id="controls">
@@ -38,147 +37,222 @@ button{border:0;border-radius:999px;color:white;background:#26322f;padding:13px 
 </div>
 
 <script>
-// Streamlit Component V1 protocol helpers.
-// The isStreamlitMessage flag is required so Streamlit recognizes these messages.
-const COMPONENT_READY = "streamlit:componentReady";
-const SET_FRAME_HEIGHT = "streamlit:setFrameHeight";
-const SET_COMPONENT_VALUE = "streamlit:setComponentValue";
+// Streamlit Component V1 protocol. The ready/value messages are sent with
+// isStreamlitMessage so Streamlit can recognize them immediately.
+const COMPONENT_READY="streamlit:componentReady";
+const SET_FRAME_HEIGHT="streamlit:setFrameHeight";
+const SET_COMPONENT_VALUE="streamlit:setComponentValue";
+function sendMessage(type,data={}){window.parent.postMessage({isStreamlitMessage:true,type,...data},"*")}
+function sendReady(){sendMessage(COMPONENT_READY,{apiVersion:1})}
+function setHeight(){sendMessage(SET_FRAME_HEIGHT,{height:Math.max(document.documentElement.scrollHeight||0,document.body.scrollHeight||0,520)})}
+function sendValue(value){sendMessage(SET_COMPONENT_VALUE,{value})}
 
-function sendMessage(type, data = {}) {
-  window.parent.postMessage({
-    isStreamlitMessage: true,
-    type,
-    ...data
-  }, "*");
+const app=document.getElementById('app');
+const video=document.getElementById('video');
+const overlay=document.getElementById('overlay');
+const overlayCtx=overlay.getContext('2d');
+const detect=document.getElementById('detect');
+const detectCtx=detect.getContext('2d',{willReadFrequently:true});
+const start=document.getElementById('start');
+const capture=document.getElementById('capture');
+const flip=document.getElementById('flip');
+const state=document.getElementById('state');
+const hint=document.getElementById('hint');
+
+let stream=null;
+let facing='environment';
+let lastQuad=null;
+let cvReady=false;
+let detectorBusy=false;
+let captured=false;
+let raf=0;
+let cvScript=null;
+
+function resizeOverlay(){
+  const w=video.clientWidth||640, h=video.clientHeight||480;
+  overlay.width=Math.max(1,Math.round(w*devicePixelRatio));
+  overlay.height=Math.max(1,Math.round(h*devicePixelRatio));
+  overlay.style.width=w+'px'; overlay.style.height=h+'px';
+  overlayCtx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
+  overlayCtx.clearRect(0,0,w,h);
 }
 
-function sendReady() {
-  sendMessage(COMPONENT_READY, {apiVersion: 1});
+function clearOverlay(){
+  const w=video.clientWidth||640, h=video.clientHeight||480;
+  overlayCtx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
+  overlayCtx.clearRect(0,0,w,h);
 }
 
-function setHeight() {
-  const height = Math.max(
-    document.documentElement.scrollHeight || 0,
-    document.body.scrollHeight || 0,
-    520
-  );
-  sendMessage(SET_FRAME_HEIGHT, {height});
+function drawQuad(points){
+  clearOverlay();
+  if(!points||points.length!==4)return;
+  const vw=video.videoWidth||1,vh=video.videoHeight||1;
+  const cw=video.clientWidth||vw,ch=video.clientHeight||vh;
+  // video uses object-fit:contain, so map video pixels into the visible box
+  // without stretching the detected border.
+  const scale=Math.min(cw/vw,ch/vh);
+  const ox=(cw-vw*scale)/2, oy=(ch-vh*scale)/2;
+  overlayCtx.beginPath();
+  points.forEach((p,i)=>{const x=ox+p.x*scale,y=oy+p.y*scale;i?overlayCtx.lineTo(x,y):overlayCtx.moveTo(x,y)});
+  overlayCtx.closePath();
+  overlayCtx.strokeStyle='#32e6aa';
+  overlayCtx.lineWidth=Math.max(3,Math.min(7,cw/100));
+  overlayCtx.shadowColor='#32e6aa'; overlayCtx.shadowBlur=10; overlayCtx.stroke();
+  overlayCtx.shadowBlur=0;
+  points.forEach(p=>{const x=ox+p.x*scale,y=oy+p.y*scale;overlayCtx.fillStyle='#32e6aa';overlayCtx.beginPath();overlayCtx.arc(x,y,Math.max(5,cw/85),0,Math.PI*2);overlayCtx.fill()});
 }
 
-function sendValue(value) {
-  sendMessage(SET_COMPONENT_VALUE, {value});
+function orderQuad(points){
+  const s=points.map(p=>p.x+p.y), d=points.map(p=>p.x-p.y);
+  return [points[s.indexOf(Math.min(...s))],points[d.indexOf(Math.max(...d))],points[s.indexOf(Math.max(...s))],points[d.indexOf(Math.min(...d))]];
 }
 
-const video = document.getElementById("video");
-const start = document.getElementById("start");
-const capture = document.getElementById("capture");
-const flip = document.getElementById("flip");
-const state = document.getElementById("state");
-const hint = document.getElementById("hint");
-const app = document.getElementById("app");
-
-let stream = null;
-let facing = "environment";
-let cameraStarted = false;
-let captured = false;
-
-function stopCamera() {
-  if (stream) {
-    stream.getTracks().forEach(track => track.stop());
-    stream = null;
-  }
+function ensureCvScript(){
+  if(cvReady || cvScript)return;
+  cvScript=document.createElement('script');
+  cvScript.async=true;
+  cvScript.src='https://docs.opencv.org/4.x/opencv.js';
+  cvScript.onload=()=>{
+    const wait=()=>{
+      if(window.cv && cv.Mat){cvReady=true; state.textContent='Detector ready ✓'; state.className='badge ok';}
+      else setTimeout(wait,100);
+    };
+    wait();
+  };
+  cvScript.onerror=()=>{cvScript=null;};
+  document.head.appendChild(cvScript);
 }
 
-async function openCamera() {
-  try {
-    stopCamera();
+function detectSheet(){
+  if(!cvReady || detectorBusy || !video.videoWidth || captured)return;
+  detectorBusy=true;
+  try{
+    // Detection runs on a small hidden canvas only; the visible <video> keeps
+    // the phone camera's native preview quality.
+    const maxW=720;
+    const scale=Math.min(1,maxW/video.videoWidth);
+    detect.width=Math.max(1,Math.round(video.videoWidth*scale));
+    detect.height=Math.max(1,Math.round(video.videoHeight*scale));
+    detectCtx.drawImage(video,0,0,detect.width,detect.height);
 
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      throw new Error("Camera API is not available in this browser.");
-    }
+    const img=cv.imread(detect);
+    const gray=new cv.Mat(),blur=new cv.Mat(),edges=new cv.Mat(),mask=new cv.Mat();
+    cv.cvtColor(img,gray,cv.COLOR_RGBA2GRAY);
+    cv.GaussianBlur(gray,blur,new cv.Size(5,5),0);
+    cv.Canny(blur,30,120,edges);
+    cv.threshold(blur,0,255,mask,cv.THRESH_BINARY+cv.THRESH_OTSU);
+    const kernel=cv.Mat.ones(5,5,cv.CV_8U);
+    cv.morphologyEx(edges,edges,cv.MORPH_CLOSE,kernel);
+    cv.morphologyEx(mask,mask,cv.MORPH_CLOSE,kernel);
+    const contours1=new cv.MatVector(), contours2=new cv.MatVector(), hierarchy=new cv.Mat(), hierarchy2=new cv.Mat();
+    cv.findContours(edges,contours1,hierarchy,cv.RETR_EXTERNAL,cv.CHAIN_APPROX_SIMPLE);
+    cv.findContours(mask,contours2,hierarchy2,cv.RETR_EXTERNAL,cv.CHAIN_APPROX_SIMPLE);
 
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: {ideal: facing},
-        width: {ideal: 1920},
-        height: {ideal: 1080}
-      },
-      audio: false
-    });
-
-    video.srcObject = stream;
-    await video.play();
-
-    cameraStarted = true;
-    captured = false;
-    start.classList.add("hidden");
-    flip.classList.remove("hidden");
-    capture.disabled = false;
-    state.textContent = "Camera ready ✓";
-    state.className = "badge ok";
-    hint.textContent = "Keep the FULL OMR sheet visible, then capture";
-
-    try {
-      if (document.fullscreenEnabled && app.requestFullscreen) {
-        await app.requestFullscreen();
+    let best=null,bestScore=0;
+    function inspect(contours){
+      const total=detect.width*detect.height;
+      for(let i=0;i<contours.size();i++){
+        const c=contours.get(i), area=cv.contourArea(c);
+        if(area<total*0.12){c.delete();continue;}
+        const peri=cv.arcLength(c,true);
+        const approx=new cv.Mat();
+        cv.approxPolyDP(c,approx,0.025*peri,true);
+        if(approx.rows===4 && cv.isContourConvex(approx)){
+          const r=cv.boundingRect(approx);
+          const aspect=Math.min(r.width,r.height)/Math.max(r.width,r.height);
+          const rectArea=Math.max(1,r.width*r.height);
+          const rectangularity=area/rectArea;
+          if(aspect>=0.45&&aspect<=0.86&&rectangularity>=0.70){
+            const score=(area/total)*(0.65+0.35*rectangularity);
+            if(score>bestScore){
+              bestScore=score;
+              if(best)best.delete();
+              best=approx; approx=null;
+            }
+          }
+        }
+        if(approx)approx.delete();
+        c.delete();
       }
-    } catch (e) {}
+    }
+    inspect(contours1); inspect(contours2);
 
+    if(best){
+      const smallPts=[];
+      for(let i=0;i<4;i++)smallPts.push({x:best.intAt(i,0)/scale,y:best.intAt(i,1)/scale});
+      lastQuad=orderQuad(smallPts);
+      drawQuad(lastQuad);
+      state.textContent='OMR detected ✓';state.className='badge ok';
+      hint.textContent='Great — all 4 corners detected. You can capture now';
+      capture.disabled=false;
+    }else{
+      lastQuad=null; clearOverlay();
+      if(cameraStarted){state.textContent=cvReady?'Align sheet':'Camera ready';state.className='badge';hint.textContent='Keep the FULL OMR sheet visible';}
+      capture.disabled=!cameraStarted;
+    }
+    img.delete();gray.delete();blur.delete();edges.delete();mask.delete();kernel.delete();contours1.delete();contours2.delete();hierarchy.delete();hierarchy2.delete();if(best)best.delete();
+  }catch(e){
+    // The camera remains usable even if live CV detection is temporarily unavailable.
+    capture.disabled=!cameraStarted;
+  }finally{detectorBusy=false;}
+}
+
+let cameraStarted=false;
+function loop(){
+  if(cameraStarted&&!captured)detectSheet();
+  raf=requestAnimationFrame(loop);
+}
+
+function stopCamera(){if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}}
+
+async function openCamera(){
+  try{
+    stopCamera(); captured=false; lastQuad=null; clearOverlay();
+    if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)throw new Error('Camera API is not available in this browser.');
+    stream=await navigator.mediaDevices.getUserMedia({
+      video:{facingMode:{ideal:facing},width:{ideal:2560},height:{ideal:1440},frameRate:{ideal:30,max:30}},audio:false
+    });
+    video.srcObject=stream; await video.play();
+    cameraStarted=true;
+    start.classList.add('hidden'); flip.classList.remove('hidden'); capture.disabled=false;
+    state.textContent='Camera ready';state.className='badge ok';hint.textContent='Keep the FULL OMR sheet visible';
+    resizeOverlay();
+    try{await app.requestFullscreen?.()}catch(e){}
     setHeight();
-  } catch (e) {
-    cameraStarted = false;
-    capture.disabled = true;
-    state.textContent = "Camera blocked";
-    state.className = "badge";
-    hint.textContent = "Allow camera access in Chrome settings, then try again";
-    sendValue({error: String(e && e.message ? e.message : e)});
+    ensureCvScript();
+  }catch(e){
+    cameraStarted=false;capture.disabled=true;state.textContent='Camera blocked';state.className='badge';
+    hint.textContent='Allow camera access in Chrome settings, then try again';
+    sendValue({error:String(e&&e.message?e.message:e)});
   }
 }
 
-function captureFrame() {
-  if (!cameraStarted || !video.videoWidth || captured) return;
-
-  const out = document.createElement("canvas");
-  out.width = video.videoWidth;
-  out.height = video.videoHeight;
-
-  const outCtx = out.getContext("2d", {alpha: false});
-  outCtx.drawImage(video, 0, 0, out.width, out.height);
-
-  const data = out.toDataURL("image/jpeg", 0.94);
-  captured = true;
-  capture.disabled = true;
-  state.textContent = "Captured ✓";
-  state.className = "badge ok";
-  hint.textContent = "Captured — processing…";
-
-  stopCamera();
-  try { document.exitFullscreen?.(); } catch (e) {}
-
-  // Boundary detection, perspective correction and enhancement are intentionally
-  // handled by the existing Python OMR image-processing pipeline after capture.
-  sendValue({captured: data, quad: null});
+function captureFrame(){
+  if(!cameraStarted||!video.videoWidth||captured)return;
+  const out=document.createElement('canvas');
+  out.width=video.videoWidth;out.height=video.videoHeight;
+  const outCtx=out.getContext('2d',{alpha:false});
+  outCtx.imageSmoothingEnabled=true;
+  outCtx.drawImage(video,0,0,out.width,out.height);
+  // Keep the native camera frame; do not resize it in the browser.
+  const data=out.toDataURL('image/jpeg',0.985);
+  captured=true;capture.disabled=true;state.textContent='Captured ✓';state.className='badge ok';hint.textContent='Captured — processing…';
+  clearOverlay(); stopCamera();
+  try{document.exitFullscreen?.()}catch(e){}
+  sendValue({captured:data,quad:lastQuad});
 }
 
-start.addEventListener("click", openCamera);
+start.addEventListener('click',openCamera);
+document.getElementById('allow').addEventListener('click',openCamera);
+capture.addEventListener('click',captureFrame);
+flip.addEventListener('click',async()=>{facing=facing==='environment'?'user':'environment';await openCamera()});
+window.addEventListener('resize',resizeOverlay);
+window.addEventListener('beforeunload',()=>{cancelAnimationFrame(raf);stopCamera()});
 
-const allow = document.getElementById("allow");
-if (allow) allow.addEventListener("click", openCamera);
-
-capture.addEventListener("click", captureFrame);
-
-flip.addEventListener("click", async () => {
-  facing = facing === "environment" ? "user" : "environment";
-  await openCamera();
-});
-
-window.addEventListener("resize", setHeight);
-window.addEventListener("beforeunload", stopCamera);
-
-// Signal readiness immediately. No external CDN/library is loaded, so the
-// component can complete its Streamlit handshake without waiting on a network asset.
-sendReady();
-setHeight();
+// IMPORTANT: send ready immediately. OpenCV is loaded lazily AFTER the
+// Streamlit handshake, so a slow CDN cannot make the component time out.
+sendReady();setHeight();
+requestAnimationFrame(loop);
 </script>
 </body>
 </html>
