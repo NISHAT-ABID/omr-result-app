@@ -27,17 +27,18 @@ from PIL import Image, ImageOps
 # ================= FINAL OMR REVIEW BUILD =================
 # Original OMR photo + full Digital OMR + immutable double-touch audit +
 # compact mobile tables. Existing exam/OMR features are intentionally preserved.
-OMR_REVIEW_BUILD = "2026-09-05-smart-scanner-clean-v1"
+OMR_REVIEW_BUILD = "2026-09-05-omr-setup-inside-create-exam-v15"
 from streamlit_image_coordinates import streamlit_image_coordinates
 
 import omr_scanner
 import sheets_helper as sh
 import omr_image_scanner
+from omr_camera_component import omr_camera
 
 st.set_page_config(page_title="The Med Venture — by Bushra", page_icon="🩺", layout="wide")
 
 
-def _mv_reset_submission_state():
+def _reset_submission_state():
     """Clear transient state for the current OMR upload/calibration flow."""
     for k in (
         "submit_file_sig",
@@ -5717,102 +5718,38 @@ def page_omr_submit():
             else:
                 total_q = active["total_questions"]
                 st.caption(f"Active test: **{active['exam_name'] or active['key_id']}** · {total_q} questions")
-                # Smart Scanner: capture a still photo, then detect the full paper,
-                # correct perspective and prepare a stable image for calibration.
-                camera_tab, upload_tab = st.tabs(["📷 Smart Scan", "📁 Upload Photo"])
+                # Camera Scanner is a preprocessing layer only. The existing
+                # calibration + answer scanner below remains unchanged.
+                camera_tab, upload_tab = st.tabs(["📷 Scan with Camera", "📁 Upload Photo"])
 
                 with camera_tab:
-                    st.markdown("### 📷 Smart Scan OMR")
-                    st.caption(
-                        "Capture the FULL OMR sheet with all four corners visible. "
-                        "The scanner will detect the paper, straighten it and prepare it for calibration."
-                    )
-
-                    if st.session_state.get("camera_scan_exam_key") != active["key_id"]:
-                        for k in (
-                            "camera_scan_preview", "camera_scan_bytes", "camera_scan_sig",
-                            "camera_scan_error", "camera_omr_bytes", "camera_omr_sig",
-                            "camera_raw_sig",
-                        ):
-                            st.session_state.pop(k, None)
-                        st.session_state["camera_scan_exam_key"] = active["key_id"]
-
-                    captured = st.camera_input(
-                        "Take a photo of the complete OMR sheet",
-                        key=f"omr_camera_{active['key_id']}",
-                        help="Keep the entire sheet inside the frame and avoid strong shadows.",
-                    )
-
-                    if captured is not None:
-                        raw_bytes = captured.getvalue()
-                        raw_sig = f"{active['key_id']}_{len(raw_bytes)}_{hash(raw_bytes)}"
-                        if st.session_state.get("camera_raw_sig") != raw_sig:
-                            st.session_state["camera_raw_sig"] = raw_sig
-                            try:
-                                pil = ImageOps.exif_transpose(
-                                    Image.open(io.BytesIO(raw_bytes)).convert("RGB")
-                                )
-                                raw_bgr = cv2.cvtColor(np.array(pil), cv2.COLOR_RGB2BGR)
-                                processed_bgr, detected_quad = omr_image_scanner.process_captured_frame(raw_bgr)
-
-                                if processed_bgr is None:
-                                    st.session_state["camera_scan_preview"] = None
-                                    st.session_state["camera_scan_bytes"] = None
-                                    st.session_state["camera_scan_error"] = (
-                                        "Full OMR sheet could not be detected. Retake the photo with all 4 corners visible."
-                                    )
-                                else:
-                                    ok_enc, encoded = cv2.imencode(
-                                        ".jpg", processed_bgr,
-                                        [cv2.IMWRITE_JPEG_QUALITY, 98]
-                                    )
-                                    if not ok_enc:
-                                        raise RuntimeError("Processed image could not be encoded")
-                                    st.session_state["camera_scan_preview"] = processed_bgr
-                                    st.session_state["camera_scan_bytes"] = encoded.tobytes()
-                                    st.session_state["camera_scan_sig"] = (
-                                        f"smartscan_{active['key_id']}_{len(encoded)}_{hash(encoded.tobytes())}"
-                                    )
-                                    st.session_state["camera_scan_error"] = None
-                            except Exception as e:
-                                st.session_state["camera_scan_preview"] = None
-                                st.session_state["camera_scan_bytes"] = None
-                                st.session_state["camera_scan_error"] = f"Smart Scanner failed: {e}"
-
-                    camera_error = st.session_state.get("camera_scan_error")
-                    camera_preview = st.session_state.get("camera_scan_preview")
-
-                    if camera_error:
-                        st.error(camera_error)
-                        st.info("Tip: use a plain background, keep the sheet fully visible, and avoid cutting off any corner.")
-                    elif camera_preview is not None:
-                        st.success("🟢 Sheet detected and corrected successfully.")
-                        st.image(
-                            cv2.cvtColor(camera_preview, cv2.COLOR_BGR2RGB),
-                            caption="Smart Scanner output — perspective corrected and conservatively enhanced",
-                            use_container_width=True,
-                        )
-                        c1, c2 = st.columns(2, gap="small")
-                        with c1:
-                            if st.button("🗑️ Discard Scan", use_container_width=True, key=f"camera_discard_{active['key_id']}"):
-                                for k in (
-                                    "camera_scan_preview", "camera_scan_bytes", "camera_scan_sig",
-                                    "camera_scan_error", "camera_omr_bytes", "camera_omr_sig",
-                                    "camera_raw_sig",
-                                ):
-                                    st.session_state.pop(k, None)
-                                _mv_reset_submission_state()
-                                st.rerun()
-                        with c2:
-                            if st.button("✅ Use This Scan", type="primary", use_container_width=True, key=f"camera_confirm_{active['key_id']}"):
-                                processed_bytes = st.session_state.get("camera_scan_bytes")
-                                processed_sig = st.session_state.get("camera_scan_sig")
-                                if processed_bytes and processed_sig:
-                                    st.session_state["camera_omr_bytes"] = processed_bytes
-                                    st.session_state["camera_omr_sig"] = processed_sig
-                                    _mv_reset_submission_state()
-                                    st.session_state["submit_file_sig"] = processed_sig
-                                    st.rerun()
+                    st.caption("Camera scanner: align the FULL OMR sheet. The scanner will detect the paper, show a green border, and straighten it after capture.")
+                    camera_result = omr_camera(key=f"omr_camera_{active['key_id']}")
+                    if isinstance(camera_result, dict) and camera_result.get("error"):
+                        st.error(f"Camera could not start: {camera_result['error']}")
+                    elif isinstance(camera_result, dict) and camera_result.get("captured"):
+                        try:
+                            import base64
+                            raw_b64 = str(camera_result["captured"])
+                            raw_bytes = base64.b64decode(raw_b64.split(",", 1)[-1])
+                            raw_arr = np.frombuffer(raw_bytes, dtype=np.uint8)
+                            raw_bgr = cv2.imdecode(raw_arr, cv2.IMREAD_COLOR)
+                            processed_bgr, detected_quad = omr_image_scanner.process_captured_frame(raw_bgr)
+                            if processed_bgr is None:
+                                st.error("OMR sheet boundary could not be confirmed. Please capture the full sheet with all 4 corners visible.")
+                            else:
+                                encoded_ok, encoded = cv2.imencode(".jpg", processed_bgr, [cv2.IMWRITE_JPEG_QUALITY, 94])
+                                if encoded_ok:
+                                    camera_sig = f"camera_{active['key_id']}_{len(encoded)}_{hash(encoded.tobytes())}"
+                                    if st.session_state.get("camera_omr_sig") != camera_sig:
+                                        st.session_state["camera_omr_bytes"] = encoded.tobytes()
+                                        st.session_state["camera_omr_sig"] = camera_sig
+                                        st.session_state["camera_omr_preview"] = processed_bgr
+                                        _reset_submission_state()
+                                        st.session_state["submit_file_sig"] = camera_sig
+                                        st.rerun()
+                        except Exception as e:
+                            st.error(f"Camera image processing failed: {e}")
 
                 with upload_tab:
                     uploaded = st.file_uploader(
@@ -5836,10 +5773,10 @@ def page_omr_submit():
                     source_label = None
 
                 if source_bytes is None:
-                    _mv_reset_submission_state()
+                    _reset_submission_state()
                 else:
                     if st.session_state.get("submit_file_sig") != file_sig:
-                        _mv_reset_submission_state()
+                        _reset_submission_state()
                         st.session_state["submit_file_sig"] = file_sig
 
                     if "submit_prepared_image" not in st.session_state:
@@ -5976,7 +5913,7 @@ def page_omr_submit():
                             cb1, cb2 = st.columns(2)
                             with cb1:
                                 if st.button("🔄 Redo Calibration Points", use_container_width=True, disabled=is_submitting):
-                                    _mv_reset_submission_state()
+                                    _reset_submission_state()
                                     st.session_state["submit_file_sig"] = file_sig
                                     st.rerun()
                             with cb2:
@@ -6042,7 +5979,7 @@ def page_omr_submit():
                                             else:
                                                 sh.set_exam_session_status(sid, submit_key_id, "submitted")
                                                 st.session_state.pop("submit_key_id", None)
-                                                _mv_reset_submission_state()
+                                                _reset_submission_state()
                                                 st.success("✅ Result saved!")
                                                 with st.container(key="card_submit_result"):
                                                     r1, r2, r3, r4 = st.columns(4)
