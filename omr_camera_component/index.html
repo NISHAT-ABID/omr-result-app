@@ -5,32 +5,31 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <style>
 *{box-sizing:border-box}
-html,body{margin:0;padding:0;background:#071311;color:#fff;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
-body{overflow:hidden}
-#app{width:100%;height:118px;position:relative;background:#050908;border-radius:16px;overflow:hidden;transition:height .18s ease}
-#app.active{height:62vh;min-height:420px;max-height:720px}
-#app.confirm{height:360px;min-height:0;max-height:520px}
-video{width:100%;height:100%;object-fit:contain;display:block;background:#050908}
+html,body{margin:0;padding:0;background:#050908;color:#fff;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;overflow:hidden}
+#app{width:100%;height:118px;position:relative;background:#050908;border-radius:16px;overflow:hidden}
+#app.active{height:100dvh;min-height:100svh;max-height:none;border-radius:0}
+#app.confirm{height:100dvh;min-height:100svh;max-height:none;border-radius:0}
+video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:block;background:#050908}
 #overlay{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:3}
-#top{position:absolute;top:0;left:0;right:0;padding:10px 12px;padding-top:max(10px,env(safe-area-inset-top));display:flex;justify-content:space-between;align-items:center;background:linear-gradient(#000b,transparent);z-index:4}
-.badge{padding:7px 10px;border-radius:999px;background:#0009;font-size:12px;font-weight:750}.ok{background:#0d9488ed}
-.hint{position:absolute;left:12px;right:12px;bottom:78px;text-align:center;z-index:4;text-shadow:0 2px 5px #000;font-weight:650;font-size:13px}
-#controls{position:absolute;left:0;right:0;bottom:0;padding:10px 14px;padding-bottom:max(10px,env(safe-area-inset-bottom));display:flex;justify-content:center;gap:10px;align-items:center;background:linear-gradient(transparent,#000c 35%);z-index:5}
-button{border:0;border-radius:999px;color:white;background:#26322f;padding:10px 16px;font-size:14px;font-weight:750;min-height:44px}
-#capture{width:62px;height:62px;padding:0;border:5px solid #fff;background:#0d9488;box-shadow:0 0 0 3px #0d948866;font-size:0}
-#capture:after{content:"";display:block;width:35px;height:35px;margin:auto;border-radius:50%;background:#fff}
-#capture:disabled{opacity:.35}
+#top{position:absolute;top:0;left:0;right:0;padding:12px 14px;padding-top:max(12px,env(safe-area-inset-top));display:flex;justify-content:space-between;align-items:center;background:linear-gradient(#000c,transparent);z-index:4}
+.badge{padding:8px 11px;border-radius:999px;background:#0009;font-size:12px;font-weight:750}.ok{background:#0d9488ed}
+.hint{position:absolute;left:14px;right:14px;bottom:92px;text-align:center;z-index:4;text-shadow:0 2px 6px #000;font-weight:650;font-size:13px}
+#controls{position:absolute;left:0;right:0;bottom:0;padding:12px 16px;padding-bottom:max(14px,env(safe-area-inset-bottom));display:flex;justify-content:center;gap:12px;align-items:center;background:linear-gradient(transparent,#000d 38%);z-index:5}
+button{border:0;border-radius:999px;color:#fff;background:#26322f;padding:11px 17px;font-size:14px;font-weight:750;min-height:46px}
+#capture{width:72px;height:72px;padding:0;border:5px solid #fff;background:#0d9488;box-shadow:0 0 0 4px #0d948866;font-size:0}
+#capture:after{content:"";display:block;width:40px;height:40px;margin:auto;border-radius:50%;background:#fff}
+#capture:disabled{opacity:.4}
 #start{background:#0d9488}
-.iconbtn{width:46px;height:46px;padding:0;font-size:20px}
-.iconbtn.active{background:#0d9488}
+.iconbtn{height:46px;min-width:46px;padding:0;font-size:19px}
+.iconbtn.active{background:#0d9488}.iconbtn:disabled{opacity:.55}
 .hidden{display:none!important}
 #status{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:6;background:#050908ed;text-align:center;padding:24px}
 .panel{max-width:420px}.panel h3{margin:0 0 8px}.panel p{margin:0 0 18px;color:#c9d5d2;line-height:1.5}
 #confirmView{position:absolute;inset:0;z-index:7;background:#050908;display:flex;flex-direction:column}
 #capturedPreview{flex:1;width:100%;height:100%;object-fit:contain;min-height:0;background:#050908}
-#confirmBar{padding:10px 12px;padding-bottom:max(10px,env(safe-area-inset-bottom));display:flex;gap:10px;justify-content:center;background:#050908}
+#confirmBar{padding:12px 14px;padding-bottom:max(12px,env(safe-area-inset-bottom));display:flex;gap:10px;justify-content:center;background:#050908}
 #retry{background:#26322f}#usePhoto{background:#0d9488}
-#processing{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#050908d9;z-index:8;font-weight:750}
+#processing{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#050908df;z-index:8;font-weight:750}
 </style>
 </head>
 <body>
@@ -48,244 +47,99 @@ button{border:0;border-radius:999px;color:white;background:#26322f;padding:10px 
   <div id="status" class="hidden"><div class="panel"><h3>Camera access needed</h3><p>Allow camera access, then place the complete OMR sheet inside the frame.</p><button id="allow">Open Camera</button></div></div>
   <div id="confirmView" class="hidden">
     <img id="capturedPreview" alt="Captured OMR preview">
-    <div id="confirmBar">
-      <button id="retry">↻ Retry</button>
-      <button id="usePhoto">✓ Use Photo</button>
-    </div>
+    <div id="confirmBar"><button id="retry">↻ Retry</button><button id="usePhoto">✓ Use Photo</button></div>
     <div id="processing" class="hidden">Processing OMR…</div>
   </div>
 </div>
-
 <script>
-// Streamlit Component V1 protocol.
 function sendMessage(type,data={}){parent.postMessage({isStreamlitMessage:true,type,...data},'*')}
 function sendReady(){sendMessage('streamlit:componentReady',{apiVersion:1})}
-function setHeight(h){sendMessage('streamlit:setFrameHeight',{height:h || Math.max(110,document.documentElement.scrollHeight||document.body.scrollHeight||110)})}
+function setHeight(h){sendMessage('streamlit:setFrameHeight',{height:h||Math.max(118,window.innerHeight||document.documentElement.scrollHeight||118)})}
 function sendValue(value){sendMessage('streamlit:setComponentValue',{value})}
-
-const app=document.getElementById('app');
-const video=document.getElementById('video');
-const overlay=document.getElementById('overlay');
-const octx=overlay.getContext('2d');
-const start=document.getElementById('start');
-const capture=document.getElementById('capture');
-const flip=document.getElementById('flip');
-const torchBtn=document.getElementById('torch');
-const state=document.getElementById('state');
-const hint=document.getElementById('hint');
-const confirmView=document.getElementById('confirmView');
-const capturedPreview=document.getElementById('capturedPreview');
-const retry=document.getElementById('retry');
-const usePhoto=document.getElementById('usePhoto');
-const processing=document.getElementById('processing');
-
-let stream=null;
-let facing='environment';
-let detectorTimer=null;
-let cvReady=false;
-let cvLoading=false;
-let lastQuad=null;
-let capturedData=null;
-let torchOn=false;
-let cameraStarted=false;
-let detectionBusy=false;
-
+const app=document.getElementById('app'),video=document.getElementById('video'),overlay=document.getElementById('overlay'),octx=overlay.getContext('2d');
+const start=document.getElementById('start'),capture=document.getElementById('capture'),flip=document.getElementById('flip'),torchBtn=document.getElementById('torch'),state=document.getElementById('state'),hint=document.getElementById('hint');
+const confirmView=document.getElementById('confirmView'),capturedPreview=document.getElementById('capturedPreview'),retry=document.getElementById('retry'),usePhoto=document.getElementById('usePhoto'),processing=document.getElementById('processing');
+let stream=null,facing='environment',detectorTimer=null,cvReady=false,cvLoading=false,lastQuad=null,capturedData=null,torchOn=false,cameraStarted=false,detectionBusy=false;
 function setIdleHeight(){app.className='';setHeight(118)}
-function setActiveHeight(){app.className='active';setHeight(Math.min(720,Math.max(420,Math.round(window.innerHeight*.62))))}
-function setConfirmHeight(){app.className='confirm';setHeight(360)}
-
-function resizeOverlay(){
-  const w=video.videoWidth||640,h=video.videoHeight||480;
-  overlay.width=w; overlay.height=h;
-}
-
+function setActiveHeight(){app.className='active';setHeight(Math.max(600,window.innerHeight||window.screen.height||800))}
+function setConfirmHeight(){app.className='confirm';setHeight(Math.max(600,window.innerHeight||window.screen.height||800))}
+function resizeOverlay(){overlay.width=video.videoWidth||640;overlay.height=video.videoHeight||480}
 function clearOverlay(){octx.clearRect(0,0,overlay.width,overlay.height)}
-
 function drawGuide(){
-  if(!overlay.width||!overlay.height)return;
-  clearOverlay();
-  const W=overlay.width,H=overlay.height;
-  // Portrait document guide; actual detected quad replaces this when available.
-  const ratio=.58;
-  let boxW=Math.min(W*.86,H*ratio), boxH=boxW/0.707;
-  if(boxH>H*.84){boxH=H*.84;boxW=boxH*.707}
-  const x=(W-boxW)/2,y=(H-boxH)/2;
-  octx.strokeStyle='#ffffffaa';octx.lineWidth=Math.max(3,W/300);octx.setLineDash([12,10]);
-  octx.strokeRect(x,y,boxW,boxH);octx.setLineDash([]);
+  clearOverlay(); if(!overlay.width)return;
+  const W=overlay.width,H=overlay.height, target=.7071;
+  let bw=Math.min(W*.84,H*.82*target),bh=bw/target;
+  if(bh>H*.82){bh=H*.82;bw=bh*target}
+  const x=(W-bw)/2,y=(H-bh)/2;
+  octx.strokeStyle='#ffffffcc';octx.lineWidth=Math.max(4,W/280);octx.setLineDash([18,12]);octx.strokeRect(x,y,bw,bh);octx.setLineDash([]);
 }
-
-function drawQuad(q,good=true){
-  clearOverlay();
-  if(!q){drawGuide();return}
-  octx.strokeStyle=good?'#32e6aa':'#ffd166';
-  octx.lineWidth=Math.max(4,overlay.width/260);
-  octx.beginPath();octx.moveTo(q[0].x,q[0].y);for(let i=1;i<q.length;i++)octx.lineTo(q[i].x,q[i].y);octx.closePath();octx.stroke();
-  for(const p of q){octx.fillStyle=octx.strokeStyle;octx.beginPath();octx.arc(p.x,p.y,Math.max(6,overlay.width/105),0,Math.PI*2);octx.fill()}
+function drawQuad(q){
+  clearOverlay();octx.strokeStyle='#20e6a3';octx.lineWidth=Math.max(5,overlay.width/230);octx.beginPath();octx.moveTo(q[0].x,q[0].y);for(let i=1;i<q.length;i++)octx.lineTo(q[i].x,q[i].y);octx.closePath();octx.stroke();
+  for(const p of q){octx.fillStyle='#20e6a3';octx.beginPath();octx.arc(p.x,p.y,Math.max(8,overlay.width/95),0,Math.PI*2);octx.fill()}
 }
-
 function loadOpenCV(){
   if(cvReady||cvLoading||window.cv)return;
-  cvLoading=true;
-  const s=document.createElement('script');
-  s.src='https://docs.opencv.org/4.x/opencv.js';
-  s.async=true;
-  s.onload=()=>{
-    const wait=()=>{
-      if(window.cv && typeof window.cv.Mat==='function'){
-        cvReady=true;cvLoading=false;return;
-      }
-      setTimeout(wait,80);
-    };wait();
-  };
-  s.onerror=()=>{cvLoading=false};
-  document.head.appendChild(s);
+  cvLoading=true;const s=document.createElement('script');s.src='https://docs.opencv.org/4.x/opencv.js';s.async=true;
+  s.onload=()=>{const wait=()=>{if(window.cv&&typeof window.cv.Mat==='function'){cvReady=true;cvLoading=false}else setTimeout(wait,80)};wait()};s.onerror=()=>{cvLoading=false};document.head.appendChild(s);
 }
-
+function orderQuad(arr){
+  const s=arr.map(p=>p.x+p.y),d=arr.map(p=>p.x-p.y);return [arr[s.indexOf(Math.min(...s))],arr[d.indexOf(Math.max(...d))],arr[s.indexOf(Math.max(...s))],arr[d.indexOf(Math.min(...d))]];
+}
 function detectLiveQuad(){
   if(!cameraStarted||!cvReady||detectionBusy||!video.videoWidth)return;
   detectionBusy=true;
   try{
-    // Detection runs on a small working canvas, never on the full-resolution preview.
-    const maxW=640;
-    const scale=Math.min(1,maxW/video.videoWidth);
-    const w=Math.max(320,Math.round(video.videoWidth*scale));
-    const h=Math.max(240,Math.round(video.videoHeight*scale));
-    const work=document.createElement('canvas');work.width=w;work.height=h;
-    const wc=work.getContext('2d',{willReadFrequently:true});
-    wc.drawImage(video,0,0,w,h);
-    const src=cv.imread(work),gray=new cv.Mat(),blur=new cv.Mat(),edges=new cv.Mat();
-    cv.cvtColor(src,gray,cv.COLOR_RGBA2GRAY);
-    cv.GaussianBlur(gray,blur,new cv.Size(5,5),0);
-    cv.Canny(blur,35,120,edges);
-    const kernel=cv.Mat.ones(5,5,cv.CV_8U);
-    cv.morphologyEx(edges,edges,cv.MORPH_CLOSE,kernel);
-    kernel.delete();
-    const contours=new cv.MatVector(),hierarchy=new cv.Mat();
-    cv.findContours(edges,contours,hierarchy,cv.RETR_EXTERNAL,cv.CHAIN_APPROX_SIMPLE);
+    const maxW=520,scale=Math.min(1,maxW/video.videoWidth),w=Math.max(320,Math.round(video.videoWidth*scale)),h=Math.max(320,Math.round(video.videoHeight*scale));
+    const work=document.createElement('canvas');work.width=w;work.height=h;const wc=work.getContext('2d',{willReadFrequently:true});wc.drawImage(video,0,0,w,h);
+    const src=cv.imread(work),gray=new cv.Mat(),blur=new cv.Mat(),edges=new cv.Mat(),hsv=new cv.Mat(),bright=new cv.Mat(),mask=new cv.Mat();
+    cv.cvtColor(src,gray,cv.COLOR_RGBA2GRAY);cv.GaussianBlur(gray,blur,new cv.Size(5,5),0);cv.Canny(blur,22,100,edges);cv.morphologyEx(edges,edges,cv.MORPH_CLOSE,cv.Mat.ones(7,7,cv.CV_8U),new cv.Point(-1,-1),2);
+    cv.cvtColor(src,hsv,cv.COLOR_RGBA2RGB);cv.cvtColor(hsv,hsv,cv.COLOR_RGB2HSV);cv.inRange(hsv,new cv.Scalar(0,0,115,0),new cv.Scalar(179,150,255,0),bright);cv.morphologyEx(bright,bright,cv.MORPH_CLOSE,cv.Mat.ones(11,11,cv.CV_8U),new cv.Point(-1,-1),2);
+    cv.bitwise_or(edges,bright,mask);
+    const contours=new cv.MatVector(),hierarchy=new cv.Mat();cv.findContours(mask,contours,hierarchy,cv.RETR_LIST,cv.CHAIN_APPROX_SIMPLE);
     let best=null,bestScore=0,total=w*h;
     for(let i=0;i<contours.size();i++){
-      const c=contours.get(i),area=cv.contourArea(c);
-      if(area<total*.10){c.delete();continue}
-      const peri=cv.arcLength(c,true),approx=new cv.Mat();
-      cv.approxPolyDP(c,approx,.025*peri,true);
+      const c=contours.get(i),area=cv.contourArea(c);if(area<total*.07){c.delete();continue}
+      const peri=cv.arcLength(c,true),approx=new cv.Mat();cv.approxPolyDP(c,approx,.035*peri,true);
       if(approx.rows===4&&cv.isContourConvex(approx)){
-        const r=cv.boundingRect(approx),aspect=Math.min(r.width,r.height)/Math.max(r.width,r.height);
-        const fill=area/(r.width*r.height||1);
-        if(aspect>=.42&&aspect<=.82&&fill>=.70){
-          const cx=(r.x+r.width/2)/w,cy=(r.y+r.height/2)/h;
-          const centerPenalty=Math.abs(cx-.5)*.25+Math.abs(cy-.5)*.10;
-          const score=(area/total)*(1+aspect*.35)*(0.92+fill*.08)*(1-centerPenalty);
+        const r=cv.boundingRect(approx),asp=Math.min(r.width,r.height)/Math.max(r.width,r.height),fill=area/(r.width*r.height||1);
+        if(asp>=.34&&asp<=.90&&r.width>w*.35&&r.height>h*.48){
+          const centerX=(r.x+r.width/2)/w,centerY=(r.y+r.height/2)/h;const center=1-Math.min(1,Math.abs(centerX-.5)*1.3+Math.abs(centerY-.5)*.35);
+          const score=(area/total)*(0.7+0.3*Math.min(1,fill))*(0.8+0.2*center)*(1+asp*.25);
           if(score>bestScore){bestScore=score;if(best)best.delete();best=approx;approx=null}
         }
       }
       c.delete();if(approx)approx.delete();
     }
     if(best){
-      const pts=[];for(let i=0;i<4;i++)pts.push({x:best.intAt(i,0)/scale,y:best.intAt(i,1)/scale});
-      pts.sort((a,b)=>a.y-b.y);
-      const top=pts.slice(0,2).sort((a,b)=>a.x-b.x),bot=pts.slice(2).sort((a,b)=>a.x-b.x);
-      lastQuad=[top[0],top[1],bot[1],bot[0]];
-      drawQuad(lastQuad,true);
-      state.textContent='OMR detected ✓';state.className='badge ok';hint.textContent='All 4 corners detected — capture when steady';capture.disabled=false;
+      const pts=[];for(let i=0;i<4;i++)pts.push({x:best.intAt(i,0)/scale,y:best.intAt(i,1)/scale});lastQuad=orderQuad(pts);drawQuad(lastQuad);state.textContent='OMR detected ✓';state.className='badge ok';hint.textContent='4 corners found — keep steady and capture';capture.disabled=false;
     }else{
-      lastQuad=null;drawGuide();state.textContent='Align sheet';state.className='badge';hint.textContent='Move until the FULL OMR sheet is inside the frame';capture.disabled=true;
+      lastQuad=null;drawGuide();state.textContent='Align sheet';state.className='badge';hint.textContent='Full sheet inside the guide — capture is still available';capture.disabled=false;
     }
-    src.delete();gray.delete();blur.delete();edges.delete();contours.delete();hierarchy.delete();if(best)best.delete();
-  }catch(e){}
+    src.delete();gray.delete();blur.delete();edges.delete();hsv.delete();bright.delete();mask.delete();contours.delete();hierarchy.delete();if(best)best.delete();
+  }catch(e){capture.disabled=false;drawGuide()}
   detectionBusy=false;
 }
-
-function startDetectionLoop(){
-  if(detectorTimer)clearInterval(detectorTimer);
-  detectorTimer=setInterval(detectLiveQuad,220);
-}
-
+function startDetectionLoop(){stopDetectionLoop();detectorTimer=setInterval(detectLiveQuad,180)}
 function stopDetectionLoop(){if(detectorTimer){clearInterval(detectorTimer);detectorTimer=null}}
-
-function stopCamera(){
-  stopDetectionLoop();
-  if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}
-  cameraStarted=false;torchOn=false;torchBtn.classList.remove('active');
-}
-
-function getVideoTrack(){return stream?.getVideoTracks?.()[0]||null}
-
-async function toggleTorch(){
-  const track=getVideoTrack();if(!track)return;
-  const caps=track.getCapabilities?track.getCapabilities():{};
-  if(!caps.torch){torchBtn.classList.add('hidden');return}
-  try{
-    torchOn=!torchOn;
-    await track.applyConstraints({advanced:[{torch:torchOn}]});
-    torchBtn.classList.toggle('active',torchOn);
-  }catch(e){torchOn=false;torchBtn.classList.remove('active')}
-}
-
+function stopCamera(){stopDetectionLoop();if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}cameraStarted=false;torchOn=false;torchBtn.classList.remove('active')}
+function getTrack(){return stream?.getVideoTracks?.()[0]||null}
+async function toggleTorch(){const t=getTrack();if(!t)return;const caps=t.getCapabilities?.()||{};if(!caps.torch){torchBtn.textContent='⚡';torchBtn.title='Flash not supported by this camera';return}try{torchOn=!torchOn;await t.applyConstraints({advanced:[{torch:torchOn}]});torchBtn.classList.toggle('active',torchOn);torchBtn.title=torchOn?'Flash on':'Flash off'}catch(e){torchOn=false;torchBtn.classList.remove('active')}}
+async function requestFull(){try{if(document.fullscreenEnabled&&app.requestFullscreen)await app.requestFullscreen()}catch(e){}}
 async function openCamera(){
   try{
-    stopCamera();
+    // Called from the Start button gesture; request fullscreen before awaits so mobile browsers retain permission.
+    await requestFull();stopCamera();
     if(!navigator.mediaDevices?.getUserMedia)throw new Error('Camera API is not available in this browser.');
-    stream=await navigator.mediaDevices.getUserMedia({
-      video:{facingMode:{ideal:facing},width:{ideal:1920,min:1280},height:{ideal:1080,min:720},frameRate:{ideal:30,max:30}},audio:false
-    });
-    video.srcObject=stream;
-    await video.play();
-    cameraStarted=true;
-    resizeOverlay();
-    setActiveHeight();
-    start.classList.add('hidden');flip.classList.remove('hidden');capture.disabled=true;
-    const track=getVideoTrack();const caps=track?.getCapabilities?.()||{};
-    torchBtn.classList.toggle('hidden',!caps.torch);
-    state.textContent='Camera ready';state.className='badge';hint.textContent='Finding the OMR boundary…';
-    drawGuide();
-    // OpenCV is intentionally lazy-loaded after the camera is visible, so it cannot block Streamlit startup.
-    loadOpenCV();
-    startDetectionLoop();
-  }catch(e){
-    cameraStarted=false;capture.disabled=true;state.textContent='Camera blocked';state.className='badge';hint.textContent='Allow camera access in Chrome settings, then try again';
-    sendValue({error:String(e&&e.message||e)});
-  }
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:facing},width:{ideal:1920,min:1280},height:{ideal:1080,min:720},frameRate:{ideal:30,max:30}},audio:false});
+    video.srcObject=stream;await video.play();cameraStarted=true;resizeOverlay();setActiveHeight();start.classList.add('hidden');flip.classList.remove('hidden');capture.disabled=false;
+    const t=getTrack(),caps=t?.getCapabilities?.()||{};torchBtn.classList.remove('hidden');torchBtn.disabled=!caps.torch;torchBtn.title=caps.torch?'Flash on/off':'Flash not supported by this camera';
+    state.textContent='Camera ready';state.className='badge';hint.textContent='Finding OMR boundary…';drawGuide();loadOpenCV();startDetectionLoop();
+  }catch(e){cameraStarted=false;capture.disabled=true;state.textContent='Camera blocked';hint.textContent='Allow camera access, then try again';sendValue({error:String(e&&e.message||e)})}
 }
-
-function captureFrame(){
-  if(!cameraStarted||!video.videoWidth)return;
-  const out=document.createElement('canvas');out.width=video.videoWidth;out.height=video.videoHeight;
-  const c=out.getContext('2d',{alpha:false});c.imageSmoothingEnabled=true;c.drawImage(video,0,0,out.width,out.height);
-  capturedData=out.toDataURL('image/jpeg',.98);
-  capturedPreview.src=capturedData;
-  stopCamera();
-  capture.disabled=true;
-  start.classList.add('hidden');flip.classList.add('hidden');torchBtn.classList.add('hidden');
-  confirmView.classList.remove('hidden');setConfirmHeight();
-  state.textContent='Review photo';state.className='badge ok';hint.textContent='Check the photo before using it';
-}
-
-function retryCapture(){
-  capturedData=null;confirmView.classList.add('hidden');setIdleHeight();openCamera();
-}
-
-function useCapturedPhoto(){
-  if(!capturedData)return;
-  processing.classList.remove('hidden');
-  retry.disabled=true;usePhoto.disabled=true;
-  // Backend performs the actual crop, perspective correction, lighting correction and enhancement.
-  setIdleHeight();
-  sendValue({captured:capturedData,quad:lastQuad});
-}
-
-start.addEventListener('click',openCamera);
-document.getElementById('allow').addEventListener('click',openCamera);
-capture.addEventListener('click',captureFrame);
-retry.addEventListener('click',retryCapture);
-usePhoto.addEventListener('click',useCapturedPhoto);
-flip.addEventListener('click',async()=>{facing=facing==='environment'?'user':'environment';await openCamera()});
-torchBtn.addEventListener('click',toggleTorch);
-video.addEventListener('loadedmetadata',()=>{resizeOverlay();if(cameraStarted)drawGuide()});
-window.addEventListener('resize',()=>{if(cameraStarted){resizeOverlay();setActiveHeight()}else if(confirmView.classList.contains('hidden'))setIdleHeight()});
-window.addEventListener('beforeunload',stopCamera);
-
-// Ready immediately; no external script is allowed to delay the Streamlit handshake.
-sendReady();setIdleHeight();
+function captureFrame(){if(!cameraStarted||!video.videoWidth)return;const out=document.createElement('canvas');out.width=video.videoWidth;out.height=video.videoHeight;const c=out.getContext('2d',{alpha:false});c.imageSmoothingEnabled=true;c.drawImage(video,0,0,out.width,out.height);capturedData=out.toDataURL('image/jpeg',.99);capturedPreview.src=capturedData;stopCamera();try{document.exitFullscreen?.()}catch(e){}capture.disabled=true;flip.classList.add('hidden');torchBtn.classList.add('hidden');confirmView.classList.remove('hidden');setConfirmHeight();state.textContent='Review photo';state.className='badge ok';hint.textContent='Check the photo, then Use Photo';}
+function retryCapture(){capturedData=null;confirmView.classList.add('hidden');setIdleHeight();openCamera()}
+function useCapturedPhoto(){if(!capturedData)return;processing.classList.remove('hidden');retry.disabled=true;usePhoto.disabled=true;setIdleHeight();sendValue({captured:capturedData,quad:lastQuad})}
+start.addEventListener('click',openCamera);document.getElementById('allow').addEventListener('click',openCamera);capture.addEventListener('click',captureFrame);retry.addEventListener('click',retryCapture);usePhoto.addEventListener('click',useCapturedPhoto);flip.addEventListener('click',async()=>{facing=facing==='environment'?'user':'environment';await openCamera()});torchBtn.addEventListener('click',toggleTorch);video.addEventListener('loadedmetadata',()=>{resizeOverlay();if(cameraStarted)drawGuide()});window.addEventListener('resize',()=>{if(cameraStarted){resizeOverlay();setActiveHeight()}else if(confirmView.classList.contains('hidden'))setIdleHeight()});window.addEventListener('beforeunload',stopCamera);sendReady();setIdleHeight();
 </script>
 </body>
 </html>
