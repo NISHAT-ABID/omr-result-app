@@ -1,196 +1,270 @@
 """
-Smart OMR image scanner.
+OMR Image Scanner
+-----------------
+A lightweight CamScanner-style preprocessing layer for The Med Venture.
 
-Pipeline:
-1. EXIF orientation is handled by app.py before this module receives an image.
-2. Detect the largest plausible document quadrilateral.
-3. Order its four corners robustly.
-4. Perspective-warp the paper into a standard portrait canvas.
-5. Apply conservative illumination/contrast normalization.
+It does NOT read OMR answers. Its only job is to:
+  1) detect the OMR sheet in a live camera frame,
+  2) show a live border around it,
+  3) perspective-correct the sheet when captured,
+  4) apply moderate illumination/contrast/sharpness normalization.
 
-Important: enhancement is intentionally moderate. The module must NOT erase
-light pencil marks or manufacture dark marks because final answer detection is
-performed by omr_scanner.py.
+The existing omr_scanner.py remains responsible for calibration and answer reading.
 """
+
+from __future__ import annotations
+
+import threading
+from typing import Optional, Tuple
 
 import cv2
 import numpy as np
 
-DEFAULT_WARP_WIDTH = 1200
-DEFAULT_WARP_HEIGHT = 1600
+
+# Target is deliberately close to the physical portrait OMR geometry used by the app.
+TARGET_ASPECT_MIN = 0.38
+TARGET_ASPECT_MAX = 0.78
+MIN_AREA_RATIO = 0.18
 
 
-def _order_points(points):
+def _order_quad(points: np.ndarray) -> np.ndarray:
+    """Return 4 points in TL, TR, BR, BL order."""
     pts = np.asarray(points, dtype=np.float32).reshape(4, 2)
-    rect = np.zeros((4, 2), dtype=np.float32)
+    s = pts.sum(axis=1)
+    d = np.diff(pts, axis=1).reshape(-1)
+    return np.array(
+        [
+            pts[np.argmin(s)],
+            pts[np.argmin(d)],
+            pts[np.argmax(s)],
+            pts[np.argmax(d)],
+        ],
+        dtype=np.float32,
+    )
 
-    sums = pts.sum(axis=1)
-    diffs = np.diff(pts, axis=1).reshape(-1)
 
-    rect[0] = pts[np.argmin(sums)]   # top-left
-    rect[2] = pts[np.argmax(sums)]   # bottom-right
-    rect[1] = pts[np.argmin(diffs)]  # top-right
-    rect[3] = pts[np.argmax(diffs)]  # bottom-left
-    return rect
-
-
-def _quad_score(quad, image_shape):
-    """Score a candidate quadrilateral. Higher means more sheet-like."""
-    h, w = image_shape[:2]
-    pts = _order_points(quad)
-
-    area = abs(cv2.contourArea(pts.reshape(-1, 1, 2)))
-    image_area = float(h * w)
-    area_ratio = area / image_area if image_area else 0.0
-    if area_ratio < 0.12:
+def _quad_score(quad: np.ndarray, frame_shape) -> float:
+    h, w = frame_shape[:2]
+    area = abs(cv2.contourArea(quad.astype(np.float32)))
+    area_ratio = area / float(w * h)
+    if area_ratio < MIN_AREA_RATIO:
         return -1.0
 
-    # A photographed page should be reasonably convex.
-    if not cv2.isContourConvex(pts.reshape(-1, 1, 2).astype(np.int32)):
+    x, y, bw, bh = cv2.boundingRect(quad.astype(np.int32))
+    if bw <= 0 or bh <= 0:
+        return -1.0
+    aspect = min(bw, bh) / max(bw, bh)
+    if not (TARGET_ASPECT_MIN <= aspect <= TARGET_ASPECT_MAX):
         return -1.0
 
-    tl, tr, br, bl = pts
-    widths = [np.linalg.norm(tr - tl), np.linalg.norm(br - bl)]
-    heights = [np.linalg.norm(bl - tl), np.linalg.norm(br - tr)]
-
-    min_side = max(1.0, min(widths + heights))
-    max_side = max(widths + heights)
-    regularity = min_side / max_side
-
-    # Prefer large documents, but avoid blindly selecting the whole camera frame.
-    return area_ratio * 2.5 + regularity
+    # Prefer large rectangles, while rewarding portrait/document-like geometry.
+    return area_ratio * (1.0 + 0.25 * aspect)
 
 
-def detect_sheet_quad(image_bgr):
-    """Return the best detected 4-corner paper boundary or None."""
-    if image_bgr is None or image_bgr.size == 0:
+def detect_sheet_quad(frame_bgr: np.ndarray) -> Optional[np.ndarray]:
+    """Find the most plausible large rectangular OMR/document contour."""
+    if frame_bgr is None or frame_bgr.size == 0:
         return None
 
-    h, w = image_bgr.shape[:2]
-    if min(h, w) < 100:
-        return None
-
-    scale = min(1.0, 1000.0 / max(h, w))
-    small = image_bgr
-    if scale < 1.0:
-        small = cv2.resize(
-            image_bgr,
-            (max(1, int(w * scale)), max(1, int(h * scale))),
-            interpolation=cv2.INTER_AREA,
-        )
+    h, w = frame_bgr.shape[:2]
+    scale = min(1.0, 900.0 / max(h, w))
+    small = cv2.resize(frame_bgr, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
 
     gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
     gray = cv2.GaussianBlur(gray, (5, 5), 0)
 
-    # Combine Canny and adaptive threshold candidates. Different lighting
-    # conditions favour different methods.
-    edge = cv2.Canny(gray, 45, 140)
-    edge = cv2.dilate(edge, np.ones((3, 3), np.uint8), iterations=2)
+    # Edges catch the printed outer sheet edge even when the paper is light.
+    edges = cv2.Canny(gray, 35, 115)
+    edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8), iterations=2)
+    edges = cv2.dilate(edges, np.ones((3, 3), np.uint8), iterations=1)
 
-    candidates = []
-    for mode in ("edge", "adaptive"):
-        if mode == "edge":
-            work = edge
-        else:
-            work = cv2.adaptiveThreshold(
-                gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                cv2.THRESH_BINARY_INV, 31, 7
-            )
-            work = cv2.morphologyEx(
-                work, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8), iterations=2
-            )
+    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    best = None
+    best_score = -1.0
 
-        contours, _ = cv2.findContours(
-            work, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE
-        )
+    for cnt in contours:
+        area = cv2.contourArea(cnt)
+        if area < 0.10 * small.shape[0] * small.shape[1]:
+            continue
 
-        for contour in sorted(contours, key=cv2.contourArea, reverse=True)[:40]:
-            peri = cv2.arcLength(contour, True)
-            if peri <= 0:
-                continue
+        peri = cv2.arcLength(cnt, True)
+        approx = cv2.approxPolyDP(cnt, 0.025 * peri, True)
+        if len(approx) != 4 or not cv2.isContourConvex(approx):
+            continue
 
-            for eps in (0.015, 0.02, 0.025, 0.03):
-                approx = cv2.approxPolyDP(contour, eps * peri, True)
-                if len(approx) == 4:
-                    score = _quad_score(approx.reshape(4, 2), small.shape)
-                    if score > 0:
-                        candidates.append((score, approx.reshape(4, 2)))
-                    break
+        q = approx.reshape(4, 2).astype(np.float32) / scale
+        score = _quad_score(q, frame_bgr.shape)
+        if score > best_score:
+            best_score = score
+            best = q
 
-    if not candidates:
-        return None
-
-    _, best = max(candidates, key=lambda item: item[0])
-
-    if scale < 1.0:
-        best = best.astype(np.float32) / scale
-
-    return _order_points(best)
+    return _order_quad(best) if best is not None else None
 
 
-def warp_sheet(image_bgr, quad, width=DEFAULT_WARP_WIDTH,
-               height=DEFAULT_WARP_HEIGHT):
+def draw_detection(frame_bgr: np.ndarray, quad: Optional[np.ndarray]) -> np.ndarray:
+    """Draw a clear live green document boundary without altering the frame geometry."""
+    out = frame_bgr.copy()
     if quad is None:
-        return None
+        cv2.putText(
+            out,
+            "Point camera at the full OMR sheet",
+            (24, 44),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.85,
+            (255, 255, 255),
+            2,
+            cv2.LINE_AA,
+        )
+        return out
 
-    src = _order_points(quad)
+    q = np.round(quad).astype(np.int32).reshape((-1, 1, 2))
+    cv2.polylines(out, [q], True, (50, 230, 170), 6, cv2.LINE_AA)
+    for i, (x, y) in enumerate(quad.astype(np.int32)):
+        cv2.circle(out, (int(x), int(y)), 10, (50, 230, 170), -1, cv2.LINE_AA)
+    cv2.putText(
+        out,
+        "OMR detected - keep all 4 corners inside",
+        (24, 44),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.78,
+        (50, 230, 170),
+        2,
+        cv2.LINE_AA,
+    )
+    return out
+
+
+def perspective_flatten(frame_bgr: np.ndarray, quad: np.ndarray, max_width: int = 1100) -> np.ndarray:
+    """Warp the detected sheet into a straight portrait document."""
+    q = _order_quad(quad)
+    tl, tr, br, bl = q
+
+    width_top = np.linalg.norm(tr - tl)
+    width_bottom = np.linalg.norm(br - bl)
+    height_left = np.linalg.norm(bl - tl)
+    height_right = np.linalg.norm(br - tr)
+
+    out_w = max(600, int(round(max(width_top, width_bottom))))
+    out_h = max(800, int(round(max(height_left, height_right))))
+
+    # Keep portrait OMR readable without producing an unnecessarily huge image.
+    if out_w > max_width:
+        scale = max_width / float(out_w)
+        out_w = int(round(out_w * scale))
+        out_h = int(round(out_h * scale))
+
+    # Guard against extreme or noisy contour dimensions.
+    out_w = max(600, min(out_w, max_width))
+    out_h = max(800, min(out_h, int(max_width * 2.0)))
+
     dst = np.array(
-        [[0, 0], [width - 1, 0], [width - 1, height - 1], [0, height - 1]],
+        [[0, 0], [out_w - 1, 0], [out_w - 1, out_h - 1], [0, out_h - 1]],
         dtype=np.float32,
     )
-    matrix = cv2.getPerspectiveTransform(src, dst)
-    return cv2.warpPerspective(
-        image_bgr,
-        matrix,
-        (width, height),
-        flags=cv2.INTER_CUBIC,
-        borderMode=cv2.BORDER_REPLICATE,
-    )
+    M = cv2.getPerspectiveTransform(q, dst)
+    return cv2.warpPerspective(frame_bgr, M, (out_w, out_h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
 
 
-def _normalize_lighting(image_bgr):
-    """Conservative illumination correction that preserves real pen marks."""
-    lab = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2LAB)
+def moderate_enhance(image_bgr: np.ndarray) -> np.ndarray:
+    """Moderate document enhancement designed to preserve OMR bubble geometry."""
+    img = image_bgr.copy()
+
+    # Work mostly on luminance; do not aggressively threshold the bubbles.
+    lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
     l, a, b = cv2.split(lab)
 
-    # Local contrast correction on luminance only. This avoids changing the
-    # colour logic used later by omr_scanner to suppress pink/magenta printing.
-    clahe = cv2.createCLAHE(clipLimit=1.5, tileGridSize=(8, 8))
-    l2 = clahe.apply(l)
+    # Local contrast, deliberately restrained.
+    clahe = cv2.createCLAHE(clipLimit=1.35, tileGridSize=(8, 8))
+    l = clahe.apply(l)
+    enhanced = cv2.cvtColor(cv2.merge((l, a, b)), cv2.COLOR_LAB2BGR)
 
-    corrected = cv2.cvtColor(cv2.merge((l2, a, b)), cv2.COLOR_LAB2BGR)
+    # Gentle unsharp mask. This helps mild camera softness without turning printed circles into blobs.
+    blur = cv2.GaussianBlur(enhanced, (0, 0), 1.15)
+    sharp = cv2.addWeighted(enhanced, 1.16, blur, -0.16, 0)
 
-    # Mild denoising only; heavy blur can destroy faint pencil marks.
-    return cv2.bilateralFilter(corrected, 5, 25, 25)
+    # Keep output in normal 8-bit range.
+    return np.clip(sharp, 0, 255).astype(np.uint8)
 
 
-def process_captured_frame(image_bgr, warp_width=DEFAULT_WARP_WIDTH,
-                           warp_height=DEFAULT_WARP_HEIGHT):
-    """
-    Main API used by app.py.
-
-    Returns:
-        (processed_bgr, quad)
-        processed_bgr is None when a reliable full sheet boundary is not found.
-    """
-    if image_bgr is None or image_bgr.size == 0:
-        return None, None
-
-    quad = detect_sheet_quad(image_bgr)
+def process_captured_frame(frame_bgr: np.ndarray) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+    """Return (processed_flat_image, detected_quad)."""
+    quad = detect_sheet_quad(frame_bgr)
     if quad is None:
         return None, None
-
-    warped = warp_sheet(image_bgr, quad, warp_width, warp_height)
-    if warped is None:
-        return None, None
-
-    return _normalize_lighting(warped), quad
+    flat = perspective_flatten(frame_bgr, quad)
+    flat = moderate_enhance(flat)
+    return flat, quad
 
 
-def draw_detected_outline(image_bgr, quad):
-    """Utility for optional debugging/live-preview UIs."""
-    preview = image_bgr.copy()
-    if quad is not None:
-        pts = np.asarray(quad, dtype=np.int32).reshape((-1, 1, 2))
-        cv2.polylines(preview, [pts], True, (0, 255, 0), 4)
-    return preview
+# ---------------------------------------------------------------------------
+# Optional live camera integration. Requires streamlit-webrtc + av.
+# ---------------------------------------------------------------------------
+try:
+    from streamlit_webrtc import VideoProcessorBase, WebRtcMode, webrtc_streamer
+    from av import VideoFrame
+
+    _WEBRTC_AVAILABLE = True
+except Exception:
+    _WEBRTC_AVAILABLE = False
+
+
+if _WEBRTC_AVAILABLE:
+    class OMRVideoProcessor(VideoProcessorBase):
+        def __init__(self):
+            self.lock = threading.Lock()
+            self.latest_processed = None
+            self.detected = False
+
+        def recv(self, frame: VideoFrame) -> VideoFrame:
+            img = frame.to_ndarray(format="bgr24")
+            quad = detect_sheet_quad(img)
+            display = draw_detection(img, quad)
+
+            if quad is not None:
+                flat = perspective_flatten(img, quad)
+                flat = moderate_enhance(flat)
+                with self.lock:
+                    self.latest_processed = flat
+                    self.detected = True
+            else:
+                with self.lock:
+                    self.detected = False
+
+            return VideoFrame.from_ndarray(display, format="bgr24")
+
+        def get_latest_processed(self):
+            with self.lock:
+                if self.latest_processed is None:
+                    return None
+                return self.latest_processed.copy()
+
+        def has_detection(self):
+            with self.lock:
+                return bool(self.detected and self.latest_processed is not None)
+
+
+def render_live_camera(key: str = "omr_live_camera") -> Optional[np.ndarray]:
+    """Render live OMR detection and return a processed image after capture."""
+    if not _WEBRTC_AVAILABLE:
+        return None
+
+    ctx = webrtc_streamer(
+        key=key,
+        mode=WebRtcMode.SENDRECV,
+        video_processor_factory=OMRVideoProcessor,
+        media_stream_constraints={"video": {"facingMode": {"ideal": "environment"}, "width": {"ideal": 1280}, "height": {"ideal": 1920}}, "audio": False},
+        async_processing=True,
+    )
+
+    if ctx.state.playing and ctx.video_processor is not None:
+        detected = ctx.video_processor.has_detection()
+        if detected:
+            st_message = ""
+        else:
+            st_message = ""
+
+    return ctx.video_processor.get_latest_processed() if ctx.video_processor is not None else None
+
+
+def camera_available() -> bool:
+    return _WEBRTC_AVAILABLE
