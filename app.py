@@ -5788,14 +5788,7 @@ def page_omr_submit():
                         ok, errors, warnings_ = _relax_blur_only_validation(
                             ok, errors, warnings_
                         )
-                        # Camera output has already been perspective-corrected at
-                        # high resolution. Keep that resolution instead of applying
-                        # the normal upload-display downscale. Gallery uploads keep
-                        # the existing behavior unchanged.
-                        if camera_bytes and ok:
-                            proc_bgr = orig_bgr
-                        else:
-                            proc_bgr = omr_scanner.resize_max_dim(orig_bgr) if ok else orig_bgr
+                        proc_bgr = omr_scanner.resize_max_dim(orig_bgr) if ok else orig_bgr
                         st.session_state["submit_prepared_image"] = proc_bgr
                         st.session_state["submit_original_bytes"] = source_bytes
                         st.session_state["submit_validation"] = (ok, errors, warnings_)
