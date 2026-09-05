@@ -1001,6 +1001,21 @@ def inject_global_css():
             background: var(--mv-surface);
             box-shadow: 0 10px 30px rgba(0,0,0,.10);
         }
+
+        /* ---- Wide PC navigation bar ----
+           Keep the main content comfortably centered, but let the navigation
+           use more horizontal space on a desktop monitor. This prevents the
+           mentor labels from being squeezed into ellipses. */
+        @media (min-width: 901px) {
+            .st-key-top_nav {
+                position: relative !important;
+                left: 50% !important;
+                transform: translateX(-50%) !important;
+                width: min(1550px, calc(100vw - 100px)) !important;
+                max-width: none !important;
+                box-sizing: border-box !important;
+            }
+        }
         /* Subtle desktop-only depth for real content cards. No animation on
            mobile, where hover does not exist and extra paint work is wasted. */
         @media (hover:hover) and (min-width: 769px) {
@@ -1032,6 +1047,7 @@ def inject_global_css():
         }
         .st-key-top_nav button {
             width: 100%;
+            min-width: max-content !important;
             min-height: 40px;
             border-radius: 6px !important;
             border: none !important;
@@ -1943,7 +1959,7 @@ def inject_global_css():
             .app-card, [class*="st-key-card_"], div[data-testid="stForm"] { padding: 10px 12px !important; }
         }
         @media (min-width: 1400px) {
-            .block-container { max-width: 1280px; }
+            .block-container { max-width: 1500px; }
         }
 
         /* ---- Mobile layout hardening ----
@@ -3904,7 +3920,7 @@ def render_top_nav(current_page):
             # Give longer labels a little more room so they never get
             # unnecessarily squeezed on desktop. Profile remains the
             # circular avatar at the far right.
-            nav_widths = [1.10, 1.65, 1.25, 1.45, 0.68]
+            nav_widths = [1.15, 1.70, 1.30, 1.50, 0.60]
             cols = st.columns(nav_widths)
             for col, (page_key, label) in zip(cols[:-1], desktop_nav_items):
                 with col:
@@ -8301,7 +8317,7 @@ def render_mentor_top_nav(current_page):
         with nav_col:
             # Custom proportions keep "OMR Sheet Setup" fully visible while
             # preserving a compact single-row desktop navigation.
-            nav_widths = [1.05, 1.35, 1.75, 1.05, 1.00, 1.35, 0.62]
+            nav_widths = [1.10, 1.45, 1.85, 1.10, 1.00, 1.40, 0.55]
             cols = st.columns(nav_widths)
             for col, (page_key, label) in zip(cols[:-1], desktop_nav_items):
                 with col:
