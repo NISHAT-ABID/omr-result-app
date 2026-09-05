@@ -5289,6 +5289,101 @@ def _coord_pair(value):
     return None
 
 
+
+def _refine_calibrated_option_centers(img_bgr, grid, radius=None):
+    """Refine option centers locally, using the student's calibration grid as the anchor.
+
+    The calibration is the source of truth for *where each question/options live*.
+    We never run a global circle detector and never replace the calibration with
+    a guessed sheet geometry.  For every calibrated option we only look for the
+    printed bubble in a small neighborhood around that calibrated coordinate.
+    """
+    if img_bgr is None or not grid:
+        return grid
+
+    h, w = img_bgr.shape[:2]
+    base_r = max(7, int(radius or omr_scanner.compute_bubble_radius(img_bgr)))
+    # The search window is deliberately small so a nearby question/option can
+    # never steal the coordinate from the user's calibration.
+    search_r = max(10, int(round(base_r * 1.65)))
+    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+    gray = cv2.GaussianBlur(gray, (3, 3), 0)
+
+    refined = {}
+    for q, options in (grid or {}).items():
+        refined[q] = {}
+        for opt, pt in (options or {}).items():
+            try:
+                px, py = float(pt[0]), float(pt[1])
+            except Exception:
+                continue
+
+            x0 = max(0, int(round(px - search_r - 3)))
+            x1 = min(w, int(round(px + search_r + 4)))
+            y0 = max(0, int(round(py - search_r - 3)))
+            y1 = min(h, int(round(py + search_r + 4)))
+            roi = gray[y0:y1, x0:x1]
+            if roi.size == 0:
+                refined[q][opt] = (int(round(px)), int(round(py)))
+                continue
+
+            local = None
+            for p2 in (16, 14, 12, 10):
+                try:
+                    circles = cv2.HoughCircles(
+                        roi,
+                        cv2.HOUGH_GRADIENT,
+                        dp=1.0,
+                        minDist=max(5, int(round(base_r * 0.75))),
+                        param1=70,
+                        param2=p2,
+                        minRadius=max(4, int(round(base_r * 0.55))),
+                        maxRadius=max(6, int(round(base_r * 1.35))),
+                    )
+                except Exception:
+                    circles = None
+                if circles is None:
+                    continue
+
+                candidates = []
+                for c in np.round(circles[0]).astype(float):
+                    cx, cy, rr = c
+                    gx, gy = cx + x0, cy + y0
+                    dist = float(np.hypot(gx - px, gy - py))
+                    if dist <= search_r:
+                        # Prefer a circle close to the calibrated point and a
+                        # radius close to the expected bubble radius.
+                        score = dist + abs(float(rr) - base_r) * 1.8
+                        candidates.append((score, gx, gy))
+                if candidates:
+                    local = min(candidates, key=lambda z: z[0])
+                    break
+
+            if local is None:
+                refined[q][opt] = (int(round(px)), int(round(py)))
+            else:
+                refined[q][opt] = (int(round(local[1])), int(round(local[2])))
+
+    return refined
+
+
+def _read_answers_from_student_calibration(img_bgr, calibration, total_questions):
+    """Read answers strictly from the student's own calibration.
+
+    Flow: user clicks anchors -> build calibrated grid -> locally refine each
+    option around that calibrated coordinate -> run the existing scanner on the
+    refined grid.  No global Hough/layout detection is used for answer reading.
+    """
+    grid = omr_scanner.build_grid(calibration, total_questions=total_questions)
+    radius = omr_scanner.compute_bubble_radius(img_bgr)
+    calibrated_grid = _refine_calibrated_option_centers(img_bgr, grid, radius=radius)
+    detected = _normalise_answers(
+        omr_scanner.read_answers(img_bgr, calibrated_grid, radius=radius),
+        total_questions,
+    )
+    return calibrated_grid, detected, radius
+
+
 def _extract_question_option_points(grid, total_q):
     """Extract Q1..Qn -> A/B/C/D centers without depending on one exact grid shape.
 
@@ -6020,11 +6115,8 @@ def page_omr_submit():
                                 # FULL rerun after the final popup click, so scanning starts
                                 # here automatically—there is no intermediate "All done" state.
                                 calibration = {info["key"]: pt for info, pt in zip(points_info, calib_points)}
-                                grid = omr_scanner.build_grid(calibration, total_questions=total_q)
-                                radius = omr_scanner.compute_bubble_radius(img_bgr)
-                                detected = _normalise_answers(
-                                    omr_scanner.read_answers(img_bgr, grid, radius=radius),
-                                    total_q,
+                                grid, detected, radius = _read_answers_from_student_calibration(
+                                    img_bgr, calibration, total_q
                                 )
                                 double_qs = [q for q, a in detected.items() if a == "MULTI"]
 
