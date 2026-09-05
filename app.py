@@ -4685,31 +4685,184 @@ def _multi_marked_options_from_image(img_bgr, q_points, radius):
     return [(m[0], m[1]) for m in selected[:4]]
 
 
-def _draw_past_exam_correct_answer_glow(img_bgr, grid_points, correct_answers, source_size=None):
+def _recover_photo_bubble_centers(img_bgr, total_questions):
+    """Recover the *real printed bubble centers* from the original photo.
+
+    This is used ONLY for the visual Past Exam highlight. It does not feed the
+    scanner, scoring, calibration, or review pipeline.
+
+    For the standard 50-question sheet, the photo itself contains 25 rows x
+    8 bubbles (4 options in each of the two blocks). Detecting those printed
+    circles directly prevents a saved/serialized grid from being drawn at an
+    offset position on the original photograph.
+    """
+    if img_bgr is None or getattr(img_bgr, "ndim", 0) != 3:
+        return {}
+
+    h, w = img_bgr.shape[:2]
+    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+    gray = cv2.GaussianBlur(gray, (5, 5), 0)
+
+    # Bubble area only. This removes most header/text circles before Hough.
+    y0 = int(h * 0.18)
+    y1 = int(h * 0.97)
+    roi = gray[y0:y1, :]
+
+    # Bubble radius scales with the photographed sheet size.
+    base_r = max(8, int(round(min(w, h) / 62.0)))
+    min_r = max(7, int(round(base_r * 0.55)))
+    max_r = max(min_r + 4, int(round(base_r * 1.45)))
+    min_dist = max(12, int(round(base_r * 1.05)))
+
+    circles = None
+    for p2 in (30, 28, 26, 24):
+        circles = cv2.HoughCircles(
+            roi,
+            cv2.HOUGH_GRADIENT,
+            dp=1.2,
+            minDist=min_dist,
+            param1=80,
+            param2=p2,
+            minRadius=min_r,
+            maxRadius=max_r,
+        )
+        if circles is not None and len(circles[0]) >= min(8, total_questions * 2):
+            break
+
+    if circles is None:
+        return {}
+
+    pts = np.round(circles[0]).astype(int)
+    pts[:, 1] += y0
+
+    # Keep only the answer-grid vertical region and discard obvious outliers.
+    pts = pts[
+        (pts[:, 1] >= int(h * 0.20)) &
+        (pts[:, 1] <= int(h * 0.96)) &
+        (pts[:, 0] >= int(w * 0.12)) &
+        (pts[:, 0] <= int(w * 0.92))
+    ]
+    if len(pts) < 8:
+        return {}
+
+    # For the standard 50-Q sheet, solve 8 option columns directly.
+    # 1D k-means keeps this robust to perspective/slight horizontal skew.
+    k = 8 if total_questions == 50 else None
+    if k is None or len(pts) < k * 12:
+        return {}
+
+    samples = np.float32(pts[:, 0].reshape(-1, 1))
+    criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 40, 0.2)
+    _compact, labels, centers = cv2.kmeans(
+        samples, k, None, criteria, 12, cv2.KMEANS_PP_CENTERS
+    )
+    x_centers = np.sort(centers.reshape(-1))
+
+    columns = []
+    for xc in x_centers:
+        idx = int(np.argmin(np.abs(centers.reshape(-1) - xc)))
+        col = pts[labels.ravel() == idx]
+        if len(col) < 15:
+            continue
+
+        # A valid column has one bubble per question row. If Hough produced
+        # extras, choose points whose y positions best match the dominant
+        # 25-row rhythm.
+        col = col[np.argsort(col[:, 1])]
+        if len(col) > 25:
+            ys = col[:, 1].astype(float)
+            # Select 25 points closest to evenly spaced rank positions.
+            target_idx = np.linspace(0, len(col) - 1, 25)
+            chosen = []
+            used = set()
+            for ti in target_idx:
+                center_i = int(round(float(ti)))
+                candidates = range(max(0, center_i - 2), min(len(col), center_i + 3))
+                best = min(
+                    (i for i in candidates if i not in used),
+                    key=lambda i: abs(i - ti),
+                    default=None,
+                )
+                if best is not None:
+                    chosen.append(best)
+                    used.add(best)
+            col = col[chosen]
+        if len(col) != 25:
+            continue
+        columns.append(col)
+
+    if len(columns) != 8:
+        return {}
+
+    # Ensure left-to-right order follows the sorted x-center order.
+    columns = sorted(columns, key=lambda c: float(np.mean(c[:, 0])))
+
+    out = {}
+    for block in range(2):
+        block_cols = columns[block * 4:(block + 1) * 4]
+        if len(block_cols) != 4:
+            continue
+        for row in range(25):
+            q = block * 25 + row + 1
+            out[q] = {
+                "A": (float(block_cols[0][row, 0]), float(block_cols[0][row, 1])),
+                "B": (float(block_cols[1][row, 0]), float(block_cols[1][row, 1])),
+                "C": (float(block_cols[2][row, 0]), float(block_cols[2][row, 1])),
+                "D": (float(block_cols[3][row, 0]), float(block_cols[3][row, 1])),
+            }
+    return out
+
+
+def _draw_past_exam_correct_answer_glow(img_bgr, grid_points, correct_answers, total_questions=None, source_size=None):
     """Past Exam ONLY: highlight the real correct bubble on the original photo.
 
-    This is deliberately separate from scanner detection/review. It never
-    redraws detected answers, wrong answers, MULTI flags, labels, or question
-    numbers. The saved student calibration grid is the only answer-position
-    source, mapped from calibration-image pixels to the original uploaded-photo
-    pixels.
+    Important: this function never changes the original photo and never uses
+    scanner detections. For a standard 50-Q sheet it first locates the actual
+    printed bubble centers in the original photo, so the highlight cannot
+    inherit an offset from a resized calibration grid. Saved calibration/grid
+    coordinates remain a fallback for non-standard layouts.
     """
     canvas = img_bgr.copy()
     dst_h, dst_w = canvas.shape[:2]
 
-    if source_size and len(source_size) >= 2:
-        src_w, src_h = float(source_size[0]), float(source_size[1])
+    # Use the original photograph's own bubble geometry for the visual layer.
+    # This is intentionally independent of answer detection/scoring.
+    photo_points = {}
+    if int(total_questions or 0) == 50:
+        try:
+            photo_points = _recover_photo_bubble_centers(canvas, 50)
+        except Exception:
+            photo_points = {}
+
+    if photo_points:
+        points_to_use = photo_points
     else:
-        src_w, src_h = float(dst_w), float(dst_h)
+        # Fallback for other layouts / older results.
+        points_to_use = {}
+        if source_size and len(source_size) >= 2:
+            src_w, src_h = float(source_size[0]), float(source_size[1])
+        else:
+            src_w, src_h = float(dst_w), float(dst_h)
+        sx = dst_w / src_w if src_w > 0 else 1.0
+        sy = dst_h / src_h if src_h > 0 else 1.0
+        for q, opts in (grid_points or {}).items():
+            try:
+                qn = int(q)
+            except Exception:
+                continue
+            points_to_use[qn] = {
+                o: (float(pt[0]) * sx, float(pt[1]) * sy)
+                for o, pt in (opts or {}).items()
+                if _coord_pair(pt)
+            }
 
-    if src_w <= 0 or src_h <= 0:
-        src_w, src_h = float(dst_w), float(dst_h)
+    # Subtle glow: blur ONLY a transparent-looking mask around the target.
+    # Never blur a copy of the entire OMR photo.
+    scale = max(0.75, min(1.5, min(dst_w, dst_h) / 1100.0))
+    ring_r = max(7, int(round(9 * scale)))
+    halo_r = max(11, int(round(14 * scale)))
 
-    sx = dst_w / src_w
-    sy = dst_h / src_h
-    scale = max(0.65, min(1.45, (sx + sy) / 2.0))
-
-    for q, opts in (grid_points or {}).items():
+    for q, opts in points_to_use.items():
         try:
             qn = int(q)
         except Exception:
@@ -4722,36 +4875,27 @@ def _draw_past_exam_correct_answer_glow(img_bgr, grid_points, correct_answers, s
             continue
 
         px, py = opts[correct]
-        x = int(round(float(px) * sx))
-        y = int(round(float(py) * sy))
-
+        x = int(round(px))
+        y = int(round(py))
         if not (0 <= x < dst_w and 0 <= y < dst_h):
             continue
 
-        # Very subtle green halo + clean ring. Original ink remains untouched.
-        halo_r = max(8, int(round(12 * scale)))
-        ring_r = max(6, int(round(9 * scale)))
-        glow = canvas.copy()
-
-        cv2.circle(glow, (x, y), halo_r, (95, 235, 125), -1, cv2.LINE_AA)
-        glow = cv2.GaussianBlur(
-            glow,
-            (0, 0),
-            sigmaX=max(2.0, 3.2 * scale),
-            sigmaY=max(2.0, 3.2 * scale),
+        # Transparent black base -> only the small local halo is blurred.
+        mask = np.zeros_like(canvas)
+        cv2.circle(mask, (x, y), halo_r, (75, 235, 115), -1, cv2.LINE_AA)
+        mask = cv2.GaussianBlur(
+            mask, (0, 0), sigmaX=max(2.0, 3.0 * scale), sigmaY=max(2.0, 3.0 * scale)
         )
-        canvas = cv2.addWeighted(canvas, 0.88, glow, 0.12, 0)
+        canvas = cv2.addWeighted(canvas, 1.0, mask, 0.10, 0)
 
+        # Clean, small ring only. Original black/pink ink stays untouched.
         cv2.circle(
             canvas, (x, y), ring_r,
-            (75, 220, 105), max(2, int(round(2 * scale))), cv2.LINE_AA
-        )
-        cv2.circle(
-            canvas, (x, y), max(2, int(round(3 * scale))),
-            (75, 220, 105), -1, cv2.LINE_AA
+            (70, 220, 105), max(2, int(round(2 * scale))), cv2.LINE_AA
         )
 
     return cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
+
 
 
 def _draw_result_review_overlay(img_bgr, grid_points, final_answers, original_answers, correct_answers, radius):
@@ -5046,6 +5190,7 @@ def render_result_detail(result_row, key_row, mentor_mode=False):
                     photo_bgr,
                     grid_points,
                     _answer_key_map(key_row, total),
+                    total_questions=total,
                     source_size=source_size,
                 )
                 st.image(
