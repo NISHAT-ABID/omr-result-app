@@ -14,6 +14,7 @@ Run with: streamlit run app.py
 
 import random
 import io
+import hashlib
 import json
 from datetime import datetime, date, time as dtime, timedelta
 
@@ -56,7 +57,11 @@ def _reset_submission_state():
         "submit_prepared_image",
         "submit_original_bytes",
         "submit_validation",
+        "submit_candidate_image",
+        "submit_candidate_quad",
         "submit_calib_points",
+        "submit_corner_adjust_points",
+        "submit_corner_adjust_mode",
         "submit_grid",
         "submit_detected_answers",
         "submit_final_answers",
@@ -66,6 +71,7 @@ def _reset_submission_state():
         "submit_review_focus_q",
         "submit_review_filter",
         "submit_omr_view",
+        "submit_master_missing",
     ):
         st.session_state.pop(k, None)
 
@@ -6018,14 +6024,22 @@ def page_omr_submit():
 
                 camera_bytes = st.session_state.get("camera_omr_bytes")
                 camera_sig = st.session_state.get("camera_omr_sig")
-                if camera_bytes:
-                    source_bytes = camera_bytes
-                    file_sig = camera_sig or "camera_omr"
-                    source_label = "Camera-scanned OMR"
-                elif uploaded is not None:
+
+                # IMPORTANT: Uploaded files must always win over a previous camera
+                # capture.  The old code preferred camera_bytes first, which meant
+                # selecting a new OMR could silently keep showing the previous one.
+                # Also fingerprint the actual bytes, not only name/size, because two
+                # different photos can have the same filename and byte size.
+                if uploaded is not None:
                     source_bytes = uploaded.getvalue()
-                    file_sig = f"{uploaded.name}_{uploaded.size}"
+                    file_sig = "upload_" + hashlib.sha256(source_bytes).hexdigest()[:20]
                     source_label = uploaded.name
+                elif camera_bytes:
+                    source_bytes = camera_bytes
+                    file_sig = camera_sig or (
+                        "camera_" + hashlib.sha256(camera_bytes).hexdigest()[:20]
+                    )
+                    source_label = "Camera-scanned OMR"
                 else:
                     source_bytes = None
                     file_sig = None
@@ -6141,9 +6155,15 @@ def page_omr_submit():
                                     )
                                     coords = None
                                     if st.session_state.get("submit_corner_adjust_mode"):
+                                        # Change the component key after every tap so
+                                        # Streamlit never reuses a stale coordinate event.
+                                        adjust_key = (
+                                            f"submit_corner_adjust_{file_sig}_"
+                                            f"{len(adjust_points)}"
+                                        )
                                         coords = streamlit_image_coordinates(
                                             Image.fromarray(cv2.cvtColor(preview_marked, cv2.COLOR_BGR2RGB)),
-                                            key=f"submit_corner_adjust_{file_sig}",
+                                            key=adjust_key,
                                         )
                                         if coords is not None:
                                             pt_preview = (float(coords["x"]), float(coords["y"]))
