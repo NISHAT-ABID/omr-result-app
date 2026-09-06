@@ -55,6 +55,7 @@ def _reset_submission_state():
     for k in (
         "submit_file_sig",
         "submit_prepared_image",
+        "submit_enhanced_preview",
         "submit_original_bytes",
         "submit_validation",
         "submit_candidate_image",
@@ -277,26 +278,56 @@ def _detect_sheet_quad_robust(image_bgr):
     if best is not None:
         return best[1]
 
-    # Last fallback: edge-based convex hull. This helps with monochrome sheets.
+    # Last fallback: scored edge quadrilaterals. Never accept the first
+    # arbitrary 4-point contour; score candidates by area, portrait aspect,
+    # rectangularity and how well the sheet is centered.
     gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
-    edge = cv2.Canny(cv2.GaussianBlur(gray, (5, 5), 0), 35, 110)
-    edge = cv2.dilate(edge, np.ones((5, 5), np.uint8), iterations=1)
-    contours, _ = cv2.findContours(edge, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    gray = cv2.GaussianBlur(gray, (5, 5), 0)
+    edge = cv2.Canny(gray, 30, 120)
+    edge = cv2.morphologyEx(edge, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8), iterations=2)
+    contours, _ = cv2.findContours(edge, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
 
-    for contour in sorted(contours, key=cv2.contourArea, reverse=True):
-        area = cv2.contourArea(contour)
-        if area < image_area * 0.35:
+    best = None
+    best_score = -1.0
+    target_aspect = min(1000.0, 1600.0) / max(1000.0, 1600.0)
+    for contour in sorted(contours, key=cv2.contourArea, reverse=True)[:120]:
+        area = float(cv2.contourArea(contour))
+        if area < image_area * 0.25:
             continue
-        hull = cv2.convexHull(contour)
-        peri = cv2.arcLength(hull, True)
-        approx = cv2.approxPolyDP(hull, 0.02 * peri, True)
-        if len(approx) == 4:
-            quad = _order_quad_points_local(approx.reshape(4, 2))
-            quad_area = abs(float(cv2.contourArea(quad.reshape(-1, 1, 2))))
-            if quad_area / image_area >= 0.35:
-                return quad
+        peri = cv2.arcLength(contour, True)
+        if peri <= 0:
+            continue
+        for eps in (0.015, 0.022, 0.030, 0.040):
+            approx = cv2.approxPolyDP(contour, eps * peri, True)
+            if len(approx) != 4 or not cv2.isContourConvex(approx):
+                continue
+            q = _order_quad_points_local(approx.reshape(4, 2))
+            tl, tr, br, bl = q
+            top = np.linalg.norm(tr - tl)
+            bottom = np.linalg.norm(br - bl)
+            left = np.linalg.norm(bl - tl)
+            right = np.linalg.norm(br - tr)
+            width = max(1.0, (top + bottom) * 0.5)
+            height = max(1.0, (left + right) * 0.5)
+            aspect = min(width, height) / max(width, height)
+            if not 0.45 <= aspect <= 0.78 or height <= width:
+                continue
+            q_area = abs(float(cv2.contourArea(q.reshape(-1, 1, 2))))
+            area_ratio = q_area / image_area
+            if area_ratio < 0.30:
+                continue
+            rectangularity = (min(top, bottom) / max(top, bottom, 1.0)) * (min(left, right) / max(left, right, 1.0))
+            cx = float(np.mean(q[:, 0])) / max(1.0, w)
+            cy = float(np.mean(q[:, 1])) / max(1.0, h)
+            center_penalty = abs(cx - 0.5) * 2.0 + 0.5 * abs(cy - 0.5) * 2.0
+            aspect_score = max(0.0, 1.0 - abs(aspect - target_aspect) / 0.30)
+            score = area_ratio * (0.55 + 0.45 * rectangularity) * (0.65 + 0.35 * aspect_score) * max(0.5, 1.0 - 0.18 * center_penalty)
+            if score > best_score:
+                best_score = score
+                best = q
+            break
 
-    return None
+    return best
 
 def _student_flatten_from_corners(image_bgr, points):
     if len(points) != 4:
@@ -6003,7 +6034,8 @@ def page_omr_submit():
                                         width=omr_scanner.WARP_WIDTH,
                                         height=omr_scanner.WARP_HEIGHT,
                                     )
-                                    processed_bgr = omr_image_scanner.moderate_enhance(processed_bgr)
+                                    # Keep the perspective-corrected camera pixels untouched for OMR reading.
+                                    # Enhancement can thicken printed outlines/shadows and create false MULTI flags.
                                     encoded_ok, encoded = cv2.imencode(".jpg", processed_bgr, [cv2.IMWRITE_JPEG_QUALITY, 94])
                                     if encoded_ok:
                                         camera_sig = f"camera_{active['key_id']}_{len(encoded)}_{hash(encoded.tobytes())}"
@@ -6160,8 +6192,11 @@ def page_omr_submit():
                                             chosen[:, 1] *= sy
                                             chosen = omr_image_scanner._order_quad(chosen)
                                             flat = _student_flatten_from_corners(candidate, chosen)
-                                            flat = omr_image_scanner.moderate_enhance(flat)
+                                            # IMPORTANT: keep the original perspective-corrected pixels for
+                                            # answer detection. Enhancement can strengthen printed outlines
+                                            # and create false MULTI/double-touch evidence.
                                             st.session_state["submit_prepared_image"] = flat
+                                            st.session_state["submit_enhanced_preview"] = omr_image_scanner.moderate_enhance(flat)
                                             st.session_state["submit_corner_adjust_points"] = []
                                             st.session_state["submit_corner_adjust_mode"] = False
                                             st.session_state["submit_corner_last_click"] = None
@@ -6180,103 +6215,108 @@ def page_omr_submit():
 
                                 _manual_corner_fragment()
                             else:
-                                # Show a compact four-corner confirmation canvas.
-                                # The detected points are already populated; adjustment
-                                # is optional and only requires four taps.
-                                preview = omr_scanner.resize_max_dim(candidate, max_dim=1200)
-                                sx = candidate.shape[1] / float(preview.shape[1])
-                                sy = candidate.shape[0] / float(preview.shape[0])
-                                preview_quad = quad.copy()
-                                preview_quad[:, 0] /= sx
-                                preview_quad[:, 1] /= sy
+                                @st.fragment
+                                def _auto_corner_confirm_fragment():
+                                    # Show a compact four-corner confirmation canvas.
+                                    # The detected points are already populated; adjustment
+                                    # is optional and only requires four taps.
+                                    preview = omr_scanner.resize_max_dim(candidate, max_dim=1200)
+                                    sx = candidate.shape[1] / float(preview.shape[1])
+                                    sy = candidate.shape[0] / float(preview.shape[0])
+                                    preview_quad = quad.copy()
+                                    preview_quad[:, 0] /= sx
+                                    preview_quad[:, 1] /= sy
 
-                                adjust_points = st.session_state.get("submit_corner_adjust_points", [])
-                                with st.container(key="omr_corner_confirm_card"):
-                                    st.markdown("#### 📐 Check the 4 OMR corners")
-                                    st.caption(
-                                        "Corners are detected automatically. Confirm them for a fast scan, "
-                                        "or choose Adjust and tap the 4 corners clockwise."
-                                    )
-                                    # Do not redraw the coordinate component with numbered corner markers.
-                                    # Its input image must stay identical between clicks; otherwise
-                                    # streamlit_image_coordinates remounts and the OMR flashes.
-                                    preview_marked = _draw_quad_preview(
-                                        preview, preview_quad,
-                                        selected=None,
-                                    )
-                                    coords = None
-                                    if st.session_state.get("submit_corner_adjust_mode"):
-                                        # Keep ONE stable component key. Changing the key after
-                                        # every click remounted the image and made the whole OMR
-                                        # visibly blink. The last-click guard prevents a stale
-                                        # coordinate event from being counted twice.
-                                        coords = streamlit_image_coordinates(
-                                            Image.fromarray(cv2.cvtColor(preview_marked, cv2.COLOR_BGR2RGB)),
-                                            key=f"submit_corner_adjust_{file_sig}",
+                                    adjust_points = st.session_state.get("submit_corner_adjust_points", [])
+                                    with st.container(key="omr_corner_confirm_card"):
+                                        st.markdown("#### 📐 Check the 4 OMR corners")
+                                        st.caption(
+                                            "Corners are detected automatically. Confirm them for a fast scan, "
+                                            "or choose Adjust and tap the 4 corners clockwise."
                                         )
-                                        if coords is not None:
-                                            pt_preview = (round(float(coords["x"]), 1), round(float(coords["y"]), 1))
-                                            last_click = st.session_state.get("submit_corner_last_click")
-                                            if last_click != pt_preview and len(adjust_points) < 4:
-                                                st.session_state["submit_corner_last_click"] = pt_preview
-                                                adjust_points = adjust_points + [pt_preview]
-                                                st.session_state["submit_corner_adjust_points"] = adjust_points
-                                                if len(adjust_points) < 4:
-                                                    st.rerun(scope="fragment")
-                                    else:
-                                        st.image(
-                                            cv2.cvtColor(preview_marked, cv2.COLOR_BGR2RGB),
-                                            caption="Auto-detected corners",
-                                            use_container_width=True,
+                                        # Do not redraw the coordinate component with numbered corner markers.
+                                        # Its input image must stay identical between clicks; otherwise
+                                        # streamlit_image_coordinates remounts and the OMR flashes.
+                                        preview_marked = _draw_quad_preview(
+                                            preview, preview_quad,
+                                            selected=None,
                                         )
+                                        coords = None
+                                        if st.session_state.get("submit_corner_adjust_mode"):
+                                            # Keep ONE stable component key. Changing the key after
+                                            # every click remounted the image and made the whole OMR
+                                            # visibly blink. The last-click guard prevents a stale
+                                            # coordinate event from being counted twice.
+                                            coords = streamlit_image_coordinates(
+                                                Image.fromarray(cv2.cvtColor(preview_marked, cv2.COLOR_BGR2RGB)),
+                                                key=f"submit_corner_adjust_{file_sig}",
+                                            )
+                                            if coords is not None:
+                                                pt_preview = (round(float(coords["x"]), 1), round(float(coords["y"]), 1))
+                                                last_click = st.session_state.get("submit_corner_last_click")
+                                                if last_click != pt_preview and len(adjust_points) < 4:
+                                                    st.session_state["submit_corner_last_click"] = pt_preview
+                                                    adjust_points = adjust_points + [pt_preview]
+                                                    st.session_state["submit_corner_adjust_points"] = adjust_points
+                                                    if len(adjust_points) < 4:
+                                                        st.rerun(scope="fragment")
+                                        else:
+                                            st.image(
+                                                cv2.cvtColor(preview_marked, cv2.COLOR_BGR2RGB),
+                                                caption="Auto-detected corners",
+                                                use_container_width=True,
+                                            )
 
-                                    c1, c2 = st.columns(2)
-                                    with c1:
-                                        if st.button(
-                                            "✏️ Adjust 4 Corners",
-                                            key=f"submit_adjust_corners_{file_sig}",
-                                            use_container_width=True,
-                                        ):
-                                            st.session_state["submit_corner_adjust_mode"] = True
-                                            st.session_state["submit_corner_adjust_points"] = []
-                                            st.session_state["submit_corner_last_click"] = None
-                                            st.rerun()
-                                    with c2:
-                                        can_confirm = (
-                                            not st.session_state.get("submit_corner_adjust_mode")
-                                            or len(adjust_points) == 4
-                                        )
-                                        if st.button(
-                                            "✅ Confirm & Flatten",
-                                            key=f"submit_confirm_corners_{file_sig}",
-                                            type="primary",
-                                            use_container_width=True,
-                                            disabled=not can_confirm,
-                                        ):
-                                            if len(adjust_points) == 4:
-                                                chosen = np.asarray(adjust_points, dtype=np.float32)
-                                                chosen[:, 0] *= sx
-                                                chosen[:, 1] *= sy
-                                                chosen = omr_image_scanner._order_quad(chosen)
-                                            else:
-                                                chosen = quad
+                                        c1, c2 = st.columns(2)
+                                        with c1:
+                                            if st.button(
+                                                "✏️ Adjust 4 Corners",
+                                                key=f"submit_adjust_corners_{file_sig}",
+                                                use_container_width=True,
+                                            ):
+                                                st.session_state["submit_corner_adjust_mode"] = True
+                                                st.session_state["submit_corner_adjust_points"] = []
+                                                st.session_state["submit_corner_last_click"] = None
+                                                st.rerun()
+                                        with c2:
+                                            can_confirm = (
+                                                not st.session_state.get("submit_corner_adjust_mode")
+                                                or len(adjust_points) == 4
+                                            )
+                                            if st.button(
+                                                "✅ Confirm & Flatten",
+                                                key=f"submit_confirm_corners_{file_sig}",
+                                                type="primary",
+                                                use_container_width=True,
+                                                disabled=not can_confirm,
+                                            ):
+                                                if len(adjust_points) == 4:
+                                                    chosen = np.asarray(adjust_points, dtype=np.float32)
+                                                    chosen[:, 0] *= sx
+                                                    chosen[:, 1] *= sy
+                                                    chosen = omr_image_scanner._order_quad(chosen)
+                                                else:
+                                                    chosen = quad
 
-                                            flat = _student_flatten_from_corners(candidate, chosen)
-                                            flat = omr_image_scanner.moderate_enhance(flat)
-                                            st.session_state["submit_prepared_image"] = flat
-                                            st.session_state["submit_corner_adjust_points"] = []
-                                            st.session_state["submit_corner_adjust_mode"] = False
-                                            st.session_state["submit_corner_last_click"] = None
+                                                flat = _student_flatten_from_corners(candidate, chosen)
+                                                # Scan the original flattened image. Do not enhance before
+                                                # read_answers(): enhancement can create false dark pixels.
+                                                st.session_state["submit_prepared_image"] = flat
+                                                st.session_state["submit_enhanced_preview"] = omr_image_scanner.moderate_enhance(flat)
+                                                st.session_state["submit_corner_adjust_points"] = []
+                                                st.session_state["submit_corner_adjust_mode"] = False
+                                                st.session_state["submit_corner_last_click"] = None
 
-                                            # One-time mentor matrix is now directly reusable
-                                            # because every student image is canonical 1000x1600.
-                                            if master_grid is None:
-                                                st.session_state["submit_master_missing"] = True
-                                            else:
-                                                st.session_state["submit_master_missing"] = False
-                                            st.session_state["submit_review_ready"] = False
-                                            st.rerun()
+                                                # One-time mentor matrix is now directly reusable
+                                                # because every student image is canonical 1000x1600.
+                                                if master_grid is None:
+                                                    st.session_state["submit_master_missing"] = True
+                                                else:
+                                                    st.session_state["submit_master_missing"] = False
+                                                st.session_state["submit_review_ready"] = False
+                                                st.rerun()
 
+                                _auto_corner_confirm_fragment()
                         if st.session_state.get("submit_prepared_image") is not None:
                             img_bgr = st.session_state["submit_prepared_image"]
                             if master_grid is None:
