@@ -334,7 +334,7 @@ def _process_student_photo_with_master(source_bytes, file_sig, total_q):
     if not ok:
         return None, None, (ok, errors, warnings_), None
 
-    quad = omr_image_scanner.detect_sheet_quad(orig_bgr)
+    quad = _detect_sheet_quad_robust(orig_bgr)
     if quad is None:
         return orig_bgr, None, (False, ["Could not detect the OMR sheet boundary. Please keep all four paper corners visible."], warnings_), None
 
@@ -6107,30 +6107,62 @@ def page_omr_submit():
                                 for e in errors:
                                     st.error(e)
                             elif quad is None:
-                                st.error(
-                                    "I couldn't find all 4 OMR paper corners automatically. "
-                                    "Use the crop tool below to isolate the paper, then try again."
-                                )
-                                if _STREAMLIT_CROPPER_AVAILABLE:
-                                    crop_pil = st_cropper(
-                                        Image.fromarray(cv2.cvtColor(candidate, cv2.COLOR_BGR2RGB)),
-                                        realtime_update=True,
-                                        box_color="#0d9488",
-                                        aspect_ratio=None,
-                                        return_type="image",
-                                        key=f"omr_fallback_crop_{file_sig}",
+                                # Automatic document detection is deliberately NOT a hard
+                                # requirement. Phone photos vary too much (white paper on a
+                                # white/grey surface, shadows, clipped edges), so give the
+                                # user a direct four-corner fallback instead of forcing a crop
+                                # and trying the same unreliable detector again.
+                                preview = omr_scanner.resize_max_dim(candidate, max_dim=1200)
+                                sx = candidate.shape[1] / float(preview.shape[1])
+                                sy = candidate.shape[0] / float(preview.shape[0])
+                                adjust_points = st.session_state.get("submit_corner_adjust_points", [])
+                                st.session_state["submit_corner_adjust_mode"] = True
+
+                                with st.container(key="omr_manual_corner_card"):
+                                    st.markdown("#### 📐 Select the 4 OMR corners")
+                                    st.caption(
+                                        "Automatic detection could not be trusted for this photo. "
+                                        "Tap the paper corners clockwise: top-left → top-right → bottom-right → bottom-left."
                                     )
-                                    if crop_pil is not None and st.button(
-                                        "🔍 Detect corners from this crop",
-                                        key=f"omr_detect_crop_{file_sig}",
-                                        use_container_width=True,
-                                    ):
-                                        crop_bgr = cv2.cvtColor(np.array(crop_pil), cv2.COLOR_RGB2BGR)
-                                        found = _detect_sheet_quad_robust(crop_bgr)
-                                        if found is not None:
-                                            st.session_state["submit_candidate_image"] = crop_bgr
-                                            st.session_state["submit_candidate_quad"] = found.tolist()
+
+                                    preview_marked = _draw_quad_preview(
+                                        preview, None, selected=adjust_points
+                                    )
+                                    adjust_key = (
+                                        f"submit_manual_corner_{file_sig}_"
+                                        f"{len(adjust_points)}"
+                                    )
+                                    coords = streamlit_image_coordinates(
+                                        Image.fromarray(cv2.cvtColor(preview_marked, cv2.COLOR_BGR2RGB)),
+                                        key=adjust_key,
+                                    )
+                                    if coords is not None:
+                                        pt_preview = (float(coords["x"]), float(coords["y"]))
+                                        if not adjust_points or adjust_points[-1] != pt_preview:
+                                            adjust_points = adjust_points + [pt_preview]
+                                            st.session_state["submit_corner_adjust_points"] = adjust_points
                                             st.rerun()
+
+                                    can_confirm = len(adjust_points) == 4
+                                    if st.button(
+                                        "✅ Confirm & Flatten",
+                                        key=f"submit_manual_confirm_{file_sig}",
+                                        type="primary",
+                                        use_container_width=True,
+                                        disabled=not can_confirm,
+                                    ):
+                                        chosen = np.asarray(adjust_points, dtype=np.float32)
+                                        chosen[:, 0] *= sx
+                                        chosen[:, 1] *= sy
+                                        chosen = omr_image_scanner._order_quad(chosen)
+                                        flat = _student_flatten_from_corners(candidate, chosen)
+                                        flat = omr_image_scanner.moderate_enhance(flat)
+                                        st.session_state["submit_prepared_image"] = flat
+                                        st.session_state["submit_corner_adjust_points"] = []
+                                        st.session_state["submit_corner_adjust_mode"] = False
+                                        st.session_state["submit_master_missing"] = master_grid is None
+                                        st.session_state["submit_review_ready"] = False
+                                        st.rerun()
                             else:
                                 # Show a compact four-corner confirmation canvas.
                                 # The detected points are already populated; adjustment
@@ -6256,7 +6288,10 @@ def page_omr_submit():
                                             pt = (coords["x"], coords["y"])
                                             if not pts or pts[-1] != pt:
                                                 st.session_state["submit_calib_points"] = pts + [pt]
-                                                st.rerun(scope="fragment" if step + 1 < len(points_info) else None)
+                                                # Dialog calibration is not a Streamlit fragment, so fragment-scoped
+                                                # reruns are invalid here. A normal rerun safely
+                                                # advances the calibration step.
+                                                st.rerun()
                                     _legacy_calibration_dialog()
                                 else:
                                     calibration = {
