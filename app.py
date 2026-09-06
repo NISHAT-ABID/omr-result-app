@@ -6126,11 +6126,12 @@ def page_omr_submit():
                                             "Tap: top-left → top-right → bottom-right → bottom-left. "
                                             "The image stays stable after each tap."
                                         )
-                                        preview_marked = _draw_quad_preview(
-                                            preview, None, selected=adjust_points
-                                        )
+                                        # Keep the coordinate image PIXEL-IDENTICAL after every click.
+                                        # Repainting the image with selected points changes the
+                                        # component payload and makes the whole OMR visibly blink.
+                                        # The selected points are shown separately below instead.
                                         coords = streamlit_image_coordinates(
-                                            Image.fromarray(cv2.cvtColor(preview_marked, cv2.COLOR_BGR2RGB)),
+                                            Image.fromarray(cv2.cvtColor(preview, cv2.COLOR_BGR2RGB)),
                                             key=f"submit_manual_corner_{file_sig}",
                                         )
                                         if coords is not None:
@@ -6144,6 +6145,8 @@ def page_omr_submit():
                                                     st.rerun(scope="fragment")
 
                                         st.caption(f"Corners selected: **{len(adjust_points)}/4**")
+                                        if adjust_points:
+                                            st.caption("Selected: " + " → ".join(f"({int(x)}, {int(y)})" for x, y in adjust_points))
                                         can_confirm = len(adjust_points) == 4
                                         if st.button(
                                             "✅ Confirm & Flatten",
@@ -6194,9 +6197,12 @@ def page_omr_submit():
                                         "Corners are detected automatically. Confirm them for a fast scan, "
                                         "or choose Adjust and tap the 4 corners clockwise."
                                     )
+                                    # Do not redraw the coordinate component with numbered corner markers.
+                                    # Its input image must stay identical between clicks; otherwise
+                                    # streamlit_image_coordinates remounts and the OMR flashes.
                                     preview_marked = _draw_quad_preview(
                                         preview, preview_quad,
-                                        selected=adjust_points,
+                                        selected=None,
                                     )
                                     coords = None
                                     if st.session_state.get("submit_corner_adjust_mode"):
