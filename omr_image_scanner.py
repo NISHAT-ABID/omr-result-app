@@ -25,6 +25,8 @@ import numpy as np
 TARGET_ASPECT_MIN = 0.38
 TARGET_ASPECT_MAX = 0.78
 MIN_AREA_RATIO = 0.18
+WARP_WIDTH = 1000
+WARP_HEIGHT = 1600
 
 
 def _order_quad(points: np.ndarray) -> np.ndarray:
@@ -134,36 +136,76 @@ def draw_detection(frame_bgr: np.ndarray, quad: Optional[np.ndarray]) -> np.ndar
     return out
 
 
-def perspective_flatten(frame_bgr: np.ndarray, quad: np.ndarray, max_width: int = 1100) -> np.ndarray:
-    """Warp the detected sheet into a straight portrait document."""
-    q = _order_quad(quad)
-    tl, tr, br, bl = q
-
-    width_top = np.linalg.norm(tr - tl)
-    width_bottom = np.linalg.norm(br - bl)
-    height_left = np.linalg.norm(bl - tl)
-    height_right = np.linalg.norm(br - tr)
-
-    out_w = max(600, int(round(max(width_top, width_bottom))))
-    out_h = max(800, int(round(max(height_left, height_right))))
-
-    # Keep portrait OMR readable without producing an unnecessarily huge image.
-    if out_w > max_width:
-        scale = max_width / float(out_w)
-        out_w = int(round(out_w * scale))
-        out_h = int(round(out_h * scale))
-
-    # Guard against extreme or noisy contour dimensions.
-    out_w = max(600, min(out_w, max_width))
-    out_h = max(800, min(out_h, int(max_width * 2.0)))
-
+def four_point_transform(image_bgr: np.ndarray, points: np.ndarray,
+                        width: int = WARP_WIDTH, height: int = WARP_HEIGHT) -> np.ndarray:
+    """Perspective-correct an OMR sheet to the fixed 1000x1600 master canvas."""
+    q = _order_quad(points)
     dst = np.array(
-        [[0, 0], [out_w - 1, 0], [out_w - 1, out_h - 1], [0, out_h - 1]],
+        [[0, 0], [width - 1, 0], [width - 1, height - 1], [0, height - 1]],
         dtype=np.float32,
     )
-    M = cv2.getPerspectiveTransform(q, dst)
-    return cv2.warpPerspective(frame_bgr, M, (out_w, out_h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+    matrix = cv2.getPerspectiveTransform(q, dst)
+    return cv2.warpPerspective(
+        image_bgr,
+        matrix,
+        (width, height),
+        flags=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_REPLICATE,
+    )
 
+
+def perspective_flatten(frame_bgr: np.ndarray, quad: np.ndarray,
+                        width: int = WARP_WIDTH, height: int = WARP_HEIGHT) -> np.ndarray:
+    """Backward-compatible wrapper around the fixed-size four-point transform."""
+    return four_point_transform(frame_bgr, quad, width=width, height=height)
+
+
+def detect_and_warp(image_bgr: np.ndarray):
+    """Detect the document contour and flatten it to the canonical canvas."""
+    quad = detect_sheet_quad(image_bgr)
+    if quad is None:
+        return None, False
+    return four_point_transform(image_bgr, quad), True
+
+
+def preprocess_omr_image(image_bgr: np.ndarray) -> np.ndarray:
+    """Remove red/pink print and compensate for uneven phone-camera lighting.
+
+    OpenCV stores BGR, so channel 2 is the Red channel.  Student ink is then
+    represented by dark pixels while the red/pink printed border is largely
+    suppressed. Adaptive thresholding makes the result substantially less
+    sensitive to shadows and mild illumination gradients.
+    """
+    if image_bgr is None or image_bgr.size == 0:
+        raise ValueError("Empty OMR image.")
+
+    red = image_bgr[:, :, 2]
+    red = cv2.GaussianBlur(red, (3, 3), 0)
+
+    binary = cv2.adaptiveThreshold(
+        red,
+        255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY,
+        31,
+        9,
+    )
+
+    # Tiny isolated noise is removed without eating normal pen strokes.
+    binary = cv2.morphologyEx(
+        binary, cv2.MORPH_OPEN, np.ones((2, 2), np.uint8), iterations=1
+    )
+    return binary
+
+
+def process_for_omr_reading(image_bgr: np.ndarray):
+    """Return (flat_color_image, binary_omr_image, detected_quad)."""
+    quad = detect_sheet_quad(image_bgr)
+    if quad is None:
+        return None, None, None
+    flat = four_point_transform(image_bgr, quad)
+    binary = preprocess_omr_image(flat)
+    return flat, binary, quad
 
 def moderate_enhance(image_bgr: np.ndarray) -> np.ndarray:
     """Moderate document enhancement designed to preserve OMR bubble geometry."""
@@ -187,11 +229,11 @@ def moderate_enhance(image_bgr: np.ndarray) -> np.ndarray:
 
 
 def process_captured_frame(frame_bgr: np.ndarray) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
-    """Return (processed_flat_image, detected_quad)."""
+    """Return (processed_flat_image, detected_quad) for camera capture."""
     quad = detect_sheet_quad(frame_bgr)
     if quad is None:
         return None, None
-    flat = perspective_flatten(frame_bgr, quad)
+    flat = four_point_transform(frame_bgr, quad)
     flat = moderate_enhance(flat)
     return flat, quad
 
