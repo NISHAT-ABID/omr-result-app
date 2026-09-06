@@ -126,6 +126,171 @@ def _draw_quad_preview(image_bgr, quad, selected=None):
     return out
 
 
+
+def _order_quad_points_local(points):
+    """Return document corners in TL, TR, BR, BL order."""
+    pts = np.asarray(points, dtype=np.float32).reshape(4, 2)
+    s = pts.sum(axis=1)
+    d = np.diff(pts, axis=1).ravel()
+    return np.array(
+        [pts[np.argmin(s)], pts[np.argmin(d)], pts[np.argmax(s)], pts[np.argmax(d)]],
+        dtype=np.float32,
+    )
+
+
+def _detect_sheet_quad_robust(image_bgr):
+    """Detect the full OMR paper, with a color/saturation fallback.
+
+    Some phone photos have almost no visible paper edge in grayscale. The
+    OMR print in this project is lightly colored, so a saturation mask plus
+    convex hull is a useful fallback when the primary contour detector fails.
+    """
+    try:
+        found = omr_image_scanner.detect_sheet_quad(image_bgr)
+        if found is not None:
+            pts = np.asarray(found, dtype=np.float32).reshape(4, 2)
+            return _order_quad_points_local(pts)
+    except Exception:
+        pass
+
+    h, w = image_bgr.shape[:2]
+    image_area = float(h * w)
+    if h < 300 or w < 200:
+        return None
+
+    # First fallback: compare the photo against its corner/background color.
+    # This is particularly effective for phone photos where the white OMR edge
+    # has almost no grayscale contrast but is still visibly different from the
+    # surrounding surface.
+    lab = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2LAB).astype(np.float32)
+    patch = max(40, int(round(min(h, w) * 0.10)))
+    corner_pixels = np.concatenate(
+        [
+            lab[:patch, :patch].reshape(-1, 3),
+            lab[:patch, -patch:].reshape(-1, 3),
+            lab[-patch:, :patch].reshape(-1, 3),
+            lab[-patch:, -patch:].reshape(-1, 3),
+        ],
+        axis=0,
+    )
+    bg_lab = np.median(corner_pixels, axis=0)
+    bg_distance = np.linalg.norm(lab - bg_lab, axis=2)
+
+    bg_close_k = max(21, int(round(min(h, w) * 0.035)))
+    if bg_close_k % 2 == 0:
+        bg_close_k += 1
+    bg_kernel = np.ones((bg_close_k, bg_close_k), np.uint8)
+
+    for threshold in (18, 20, 22, 25, 28, 32):
+        mask = np.where(bg_distance >= threshold, 255, 0).astype(np.uint8)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, bg_kernel)
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        candidates = []
+        for contour in contours:
+            area = cv2.contourArea(contour)
+            if area < image_area * 0.40:
+                continue
+
+            hull = cv2.convexHull(contour)
+            peri = cv2.arcLength(hull, True)
+            if peri <= 0:
+                continue
+            approx = cv2.approxPolyDP(hull, 0.018 * peri, True)
+            if len(approx) != 4:
+                continue
+
+            quad = _order_quad_points_local(approx.reshape(4, 2))
+            quad_area = abs(float(cv2.contourArea(quad.reshape(-1, 1, 2))))
+            area_ratio = quad_area / image_area
+            if not 0.42 <= area_ratio <= 0.95:
+                continue
+            if not cv2.isContourConvex(quad.reshape(-1, 1, 2).astype(np.float32)):
+                continue
+
+            candidates.append((area_ratio, quad))
+
+        if candidates:
+            # Use the largest credible four-corner region at this threshold.
+            candidates.sort(key=lambda item: item[0], reverse=True)
+            return candidates[0][1]
+
+    # Second fallback: exploit the colored/pink OMR paper against the neutral
+    # background. Multiple thresholds make this work across different phones.
+    hsv = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2HSV)
+    sat = hsv[:, :, 1]
+    best = None
+
+    close_k = max(15, int(round(min(h, w) * 0.025)))
+    if close_k % 2 == 0:
+        close_k += 1
+    open_k = max(5, int(round(min(h, w) * 0.009)))
+    if open_k % 2 == 0:
+        open_k += 1
+    close_kernel = np.ones((close_k, close_k), np.uint8)
+    open_kernel = np.ones((open_k, open_k), np.uint8)
+
+    for threshold in (8, 10, 12, 14, 16, 18, 20, 24):
+        mask = np.where(sat >= threshold, 255, 0).astype(np.uint8)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, close_kernel)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, open_kernel)
+
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        for contour in contours:
+            area = cv2.contourArea(contour)
+            if area < image_area * 0.28:
+                continue
+
+            hull = cv2.convexHull(contour)
+            peri = cv2.arcLength(hull, True)
+            if peri <= 0:
+                continue
+
+            # A little more tolerance than the normal detector because the
+            # paper edge can be soft/uneven in a phone photo.
+            approx = cv2.approxPolyDP(hull, 0.018 * peri, True)
+            if len(approx) != 4:
+                continue
+
+            quad = _order_quad_points_local(approx.reshape(4, 2))
+            quad_area = abs(float(cv2.contourArea(quad.reshape(-1, 1, 2))))
+            area_ratio = quad_area / image_area
+            if area_ratio < 0.32:
+                continue
+
+            # Reject clearly impossible/self-crossing quads.
+            if not cv2.isContourConvex(quad.reshape(-1, 1, 2).astype(np.float32)):
+                continue
+
+            # Prefer the largest credible document, but avoid tiny noisy quads.
+            score = area_ratio
+            if best is None or score > best[0]:
+                best = (score, quad)
+
+    if best is not None:
+        return best[1]
+
+    # Last fallback: edge-based convex hull. This helps with monochrome sheets.
+    gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
+    edge = cv2.Canny(cv2.GaussianBlur(gray, (5, 5), 0), 35, 110)
+    edge = cv2.dilate(edge, np.ones((5, 5), np.uint8), iterations=1)
+    contours, _ = cv2.findContours(edge, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    for contour in sorted(contours, key=cv2.contourArea, reverse=True):
+        area = cv2.contourArea(contour)
+        if area < image_area * 0.35:
+            continue
+        hull = cv2.convexHull(contour)
+        peri = cv2.arcLength(hull, True)
+        approx = cv2.approxPolyDP(hull, 0.02 * peri, True)
+        if len(approx) == 4:
+            quad = _order_quad_points_local(approx.reshape(4, 2))
+            quad_area = abs(float(cv2.contourArea(quad.reshape(-1, 1, 2))))
+            if quad_area / image_area >= 0.35:
+                return quad
+
+    return None
+
 def _student_flatten_from_corners(image_bgr, points):
     if len(points) != 4:
         raise ValueError("Exactly four document corners are required.")
@@ -5821,10 +5986,17 @@ def page_omr_submit():
                                 raw_bytes = base64.b64decode(raw_b64.split(",", 1)[-1])
                                 raw_arr = np.frombuffer(raw_bytes, dtype=np.uint8)
                                 raw_bgr = cv2.imdecode(raw_arr, cv2.IMREAD_COLOR)
-                                processed_bgr, detected_quad = omr_image_scanner.process_captured_frame(raw_bgr)
-                                if processed_bgr is None:
+                                detected_quad = _detect_sheet_quad_robust(raw_bgr)
+                                if detected_quad is None:
                                     st.error("OMR sheet boundary could not be confirmed. Please capture the full sheet with all 4 corners visible.")
                                 else:
+                                    processed_bgr = omr_image_scanner.four_point_transform(
+                                        raw_bgr,
+                                        detected_quad,
+                                        width=omr_scanner.WARP_WIDTH,
+                                        height=omr_scanner.WARP_HEIGHT,
+                                    )
+                                    processed_bgr = omr_image_scanner.moderate_enhance(processed_bgr)
                                     encoded_ok, encoded = cv2.imencode(".jpg", processed_bgr, [cv2.IMWRITE_JPEG_QUALITY, 94])
                                     if encoded_ok:
                                         camera_sig = f"camera_{active['key_id']}_{len(encoded)}_{hash(encoded.tobytes())}"
@@ -5898,7 +6070,7 @@ def page_omr_submit():
                                 orig_bgr = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
                                 ok, errors, warnings_ = omr_scanner.validate_omr_image(orig_bgr)
                                 ok, errors, warnings_ = _relax_blur_only_validation(ok, errors, warnings_)
-                                quad = omr_image_scanner.detect_sheet_quad(orig_bgr) if ok else None
+                                quad = _detect_sheet_quad_robust(orig_bgr) if ok else None
 
                                 st.session_state["submit_candidate_image"] = orig_bgr
                                 st.session_state["submit_candidate_quad"] = (
@@ -5940,7 +6112,7 @@ def page_omr_submit():
                                         use_container_width=True,
                                     ):
                                         crop_bgr = cv2.cvtColor(np.array(crop_pil), cv2.COLOR_RGB2BGR)
-                                        found = omr_image_scanner.detect_sheet_quad(crop_bgr)
+                                        found = _detect_sheet_quad_robust(crop_bgr)
                                         if found is not None:
                                             st.session_state["submit_candidate_image"] = crop_bgr
                                             st.session_state["submit_candidate_quad"] = found.tolist()
@@ -6087,7 +6259,8 @@ def page_omr_submit():
                                 st.session_state["submit_double_touch"] = double_qs
                                 st.session_state["submit_review_ready"] = True
                                 st.rerun()
-                        else:
+                        if st.session_state.get("submit_review_ready") and st.session_state.get("submit_prepared_image") is not None:
+                            img_bgr = st.session_state["submit_prepared_image"]
                             grid = st.session_state.get("submit_grid")
                             detected = st.session_state.get("submit_detected_answers", {})
                             final_answers = st.session_state.get("submit_final_answers", dict(detected))
@@ -8409,7 +8582,7 @@ def page_mentor_calibration():
         st.session_state.pop("calib_flat_quad", None)
 
     if "calib_flat_image" not in st.session_state:
-        quad = omr_image_scanner.detect_sheet_quad(img_bgr)
+        quad = _detect_sheet_quad_robust(img_bgr)
         if quad is None:
             st.error("Could not detect the blank OMR paper. Please make all four paper corners visible.")
             if _STREAMLIT_CROPPER_AVAILABLE:
@@ -8426,7 +8599,7 @@ def page_mentor_calibration():
                     key=f"mentor_detect_crop_{total_q}",
                 ):
                     crop_bgr = cv2.cvtColor(np.array(cropped), cv2.COLOR_RGB2BGR)
-                    found = omr_image_scanner.detect_sheet_quad(crop_bgr)
+                    found = _detect_sheet_quad_robust(crop_bgr)
                     if found is not None:
                         st.session_state["calib_flat_image"] = omr_image_scanner.four_point_transform(
                             crop_bgr, found, width=1000, height=1600
