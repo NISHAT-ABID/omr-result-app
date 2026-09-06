@@ -39,7 +39,12 @@ except Exception:
 import omr_scanner
 import sheets_helper as sh
 import omr_image_scanner
-from omr_camera_component import omr_camera
+try:
+    from omr_camera_component import omr_camera
+    _OMR_CAMERA_AVAILABLE = True
+except Exception:
+    omr_camera = None
+    _OMR_CAMERA_AVAILABLE = False
 
 st.set_page_config(page_title="The Med Venture — by Bushra", page_icon="🩺", layout="wide")
 
@@ -5802,33 +5807,36 @@ def page_omr_submit():
                 camera_tab, upload_tab = st.tabs(["📷 Scan with Camera", "📁 Upload Photo"])
 
                 with camera_tab:
-                    st.caption("Camera scanner: align the FULL OMR sheet. The scanner will detect the paper, show a green border, and straighten it after capture.")
-                    camera_result = omr_camera(key=f"omr_camera_{active['key_id']}")
-                    if isinstance(camera_result, dict) and camera_result.get("error"):
-                        st.error(f"Camera could not start: {camera_result['error']}")
-                    elif isinstance(camera_result, dict) and camera_result.get("captured"):
-                        try:
-                            import base64
-                            raw_b64 = str(camera_result["captured"])
-                            raw_bytes = base64.b64decode(raw_b64.split(",", 1)[-1])
-                            raw_arr = np.frombuffer(raw_bytes, dtype=np.uint8)
-                            raw_bgr = cv2.imdecode(raw_arr, cv2.IMREAD_COLOR)
-                            processed_bgr, detected_quad = omr_image_scanner.process_captured_frame(raw_bgr)
-                            if processed_bgr is None:
-                                st.error("OMR sheet boundary could not be confirmed. Please capture the full sheet with all 4 corners visible.")
-                            else:
-                                encoded_ok, encoded = cv2.imencode(".jpg", processed_bgr, [cv2.IMWRITE_JPEG_QUALITY, 94])
-                                if encoded_ok:
-                                    camera_sig = f"camera_{active['key_id']}_{len(encoded)}_{hash(encoded.tobytes())}"
-                                    if st.session_state.get("camera_omr_sig") != camera_sig:
-                                        st.session_state["camera_omr_bytes"] = encoded.tobytes()
-                                        st.session_state["camera_omr_sig"] = camera_sig
-                                        st.session_state["camera_omr_preview"] = processed_bgr
-                                        _reset_submission_state()
-                                        st.session_state["submit_file_sig"] = camera_sig
-                                        st.rerun()
-                        except Exception as e:
-                            st.error(f"Camera image processing failed: {e}")
+                    if not _OMR_CAMERA_AVAILABLE:
+                        st.info("📷 Camera scanner is currently unavailable. Please use the 'Upload Photo' tab instead.")
+                    else:
+                        st.caption("Camera scanner: align the FULL OMR sheet. The scanner will detect the paper, show a green border, and straighten it after capture.")
+                        camera_result = omr_camera(key=f"omr_camera_{active['key_id']}")
+                        if isinstance(camera_result, dict) and camera_result.get("error"):
+                            st.error(f"Camera could not start: {camera_result['error']}")
+                        elif isinstance(camera_result, dict) and camera_result.get("captured"):
+                            try:
+                                import base64
+                                raw_b64 = str(camera_result["captured"])
+                                raw_bytes = base64.b64decode(raw_b64.split(",", 1)[-1])
+                                raw_arr = np.frombuffer(raw_bytes, dtype=np.uint8)
+                                raw_bgr = cv2.imdecode(raw_arr, cv2.IMREAD_COLOR)
+                                processed_bgr, detected_quad = omr_image_scanner.process_captured_frame(raw_bgr)
+                                if processed_bgr is None:
+                                    st.error("OMR sheet boundary could not be confirmed. Please capture the full sheet with all 4 corners visible.")
+                                else:
+                                    encoded_ok, encoded = cv2.imencode(".jpg", processed_bgr, [cv2.IMWRITE_JPEG_QUALITY, 94])
+                                    if encoded_ok:
+                                        camera_sig = f"camera_{active['key_id']}_{len(encoded)}_{hash(encoded.tobytes())}"
+                                        if st.session_state.get("camera_omr_sig") != camera_sig:
+                                            st.session_state["camera_omr_bytes"] = encoded.tobytes()
+                                            st.session_state["camera_omr_sig"] = camera_sig
+                                            st.session_state["camera_omr_preview"] = processed_bgr
+                                            _reset_submission_state()
+                                            st.session_state["submit_file_sig"] = camera_sig
+                                            st.rerun()
+                            except Exception as e:
+                                st.error(f"Camera image processing failed: {e}")
 
                 with upload_tab:
                     uploaded = st.file_uploader(
