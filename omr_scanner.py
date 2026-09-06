@@ -38,10 +38,10 @@ LAYOUT_PRESETS = {100: (25, 4), 50: (25, 2), 40: (25, 2)}
 # then validates candidates against the other bubbles in the same question.
 FILL_SCORE_THRESHOLD = 16.0
 STRONG_FILL_SCORE = 24.0
-MULTI_SECOND_SCORE = 10.0
+MULTI_SECOND_SCORE = 18.0
 MIN_STRONG_INK_FRACTION = 0.055
-MULTI_MIN_INK_FRACTION = 0.135
-MAX1_MAX2_RATIO = 1.7
+MULTI_MIN_INK_FRACTION = 0.18
+MAX1_MAX2_RATIO = 1.42
 MARGIN_EROSION_PX = 2
 
 # Value-channel threshold used after the printed pink/red ink is removed.
