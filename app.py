@@ -147,187 +147,87 @@ def _order_quad_points_local(points):
 
 
 def _detect_sheet_quad_robust(image_bgr):
-    """Detect the full OMR paper, with a color/saturation fallback.
+    """Multi-hypothesis OMR paper detector.
 
-    Some phone photos have almost no visible paper edge in grayscale. The
-    OMR print in this project is lightly colored, so a saturation mask plus
-    convex hull is a useful fallback when the primary contour detector fails.
+    Instead of trusting one contour, generate candidates from several edge
+    scales and score them by area, document aspect ratio, rectangularity and
+    how well the four sides behave like long sheet edges.  The best candidate
+    is only a suggestion; the confirmation UI still allows exact 4-corner
+    correction.
     """
-    try:
-        found = omr_image_scanner.detect_sheet_quad(image_bgr)
-        if found is not None:
-            pts = np.asarray(found, dtype=np.float32).reshape(4, 2)
-            return _order_quad_points_local(pts)
-    except Exception:
-        pass
-
+    if image_bgr is None or image_bgr.size == 0:
+        return None
     h, w = image_bgr.shape[:2]
-    image_area = float(h * w)
     if h < 300 or w < 200:
         return None
 
-    # First fallback: compare the photo against its corner/background color.
-    # This is particularly effective for phone photos where the white OMR edge
-    # has almost no grayscale contrast but is still visibly different from the
-    # surrounding surface.
-    lab = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2LAB).astype(np.float32)
-    patch = max(40, int(round(min(h, w) * 0.10)))
-    corner_pixels = np.concatenate(
-        [
-            lab[:patch, :patch].reshape(-1, 3),
-            lab[:patch, -patch:].reshape(-1, 3),
-            lab[-patch:, :patch].reshape(-1, 3),
-            lab[-patch:, -patch:].reshape(-1, 3),
-        ],
-        axis=0,
-    )
-    bg_lab = np.median(corner_pixels, axis=0)
-    bg_distance = np.linalg.norm(lab - bg_lab, axis=2)
-
-    bg_close_k = max(21, int(round(min(h, w) * 0.035)))
-    if bg_close_k % 2 == 0:
-        bg_close_k += 1
-    bg_kernel = np.ones((bg_close_k, bg_close_k), np.uint8)
-
-    for threshold in (18, 20, 22, 25, 28, 32):
-        mask = np.where(bg_distance >= threshold, 255, 0).astype(np.uint8)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, bg_kernel)
-        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-        candidates = []
-        for contour in contours:
-            area = cv2.contourArea(contour)
-            if area < image_area * 0.40:
-                continue
-
-            hull = cv2.convexHull(contour)
-            peri = cv2.arcLength(hull, True)
-            if peri <= 0:
-                continue
-            approx = cv2.approxPolyDP(hull, 0.018 * peri, True)
-            if len(approx) != 4:
-                continue
-
-            quad = _order_quad_points_local(approx.reshape(4, 2))
-            quad_area = abs(float(cv2.contourArea(quad.reshape(-1, 1, 2))))
-            area_ratio = quad_area / image_area
-            if not 0.42 <= area_ratio <= 0.95:
-                continue
-            if not cv2.isContourConvex(quad.reshape(-1, 1, 2).astype(np.float32)):
-                continue
-
-            candidates.append((area_ratio, quad))
-
-        if candidates:
-            # Use the largest credible four-corner region at this threshold.
-            candidates.sort(key=lambda item: item[0], reverse=True)
-            return candidates[0][1]
-
-    # Second fallback: exploit the colored/pink OMR paper against the neutral
-    # background. Multiple thresholds make this work across different phones.
-    hsv = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2HSV)
-    sat = hsv[:, :, 1]
-    best = None
-
-    close_k = max(15, int(round(min(h, w) * 0.025)))
-    if close_k % 2 == 0:
-        close_k += 1
-    open_k = max(5, int(round(min(h, w) * 0.009)))
-    if open_k % 2 == 0:
-        open_k += 1
-    close_kernel = np.ones((close_k, close_k), np.uint8)
-    open_kernel = np.ones((open_k, open_k), np.uint8)
-
-    for threshold in (8, 10, 12, 14, 16, 18, 20, 24):
-        mask = np.where(sat >= threshold, 255, 0).astype(np.uint8)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, close_kernel)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, open_kernel)
-
-        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        for contour in contours:
-            area = cv2.contourArea(contour)
-            if area < image_area * 0.28:
-                continue
-
-            hull = cv2.convexHull(contour)
-            peri = cv2.arcLength(hull, True)
-            if peri <= 0:
-                continue
-
-            # A little more tolerance than the normal detector because the
-            # paper edge can be soft/uneven in a phone photo.
-            approx = cv2.approxPolyDP(hull, 0.018 * peri, True)
-            if len(approx) != 4:
-                continue
-
-            quad = _order_quad_points_local(approx.reshape(4, 2))
-            quad_area = abs(float(cv2.contourArea(quad.reshape(-1, 1, 2))))
-            area_ratio = quad_area / image_area
-            if area_ratio < 0.32:
-                continue
-
-            # Reject clearly impossible/self-crossing quads.
-            if not cv2.isContourConvex(quad.reshape(-1, 1, 2).astype(np.float32)):
-                continue
-
-            # Prefer the largest credible document, but avoid tiny noisy quads.
-            score = area_ratio
-            if best is None or score > best[0]:
-                best = (score, quad)
-
-    if best is not None:
-        return best[1]
-
-    # Last fallback: scored edge quadrilaterals. Never accept the first
-    # arbitrary 4-point contour; score candidates by area, portrait aspect,
-    # rectangularity and how well the sheet is centered.
+    target_ratio = omr_scanner.WARP_WIDTH / float(omr_scanner.WARP_HEIGHT)
+    image_area = float(h * w)
     gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
     gray = cv2.GaussianBlur(gray, (5, 5), 0)
-    edge = cv2.Canny(gray, 30, 120)
-    edge = cv2.morphologyEx(edge, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8), iterations=2)
-    contours, _ = cv2.findContours(edge, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    candidates = []
 
-    best = None
-    best_score = -1.0
-    target_aspect = min(1000.0, 1600.0) / max(1000.0, 1600.0)
-    for contour in sorted(contours, key=cv2.contourArea, reverse=True)[:120]:
-        area = float(cv2.contourArea(contour))
-        if area < image_area * 0.25:
-            continue
-        peri = cv2.arcLength(contour, True)
-        if peri <= 0:
-            continue
-        for eps in (0.015, 0.022, 0.030, 0.040):
-            approx = cv2.approxPolyDP(contour, eps * peri, True)
-            if len(approx) != 4 or not cv2.isContourConvex(approx):
-                continue
-            q = _order_quad_points_local(approx.reshape(4, 2))
-            tl, tr, br, bl = q
-            top = np.linalg.norm(tr - tl)
-            bottom = np.linalg.norm(br - bl)
-            left = np.linalg.norm(bl - tl)
-            right = np.linalg.norm(br - tr)
-            width = max(1.0, (top + bottom) * 0.5)
-            height = max(1.0, (left + right) * 0.5)
-            aspect = min(width, height) / max(width, height)
-            if not 0.45 <= aspect <= 0.78 or height <= width:
-                continue
-            q_area = abs(float(cv2.contourArea(q.reshape(-1, 1, 2))))
-            area_ratio = q_area / image_area
-            if area_ratio < 0.30:
-                continue
-            rectangularity = (min(top, bottom) / max(top, bottom, 1.0)) * (min(left, right) / max(left, right, 1.0))
-            cx = float(np.mean(q[:, 0])) / max(1.0, w)
-            cy = float(np.mean(q[:, 1])) / max(1.0, h)
-            center_penalty = abs(cx - 0.5) * 2.0 + 0.5 * abs(cy - 0.5) * 2.0
-            aspect_score = max(0.0, 1.0 - abs(aspect - target_aspect) / 0.30)
-            score = area_ratio * (0.55 + 0.45 * rectangularity) * (0.65 + 0.35 * aspect_score) * max(0.5, 1.0 - 0.18 * center_penalty)
-            if score > best_score:
-                best_score = score
-                best = q
-            break
+    def add_quad(pts):
+        try:
+            q = _order_quad_points_local(np.asarray(pts, dtype=np.float32).reshape(4, 2))
+            area = abs(float(cv2.contourArea(q.reshape(-1, 1, 2))))
+            ratio = area / image_area
+            if ratio < 0.30 or ratio > 0.995:
+                return
+            sides = [np.linalg.norm(q[(i + 1) % 4] - q[i]) for i in range(4)]
+            if min(sides) < min(h, w) * 0.18:
+                return
+            doc_ratio = ((sides[1] + sides[3]) * 0.5) / max(1.0, (sides[0] + sides[2]) * 0.5)
+            aspect_err = abs(np.log(max(1e-6, doc_ratio / (1.0 / target_ratio))))
+            # Penalize implausible page shapes, but don't require a perfect
+            # 1000x1600 ratio because camera perspective can be substantial.
+            score = ratio * 4.0 - aspect_err * 1.8
+            pts_i = np.int32(q).reshape(-1, 1, 2)
+            peri = cv2.arcLength(pts_i, True)
+            if peri > 0:
+                hull = cv2.convexHull(pts_i)
+                solidity = area / max(1.0, cv2.contourArea(hull))
+                score += solidity
+            candidates.append((score, q))
+        except Exception:
+            return
 
-    return best
+    # Canny at several scales captures both crisp paper edges and soft phone
+    # shadows.  Close gaps before extracting contours.
+    for sigma_ksize, lo, hi in ((3, 35, 110), (5, 50, 150), (7, 70, 190)):
+        g = cv2.GaussianBlur(gray, (sigma_ksize, sigma_ksize), 0)
+        edges = cv2.Canny(g, lo, hi)
+        close_k = max(3, int(round(min(h, w) * 0.006)))
+        if close_k % 2 == 0:
+            close_k += 1
+        edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, np.ones((close_k, close_k), np.uint8), iterations=2)
+        contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+        for c in sorted(contours, key=cv2.contourArea, reverse=True)[:25]:
+            area = cv2.contourArea(c)
+            if area < image_area * 0.30:
+                continue
+            peri = cv2.arcLength(c, True)
+            for eps in (0.012, 0.018, 0.025, 0.035):
+                approx = cv2.approxPolyDP(c, eps * peri, True)
+                if len(approx) == 4:
+                    add_quad(approx.reshape(4, 2))
+                    break
+
+    # If the boundary is fragmented, minAreaRect provides a useful fallback.
+    if not candidates:
+        edges = cv2.Canny(gray, 40, 140)
+        ys, xs = np.where(edges > 0)
+        if len(xs) > 100:
+            pts = np.column_stack([xs, ys]).astype(np.float32)
+            rect = cv2.minAreaRect(pts)
+            box = cv2.boxPoints(rect)
+            add_quad(box)
+
+    if not candidates:
+        return None
+    candidates.sort(key=lambda x: x[0], reverse=True)
+    return candidates[0][1]
+
 
 def _student_flatten_from_corners(image_bgr, points):
     if len(points) != 4:
@@ -3757,7 +3657,16 @@ def cached_calibration():
 
 @st.cache_data(ttl=10, show_spinner=False)
 def cached_session_version(student_id):
-    return sh.get_session_version(student_id)
+    try:
+        version = sh.get_session_version(student_id)
+        if version is not None:
+            st.session_state[f"_last_session_version_{student_id}"] = version
+        return version
+    except Exception:
+        # A transient Google Sheets/API outage must not destroy an otherwise
+        # valid logged-in session.  Keep the last verified version for this
+        # session and let the next successful request revalidate it.
+        return st.session_state.get(f"_last_session_version_{student_id}")
 
 
 @st.cache_data(ttl=20, show_spinner=False)
