@@ -360,6 +360,47 @@ def _bubble_metrics(image_red, center, radius):
     return float(score), ink_fraction, core_mean, ring_mean
 
 
+def _refine_bubble_center(image_red, center, radius, search_radius=12, step=2):
+    """Locally correct a slightly misplaced grid point before reading a bubble.
+
+    Fixed-template calibration can still be a few pixels off after perspective
+    correction. Search a small neighborhood for the strongest filled-bubble
+    evidence, but keep the search local so neighbouring bubbles are not selected.
+    """
+    cx, cy = float(center[0]), float(center[1])
+    best_center = (cx, cy)
+    best_score = -1.0
+
+    for dy in range(-search_radius, search_radius + 1, step):
+        for dx in range(-search_radius, search_radius + 1, step):
+            candidate = (cx + dx, cy + dy)
+            score, ink, core_mean, ring_mean = _bubble_metrics(
+                image_red, candidate, radius
+            )
+            contrast = max(0.0, ring_mean - core_mean)
+            # Favor real ink/contrast, while slightly preferring points near
+            # the calibrated center.
+            distance_penalty = ((dx * dx + dy * dy) ** 0.5) * 0.12
+            candidate_score = score + contrast * 0.15 + ink * 8.0 - distance_penalty
+            if candidate_score > best_score:
+                best_score = candidate_score
+                best_center = candidate
+
+    return best_center
+
+
+def _read_option_metrics(image_red, center, radius):
+    """Read one option while tolerating small calibration/grid offsets."""
+    refined = _refine_bubble_center(
+        image_red,
+        center,
+        radius,
+        search_radius=max(7, min(12, radius)),
+        step=2,
+    )
+    metrics = _bubble_metrics(image_red, refined, radius)
+    return metrics, refined
+
 def read_answers(warped_bgr, grid, dark_threshold=DARK_PIXEL_THRESHOLD, min_gap=15, radius=None):
     """Read answers from raw perspective-corrected OMR pixels.
 
@@ -376,10 +417,12 @@ def read_answers(warped_bgr, grid, dark_threshold=DARK_PIXEL_THRESHOLD, min_gap=
     answers = {}
 
     for q_no, options in grid.items():
-        metrics = {
-            opt: _bubble_metrics(red, center, radius)
-            for opt, center in options.items()
-        }
+        metrics = {}
+        refined_centers = {}
+        for opt, center in options.items():
+            metric, refined = _read_option_metrics(red, center, radius)
+            metrics[opt] = metric
+            refined_centers[opt] = refined
         scores = {opt: metrics[opt][0] for opt in OPTIONS}
         inks = {opt: metrics[opt][1] for opt in OPTIONS}
 
