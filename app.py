@@ -119,6 +119,20 @@ def _validate_omr_image_safe(image_bgr):
     return len(errors) == 0, errors, warnings
 
 
+def _resize_max_dim_local(image_bgr, max_dim=1200):
+    """Resize an OpenCV image for preview without depending on omr_scanner helpers."""
+    if image_bgr is None or getattr(image_bgr, "size", 0) == 0:
+        return image_bgr
+    h, w = image_bgr.shape[:2]
+    longest = max(h, w)
+    if longest <= max_dim:
+        return image_bgr.copy()
+    scale = float(max_dim) / float(longest)
+    nw = max(1, int(round(w * scale)))
+    nh = max(1, int(round(h * scale)))
+    return cv2.resize(image_bgr, (nw, nh), interpolation=cv2.INTER_AREA)
+
+
 def _relax_blur_only_validation(ok, errors, warnings_):
     """Allow usable OMR photos through when validation rejects only for blur.
 
@@ -311,7 +325,7 @@ def _process_student_photo_with_master(source_bytes, file_sig, total_q):
     if quad is None:
         return orig_bgr, None, (False, ["Could not detect the OMR sheet boundary. Please keep all four paper corners visible."], warnings_), None
 
-    preview = omr_scanner.resize_max_dim(orig_bgr, max_dim=1200)
+    preview = _resize_max_dim_local(orig_bgr, max_dim=1200)
     scale_x = orig_bgr.shape[1] / float(preview.shape[1])
     scale_y = orig_bgr.shape[0] / float(preview.shape[0])
     preview_quad = np.asarray(quad, dtype=np.float32).copy()
@@ -6094,7 +6108,7 @@ def page_omr_submit():
                                 # selection is isolated in a Streamlit fragment so a tap
                                 # reruns only this small UI instead of refreshing the whole
                                 # OMR page (which caused the image to visibly blink).
-                                preview = omr_scanner.resize_max_dim(candidate, max_dim=1200)
+                                preview = _resize_max_dim_local(candidate, max_dim=1200)
                                 sx = candidate.shape[1] / float(preview.shape[1])
                                 sy = candidate.shape[0] / float(preview.shape[0])
 
@@ -6185,7 +6199,7 @@ def page_omr_submit():
                                     # Show a compact four-corner confirmation canvas.
                                     # The detected points are already populated; adjustment
                                     # is optional and only requires four taps.
-                                    preview = omr_scanner.resize_max_dim(candidate, max_dim=1200)
+                                    preview = _resize_max_dim_local(candidate, max_dim=1200)
                                     sx = candidate.shape[1] / float(preview.shape[1])
                                     sy = candidate.shape[0] / float(preview.shape[0])
                                     preview_quad = quad.copy()
