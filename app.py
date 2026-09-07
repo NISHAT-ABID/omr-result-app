@@ -14,6 +14,8 @@ Run with: streamlit run app.py
 
 import random
 import io
+import os
+import base64
 import hashlib
 import json
 from datetime import datetime, date, time as dtime, timedelta
@@ -30,6 +32,30 @@ from PIL import Image, ImageOps
 # compact mobile tables. Existing exam/OMR features are intentionally preserved.
 OMR_REVIEW_BUILD = "2026-09-05-omr-setup-inside-create-exam-v15"
 from streamlit_image_coordinates import streamlit_image_coordinates
+
+# Native browser component for drag-based OMR corner adjustment.
+_OMR_CORNER_COMPONENT = components.declare_component(
+    "omr_corner_editor",
+    path=os.path.join(os.path.dirname(__file__), "omr_corner_editor"),
+)
+
+
+def _omr_corner_editor(image_bgr, points, key=None):
+    """Show one image with four draggable corner handles and return new points."""
+    image_bgr = np.asarray(image_bgr)
+    ok, encoded = cv2.imencode(".jpg", image_bgr, [cv2.IMWRITE_JPEG_QUALITY, 92])
+    if not ok:
+        return None
+    data_uri = "data:image/jpeg;base64," + base64.b64encode(encoded.tobytes()).decode("ascii")
+    h, w = image_bgr.shape[:2]
+    return _OMR_CORNER_COMPONENT(
+        image=data_uri,
+        image_width=int(w),
+        image_height=int(h),
+        points=[[float(x), float(y)] for x, y in np.asarray(points, dtype=np.float32)],
+        key=key,
+        default=None,
+    )
 try:
     from streamlit_cropper import st_cropper
     _STREAMLIT_CROPPER_AVAILABLE = True
@@ -62,6 +88,7 @@ def _reset_submission_state():
         "submit_candidate_quad",
         "submit_calib_points",
         "submit_corner_adjust_points",
+        "submit_corner_drag_points",
         "submit_corner_adjust_mode",
         "submit_corner_last_click",
         "submit_grid",
@@ -6049,79 +6076,77 @@ def page_omr_submit():
                                 for e in errors:
                                     st.error(e)
                             elif quad is None:
-                                # Automatic document detection is optional. Manual corner
-                                # selection is isolated in a Streamlit fragment so a tap
-                                # reruns only this small UI instead of refreshing the whole
-                                # OMR page (which caused the image to visibly blink).
+                                # Automatic detection failed: let the user drag four handles
+                                # directly on the same image instead of selecting corners one by one.
                                 preview = omr_scanner.resize_max_dim(candidate, max_dim=1200)
                                 sx = candidate.shape[1] / float(preview.shape[1])
                                 sy = candidate.shape[0] / float(preview.shape[0])
+                                initial_preview_quad = np.array(
+                                    [
+                                        [2.0, 2.0],
+                                        [float(preview.shape[1] - 3), 2.0],
+                                        [float(preview.shape[1] - 3), float(preview.shape[0] - 3)],
+                                        [2.0, float(preview.shape[0] - 3)],
+                                    ],
+                                    dtype=np.float32,
+                                )
 
                                 @st.fragment
                                 def _manual_corner_fragment():
-                                    adjust_points = st.session_state.get("submit_corner_adjust_points", [])
-                                    st.session_state["submit_corner_adjust_mode"] = True
+                                    current = np.asarray(
+                                        st.session_state.get(
+                                            "submit_corner_drag_points",
+                                            initial_preview_quad.tolist(),
+                                        ),
+                                        dtype=np.float32,
+                                    )
                                     with st.container(key="omr_manual_corner_card"):
-                                        st.markdown("#### 📐 Select the 4 OMR corners")
+                                        st.markdown("#### 📐 Adjust the 4 OMR corners")
                                         st.caption(
-                                            "Tap: top-left → top-right → bottom-right → bottom-left. "
-                                            "The image stays stable after each tap."
+                                            "Drag the four numbered circles directly on the image. "
+                                            "No corner needs to be selected first."
                                         )
-                                        # Keep the coordinate image PIXEL-IDENTICAL after every click.
-                                        # Repainting the image with selected points changes the
-                                        # component payload and makes the whole OMR visibly blink.
-                                        # The selected points are shown separately below instead.
-                                        coords = streamlit_image_coordinates(
-                                            Image.fromarray(cv2.cvtColor(preview, cv2.COLOR_BGR2RGB)),
-                                            key=f"submit_manual_corner_{file_sig}",
+                                        result = _omr_corner_editor(
+                                            preview,
+                                            current,
+                                            key=f"submit_drag_corners_manual_{file_sig}",
                                         )
-                                        if coords is not None:
-                                            pt_preview = (round(float(coords["x"]), 1), round(float(coords["y"]), 1))
-                                            last_click = st.session_state.get("submit_corner_last_click")
-                                            if last_click != pt_preview:
-                                                st.session_state["submit_corner_last_click"] = pt_preview
-                                                if len(adjust_points) < 4:
-                                                    adjust_points = adjust_points + [pt_preview]
-                                                    st.session_state["submit_corner_adjust_points"] = adjust_points
-                                                    # The coordinate component causes the rerun for the new click.
-                                                    # Avoid a nested fragment rerun to prevent layout-context errors.
+                                        if isinstance(result, dict) and result.get("points"):
+                                            pts = np.asarray(result["points"], dtype=np.float32)
+                                            if pts.shape == (4, 2):
+                                                st.session_state["submit_corner_drag_points"] = pts.tolist()
+                                                current = pts
 
-                                        st.caption(f"Corners selected: **{len(adjust_points)}/4**")
-                                        if adjust_points:
-                                            st.caption("Selected: " + " → ".join(f"({int(x)}, {int(y)})" for x, y in adjust_points))
-                                        can_confirm = len(adjust_points) == 4
-                                        if st.button(
-                                            "✅ Confirm & Flatten",
-                                            key=f"submit_manual_confirm_{file_sig}",
-                                            type="primary",
-                                            use_container_width=True,
-                                            disabled=not can_confirm,
-                                        ):
-                                            chosen = np.asarray(adjust_points, dtype=np.float32)
-                                            chosen[:, 0] *= sx
-                                            chosen[:, 1] *= sy
-                                            chosen = omr_image_scanner._order_quad(chosen)
-                                            flat = _student_flatten_from_corners(candidate, chosen)
-                                            # IMPORTANT: keep the original perspective-corrected pixels for
-                                            # answer detection. Enhancement can strengthen printed outlines
-                                            # and create false MULTI/double-touch evidence.
-                                            st.session_state["submit_prepared_image"] = flat
-                                            st.session_state["submit_enhanced_preview"] = omr_image_scanner.moderate_enhance(flat)
-                                            st.session_state["submit_corner_adjust_points"] = []
-                                            st.session_state["submit_corner_adjust_mode"] = False
-                                            st.session_state["submit_corner_last_click"] = None
-                                            st.session_state["submit_master_missing"] = master_grid is None
-                                            st.session_state["submit_review_ready"] = False
-                                            st.rerun()
-
-                                        if st.button(
-                                            "↩️ Reset 4 Corners",
-                                            key=f"submit_manual_reset_{file_sig}",
-                                            use_container_width=True,
-                                        ):
-                                            st.session_state["submit_corner_adjust_points"] = []
-                                            st.session_state["submit_corner_last_click"] = None
-                                            st.rerun()
+                                        c1, c2 = st.columns(2)
+                                        with c1:
+                                            if st.button(
+                                                "↩️ Reset to Image Edges",
+                                                key=f"submit_drag_reset_manual_{file_sig}",
+                                                use_container_width=True,
+                                            ):
+                                                st.session_state["submit_corner_drag_points"] = initial_preview_quad.tolist()
+                                                st.rerun()
+                                        with c2:
+                                            if st.button(
+                                                "✅ Confirm & Flatten",
+                                                key=f"submit_drag_confirm_manual_{file_sig}",
+                                                type="primary",
+                                                use_container_width=True,
+                                            ):
+                                                chosen = current.copy()
+                                                chosen[:, 0] *= sx
+                                                chosen[:, 1] *= sy
+                                                chosen = omr_image_scanner._order_quad(chosen)
+                                                flat = _student_flatten_from_corners(candidate, chosen)
+                                                st.session_state["submit_prepared_image"] = flat
+                                                st.session_state["submit_enhanced_preview"] = omr_image_scanner.moderate_enhance(flat)
+                                                st.session_state["submit_corner_drag_points"] = []
+                                                st.session_state["submit_corner_adjust_points"] = []
+                                                st.session_state["submit_corner_adjust_mode"] = False
+                                                st.session_state["submit_corner_last_click"] = None
+                                                st.session_state["submit_master_missing"] = master_grid is None
+                                                st.session_state["submit_review_ready"] = False
+                                                st.rerun()
 
                                 _manual_corner_fragment()
                             else:
@@ -6130,132 +6155,75 @@ def page_omr_submit():
                                     preview = omr_scanner.resize_max_dim(candidate, max_dim=1200)
                                     sx = candidate.shape[1] / float(preview.shape[1])
                                     sy = candidate.shape[0] / float(preview.shape[0])
-                                    preview_quad = quad.copy()
-                                    preview_quad[:, 0] /= sx
-                                    preview_quad[:, 1] /= sy
+                                    auto_preview_quad = quad.copy()
+                                    auto_preview_quad[:, 0] /= sx
+                                    auto_preview_quad[:, 1] /= sy
 
-                                    adjust_mode = bool(st.session_state.get("submit_corner_adjust_mode"))
-                                    adjust_points = st.session_state.get("submit_corner_adjust_points", [])
-                                    if adjust_mode and len(adjust_points) != 4:
-                                        adjust_points = [tuple(map(float, p)) for p in preview_quad]
-                                        st.session_state["submit_corner_adjust_points"] = adjust_points
-
+                                    current = np.asarray(
+                                        st.session_state.get(
+                                            "submit_corner_drag_points",
+                                            auto_preview_quad.tolist(),
+                                        ),
+                                        dtype=np.float32,
+                                    )
                                     with st.container(key="omr_corner_confirm_card"):
                                         st.markdown("#### 📐 Check the 4 OMR corners")
                                         st.caption(
-                                            "Green points are automatically detected. If one is wrong, click "
-                                            "Adjust 4 Corners, choose the corner, then click its correct position."
+                                            "Corners were detected automatically. Drag any numbered "
+                                            "circle to correct it. No corner selection is required."
                                         )
+                                        result = _omr_corner_editor(
+                                            preview,
+                                            current,
+                                            key=f"submit_drag_corners_{file_sig}",
+                                        )
+                                        if isinstance(result, dict) and result.get("points"):
+                                            pts = np.asarray(result["points"], dtype=np.float32)
+                                            if pts.shape == (4, 2):
+                                                st.session_state["submit_corner_drag_points"] = pts.tolist()
+                                                current = pts
 
-                                        # Keep the clickable image unchanged between clicks. The overlay is
-                                        # rendered separately to make selected points obvious without remounting
-                                        # the coordinate component on every click.
-                                        if adjust_mode:
-                                            coords = streamlit_image_coordinates(
-                                                Image.fromarray(cv2.cvtColor(preview, cv2.COLOR_BGR2RGB)),
-                                                key=f"submit_corner_adjust_{file_sig}",
-                                            )
-                                            labels = [
-                                                "1 · Top-left", "2 · Top-right",
-                                                "3 · Bottom-right", "4 · Bottom-left"
-                                            ]
-                                            selected_idx = st.radio(
-                                                "Corner to edit", range(4),
-                                                format_func=lambda i: labels[i],
-                                                horizontal=True,
-                                                key=f"submit_corner_edit_index_{file_sig}",
-                                            )
-                                            current = adjust_points[selected_idx]
-                                            st.caption(
-                                                f"Click the image to place **{labels[selected_idx]}**. "
-                                                f"Current: ({int(current[0])}, {int(current[1])})"
-                                            )
-                                            if coords is not None:
-                                                pt = (round(float(coords["x"]), 1), round(float(coords["y"]), 1))
-                                                last = st.session_state.get("submit_corner_last_click")
-                                                if last != pt:
-                                                    st.session_state["submit_corner_last_click"] = pt
-                                                    edited = list(adjust_points)
-                                                    edited[selected_idx] = pt
-                                                    st.session_state["submit_corner_adjust_points"] = edited
-                                                    st.rerun()
+                                        st.caption("① Top-left   ② Top-right   ③ Bottom-right   ④ Bottom-left")
 
-                                            edited_overlay = _draw_quad_preview(
-                                                preview, np.asarray(adjust_points, dtype=np.float32), selected=adjust_points
-                                            )
-                                            st.image(
-                                                cv2.cvtColor(edited_overlay, cv2.COLOR_BGR2RGB),
-                                                caption="Current corner positions",
-                                                use_container_width=True,
-                                            )
-                                        else:
-                                            preview_marked = _draw_quad_preview(preview, preview_quad)
-                                            st.image(
-                                                cv2.cvtColor(preview_marked, cv2.COLOR_BGR2RGB),
-                                                caption="Auto-detected corners",
-                                                use_container_width=True,
-                                            )
-
-                                        c1, c2, c3 = st.columns(3)
+                                        c1, c2 = st.columns(2)
                                         with c1:
                                             if st.button(
-                                                "✏️ Adjust 4 Corners",
-                                                key=f"submit_adjust_corners_{file_sig}",
+                                                "↩️ Reset to Auto",
+                                                key=f"submit_drag_reset_auto_{file_sig}",
                                                 use_container_width=True,
                                             ):
-                                                st.session_state["submit_corner_adjust_mode"] = True
-                                                st.session_state["submit_corner_adjust_points"] = [tuple(map(float, p)) for p in preview_quad]
-                                                st.session_state["submit_corner_last_click"] = None
+                                                st.session_state["submit_corner_drag_points"] = auto_preview_quad.tolist()
                                                 st.rerun()
                                         with c2:
-                                            can_confirm = (not adjust_mode) or len(adjust_points) == 4
                                             if st.button(
                                                 "✅ Confirm & Flatten",
-                                                key=f"submit_confirm_corners_{file_sig}",
+                                                key=f"submit_drag_confirm_auto_{file_sig}",
                                                 type="primary",
                                                 use_container_width=True,
-                                                disabled=not can_confirm,
                                             ):
-                                                chosen = np.asarray(adjust_points if adjust_mode else preview_quad, dtype=np.float32)
+                                                chosen = current.copy()
                                                 chosen[:, 0] *= sx
                                                 chosen[:, 1] *= sy
                                                 chosen = omr_image_scanner._order_quad(chosen)
                                                 flat = _student_flatten_from_corners(candidate, chosen)
                                                 st.session_state["submit_prepared_image"] = flat
                                                 st.session_state["submit_enhanced_preview"] = omr_image_scanner.moderate_enhance(flat)
+                                                st.session_state["submit_corner_drag_points"] = []
                                                 st.session_state["submit_corner_adjust_points"] = []
                                                 st.session_state["submit_corner_adjust_mode"] = False
                                                 st.session_state["submit_corner_last_click"] = None
-                                                st.session_state["submit_master_missing"] = False
+                                                st.session_state["submit_master_missing"] = master_grid is None
                                                 st.session_state["submit_review_ready"] = False
-                                                st.rerun()
-                                        with c3:
-                                            if st.button(
-                                                "↩️ Reset to Auto",
-                                                key=f"submit_reset_auto_{file_sig}",
-                                                use_container_width=True,
-                                            ):
-                                                st.session_state["submit_corner_adjust_mode"] = False
-                                                st.session_state["submit_corner_adjust_points"] = []
-                                                st.session_state["submit_corner_last_click"] = None
                                                 st.rerun()
 
                                 _auto_corner_confirm_fragment()
                         if st.session_state.get("submit_prepared_image") is not None:
                             img_bgr = st.session_state["submit_prepared_image"]
                             if master_grid is None:
-                                st.error(
-                                    "❌ No master OMR setup is saved for this exam layout yet. "
-                                    "Student calibration is disabled by design. Please ask the mentor "
-                                    "to complete OMR Sheet Setup for this 50/100-question layout first."
+                                st.warning(
+                                    "⚠️ Mentor OMR Setup is not available for this layout. "
+                                    "Please complete Mentor → OMR Sheet Setup first."
                                 )
-                                st.info(
-                                    "Once the mentor setup is saved, every student photo will use the same "
-                                    "canonical 1000×1600 master geometry automatically."
-                                )
-                                if st.button("↻ Check Master Setup Again", key=f"retry_master_{file_sig}"):
-                                    st.rerun()
-                                return
 
                             if master_grid is not None and not st.session_state.get("submit_review_ready"):
                                 detected = _normalise_answers(
