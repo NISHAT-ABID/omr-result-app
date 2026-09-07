@@ -268,13 +268,21 @@ def _student_flatten_from_corners(image_bgr, points):
 def _canonical_master_grid(total_q):
     """Load the one-time mentor matrix in canonical 1000x1600 coordinates."""
     all_cal = sh.load_calibration() or {}
-    layout = all_cal.get(str(int(total_q)))
+    # A 40-question exam uses the physical 50-question OMR sheet.
+    # Mentor setup is therefore stored under the 50-sheet layout key.
+    requested_q = int(total_q)
+    layout_key = 50 if requested_q == 40 else requested_q
+    layout = all_cal.get(str(layout_key))
     if not isinstance(layout, dict):
         return None
-    if layout.get("coordinate_space") != "canonical_1000x1600":
+    # Accept the canonical master saved by Mentor setup.
+    # Older valid calibration records without the metadata are also accepted
+    # when their canvas matches the canonical size.
+    coord_space = layout.get("coordinate_space")
+    if coord_space not in (None, "canonical_1000x1600"):
         return None
     try:
-        return omr_scanner.build_grid(layout, total_questions=int(total_q))
+        return omr_scanner.build_grid(layout, total_questions=requested_q)
     except Exception:
         return None
 
@@ -8464,8 +8472,7 @@ def page_mentor_results():
 # =========================================================================
 # Mentor: OMR Sheet Setup - exactly two physical sheet geometries:
 # 50 / 40 OMR and 100 OMR.  A 40-question exam uses Q1-Q40 on the same
-# physical 50-question sheet; Q41-Q50 are silently ignored. This is mainly a
-# REFERENCE setup step; each student still calibrates their own photo.
+# physical 50-question sheet; Q41-Q50 are silently ignored. This is the one-time master setup; students reuse the saved matrix.
 # setup step; the saved master matrix is now expressed in canonical 1000×1600
 # coordinates and reused after each student's photo is perspective-corrected.
 # =========================================================================
