@@ -289,6 +289,83 @@ def build_grid(calibration, total_questions=TOTAL_QUESTIONS):
     return grid
 
 
+
+def _refine_bubble_center(image_bgr, center, search=32):
+    """Snap one expected bubble center to the strongest circular printed ring nearby."""
+    gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
+    gray = cv2.GaussianBlur(gray, (3, 3), 0)
+    x, y = int(round(center[0])), int(round(center[1]))
+    h, w = gray.shape[:2]
+    x0, x1 = max(0, x - search), min(w, x + search + 1)
+    y0, y1 = max(0, y - search), min(h, y + search + 1)
+    crop = gray[y0:y1, x0:x1]
+    if crop.size == 0:
+        return np.asarray(center, dtype=np.float32), 0.0
+
+    # The printed bubble is a stable circular landmark.  Hough is run only on
+    # this small neighbourhood, so nearby question bubbles cannot compete.
+    circles = cv2.HoughCircles(
+        crop, cv2.HOUGH_GRADIENT, dp=1.0, minDist=10,
+        param1=70, param2=10, minRadius=7, maxRadius=24,
+    )
+    if circles is None:
+        return np.asarray(center, dtype=np.float32), 0.0
+
+    best = None
+    for cx, cy, r in circles[0]:
+        px, py = x0 + float(cx), y0 + float(cy)
+        dist = float(np.hypot(px - x, py - y))
+        if dist > search * 0.9:
+            continue
+        # Prefer detections close to the expected center.  Slightly larger
+        # circles are common on the dark-filled bubbles, but the center matters.
+        score = (search - dist) + min(float(r), 20.0) * 0.15
+        if best is None or score > best[0]:
+            best = (score, px, py)
+    if best is None:
+        return np.asarray(center, dtype=np.float32), 0.0
+    return np.asarray([best[1], best[2]], dtype=np.float32), float(best[0])
+
+
+def align_to_master_grid(image_bgr, grid, min_matches=30):
+    """Locally refine the mentor grid before reading answers.
+
+    The mentor grid is already in the same canonical 1000x1600 coordinate
+    system as the flattened student image.  Instead of estimating a global
+    homography from ambiguous Hough detections, refine every expected bubble
+    center independently in a small neighbourhood.  This is much safer for a
+    fixed OMR sheet because the four options of one question remain tied to
+    their original A/B/C/D identities.
+    """
+    if image_bgr is None or image_bgr.size == 0 or not grid:
+        return image_bgr, {"applied": False, "reason": "empty image or grid"}
+
+    refined = {}
+    moved = []
+    for q_no, options in grid.items():
+        refined[q_no] = {}
+        for opt in OPTIONS:
+            original = np.asarray(options[opt], dtype=np.float32)
+            point, confidence = _refine_bubble_center(image_bgr, original, search=32)
+            refined[q_no][opt] = (int(round(point[0])), int(round(point[1])))
+            if confidence > 0:
+                moved.append(float(np.linalg.norm(point - original)))
+
+    if len(moved) < min_matches:
+        return image_bgr, {"applied": False, "reason": f"only {len(moved)} bubble centers could be refined"}
+
+    # Keep the image pixels untouched.  Only the sampling grid is corrected.
+    # This avoids a second interpolation pass that could blur small pen marks.
+    avg_move = float(np.mean(moved)) if moved else 0.0
+    return image_bgr, {
+        "applied": True,
+        "matches": len(moved),
+        "inliers": len(moved),
+        "average_center_adjustment_px": round(avg_move, 2),
+        "grid": refined,
+    }
+
+
 def preprocess_omr_image(image_bgr):
     """Prepare a raw OMR image without photographic enhancement.
 
@@ -300,9 +377,9 @@ def preprocess_omr_image(image_bgr):
     if image_bgr is None or image_bgr.size == 0:
         raise ValueError("Empty OMR image.")
 
-    red = image_bgr[:, :, 2]
-    red = cv2.GaussianBlur(red, (3, 3), 0)
-    return red
+    value = np.max(image_bgr, axis=2).astype(np.uint8)
+    value = cv2.GaussianBlur(value, (3, 3), 0)
+    return value
 
 
 def _bubble_metrics(image_red, center, radius):
@@ -360,47 +437,6 @@ def _bubble_metrics(image_red, center, radius):
     return float(score), ink_fraction, core_mean, ring_mean
 
 
-def _refine_bubble_center(image_red, center, radius, search_radius=12, step=2):
-    """Locally correct a slightly misplaced grid point before reading a bubble.
-
-    Fixed-template calibration can still be a few pixels off after perspective
-    correction. Search a small neighborhood for the strongest filled-bubble
-    evidence, but keep the search local so neighbouring bubbles are not selected.
-    """
-    cx, cy = float(center[0]), float(center[1])
-    best_center = (cx, cy)
-    best_score = -1.0
-
-    for dy in range(-search_radius, search_radius + 1, step):
-        for dx in range(-search_radius, search_radius + 1, step):
-            candidate = (cx + dx, cy + dy)
-            score, ink, core_mean, ring_mean = _bubble_metrics(
-                image_red, candidate, radius
-            )
-            contrast = max(0.0, ring_mean - core_mean)
-            # Favor real ink/contrast, while slightly preferring points near
-            # the calibrated center.
-            distance_penalty = ((dx * dx + dy * dy) ** 0.5) * 0.12
-            candidate_score = score + contrast * 0.15 + ink * 8.0 - distance_penalty
-            if candidate_score > best_score:
-                best_score = candidate_score
-                best_center = candidate
-
-    return best_center
-
-
-def _read_option_metrics(image_red, center, radius):
-    """Read one option while tolerating small calibration/grid offsets."""
-    refined = _refine_bubble_center(
-        image_red,
-        center,
-        radius,
-        search_radius=max(7, min(12, radius)),
-        step=2,
-    )
-    metrics = _bubble_metrics(image_red, refined, radius)
-    return metrics, refined
-
 def read_answers(warped_bgr, grid, dark_threshold=DARK_PIXEL_THRESHOLD, min_gap=15, radius=None):
     """Read answers from raw perspective-corrected OMR pixels.
 
@@ -417,12 +453,10 @@ def read_answers(warped_bgr, grid, dark_threshold=DARK_PIXEL_THRESHOLD, min_gap=
     answers = {}
 
     for q_no, options in grid.items():
-        metrics = {}
-        refined_centers = {}
-        for opt, center in options.items():
-            metric, refined = _read_option_metrics(red, center, radius)
-            metrics[opt] = metric
-            refined_centers[opt] = refined
+        metrics = {
+            opt: _bubble_metrics(red, center, radius)
+            for opt, center in options.items()
+        }
         scores = {opt: metrics[opt][0] for opt in OPTIONS}
         inks = {opt: metrics[opt][1] for opt in OPTIONS}
 
