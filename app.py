@@ -4659,7 +4659,19 @@ def page_home():
     # Resume a legitimately started session even when the mentor's exam
     # window has already closed. The exam window controls START permission;
     # the student's personal duration controls the session itself.
-    resume_session = sh.get_student_resume_session(sid)
+    # Google Sheets can occasionally return a transient API error while the
+    # student is simply opening Home.  Do not let that take down the whole UI;
+    # the next rerun will retry the request.
+    try:
+        resume_session = sh.get_student_resume_session(sid)
+        sheets_home_error = None
+    except Exception as e:
+        resume_session = None
+        sheets_home_error = e
+
+    if sheets_home_error is not None:
+        st.warning("Google Sheets is temporarily unavailable. Your exam data will reload automatically when the connection recovers.")
+
     pending_omr_key = None
     if resume_session:
         resume_key = sh.get_answer_key_by_id(resume_session.get("key_id"))
@@ -4679,7 +4691,10 @@ def page_home():
         unsafe_allow_html=True,
     )
 
-    active = pending_omr_key or cached_active_answer_key()
+    try:
+        active = pending_omr_key or cached_active_answer_key()
+    except Exception:
+        active = pending_omr_key
     # Real st.container(key=...) instead of a raw <div class='app-card'>
     # split across two st.markdown() calls - see the note above the
     # ".app-card" CSS rule for why the split version rendered an empty
@@ -4738,14 +4753,20 @@ def page_home():
                 else:
                     st.info("This exam is not ready for OMR submission yet.")
         else:
-            upcoming = cached_upcoming_answer_key()
+            try:
+                upcoming = cached_upcoming_answer_key()
+            except Exception:
+                upcoming = None
             if upcoming:
                 st.info(f"No test is active right now. Next up: **{upcoming['exam_name'] or upcoming['key_id']}** "
                         f"at **{upcoming['start_dt'].strftime('%Y-%m-%d %H:%M')}**.")
             else:
                 st.info("No test is active or upcoming right now.")
 
-    results = cached_results()
+    try:
+        results = cached_results()
+    except Exception:
+        results = pd.DataFrame()
     my_results = results[results["student_id"] == sid] if not results.empty else results
 
     # Last Result + Overall Progress side by side - makes better use of
