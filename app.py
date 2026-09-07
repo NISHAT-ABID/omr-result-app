@@ -147,86 +147,14 @@ def _order_quad_points_local(points):
 
 
 def _detect_sheet_quad_robust(image_bgr):
-    """Multi-hypothesis OMR paper detector.
+    """Use the shared fixed-template-aware document detector.
 
-    Instead of trusting one contour, generate candidates from several edge
-    scales and score them by area, document aspect ratio, rectangularity and
-    how well the four sides behave like long sheet edges.  The best candidate
-    is only a suggestion; the confirmation UI still allows exact 4-corner
-    correction.
+    Student sheets are always one of the mentor-selected 50/100 layouts, so
+    keep a single alignment implementation in omr_image_scanner.py.  The
+    detector uses several contour hypotheses and a long-edge line fallback.
+    The existing four-corner confirmation UI remains the final safety net.
     """
-    if image_bgr is None or image_bgr.size == 0:
-        return None
-    h, w = image_bgr.shape[:2]
-    if h < 300 or w < 200:
-        return None
-
-    target_ratio = omr_scanner.WARP_WIDTH / float(omr_scanner.WARP_HEIGHT)
-    image_area = float(h * w)
-    gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
-    gray = cv2.GaussianBlur(gray, (5, 5), 0)
-    candidates = []
-
-    def add_quad(pts):
-        try:
-            q = _order_quad_points_local(np.asarray(pts, dtype=np.float32).reshape(4, 2))
-            area = abs(float(cv2.contourArea(q.reshape(-1, 1, 2))))
-            ratio = area / image_area
-            if ratio < 0.30 or ratio > 0.995:
-                return
-            sides = [np.linalg.norm(q[(i + 1) % 4] - q[i]) for i in range(4)]
-            if min(sides) < min(h, w) * 0.18:
-                return
-            doc_ratio = ((sides[1] + sides[3]) * 0.5) / max(1.0, (sides[0] + sides[2]) * 0.5)
-            aspect_err = abs(np.log(max(1e-6, doc_ratio / (1.0 / target_ratio))))
-            # Penalize implausible page shapes, but don't require a perfect
-            # 1000x1600 ratio because camera perspective can be substantial.
-            score = ratio * 4.0 - aspect_err * 1.8
-            pts_i = np.int32(q).reshape(-1, 1, 2)
-            peri = cv2.arcLength(pts_i, True)
-            if peri > 0:
-                hull = cv2.convexHull(pts_i)
-                solidity = area / max(1.0, cv2.contourArea(hull))
-                score += solidity
-            candidates.append((score, q))
-        except Exception:
-            return
-
-    # Canny at several scales captures both crisp paper edges and soft phone
-    # shadows.  Close gaps before extracting contours.
-    for sigma_ksize, lo, hi in ((3, 35, 110), (5, 50, 150), (7, 70, 190)):
-        g = cv2.GaussianBlur(gray, (sigma_ksize, sigma_ksize), 0)
-        edges = cv2.Canny(g, lo, hi)
-        close_k = max(3, int(round(min(h, w) * 0.006)))
-        if close_k % 2 == 0:
-            close_k += 1
-        edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, np.ones((close_k, close_k), np.uint8), iterations=2)
-        contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-        for c in sorted(contours, key=cv2.contourArea, reverse=True)[:25]:
-            area = cv2.contourArea(c)
-            if area < image_area * 0.30:
-                continue
-            peri = cv2.arcLength(c, True)
-            for eps in (0.012, 0.018, 0.025, 0.035):
-                approx = cv2.approxPolyDP(c, eps * peri, True)
-                if len(approx) == 4:
-                    add_quad(approx.reshape(4, 2))
-                    break
-
-    # If the boundary is fragmented, minAreaRect provides a useful fallback.
-    if not candidates:
-        edges = cv2.Canny(gray, 40, 140)
-        ys, xs = np.where(edges > 0)
-        if len(xs) > 100:
-            pts = np.column_stack([xs, ys]).astype(np.float32)
-            rect = cv2.minAreaRect(pts)
-            box = cv2.boxPoints(rect)
-            add_quad(box)
-
-    if not candidates:
-        return None
-    candidates.sort(key=lambda x: x[0], reverse=True)
-    return candidates[0][1]
+    return omr_image_scanner.detect_sheet_quad(image_bgr)
 
 
 def _student_flatten_from_corners(image_bgr, points):
