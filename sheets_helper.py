@@ -166,16 +166,36 @@ def now_bd():
 
 
 def _with_retry(func, *args, **kwargs):
-    """Google Sheets API sometimes rate-limits (429); wait and retry."""
-    delays = [1, 2, 4, 8]
+    """
+    Call a Google Sheets operation with bounded retries for transient API
+    failures.  gspread raises APIError for rate limits and temporary Google
+    backend errors, not only for 429, so retry the common 5xx responses too.
+    Permanent auth/permission/request errors are raised immediately.
+    """
+    delays = [1, 2, 4, 8, 16]
     last_err = None
-    for delay in delays:
+
+    for attempt, delay in enumerate(delays):
         try:
             return func(*args, **kwargs)
         except gspread.exceptions.APIError as e:
             last_err = e
-            time.sleep(delay)
-    return func(*args, **kwargs) if last_err is None else (_ for _ in ()).throw(last_err)
+            status = None
+            try:
+                status = int(getattr(getattr(e, "response", None), "status_code", 0) or 0)
+            except Exception:
+                status = None
+
+            # Retry only failures that are normally transient.
+            if status not in (429, 500, 502, 503, 504):
+                raise
+
+            if attempt < len(delays) - 1:
+                time.sleep(delay)
+
+    if last_err is not None:
+        raise last_err
+    return func(*args, **kwargs)
 
 
 def _to_bool(val):
