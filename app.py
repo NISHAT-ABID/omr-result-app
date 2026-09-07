@@ -133,6 +133,53 @@ def _resize_max_dim_local(image_bgr, max_dim=1200):
     return cv2.resize(image_bgr, (nw, nh), interpolation=cv2.INTER_AREA)
 
 
+def _calibration_points_info_safe(total_questions):
+    """Return the fixed calibration landmarks without requiring a newer scanner module.
+
+    This keeps app.py compatible with older omr_scanner.py deployments while
+    preserving the same mentor-calibration geometry used by the current scanner.
+    """
+    fn = getattr(omr_scanner, "calibration_points_info", None)
+    if callable(fn):
+        return fn(total_questions)
+
+    total_questions = int(total_questions)
+    physical_total = 50 if total_questions in (40, 50) else total_questions
+    if physical_total > 50:
+        blocks = 4
+    else:
+        blocks = 2
+    per_block = 25
+
+    points = []
+    for b in range(blocks):
+        start = b * per_block + 1
+        end = min(start + per_block - 1, physical_total)
+        points.append({
+            "key": f"p{len(points)+1}",
+            "short": f"Q{start}-A",
+            "full": f"Question {start} - center of bubble A",
+            "block": b,
+            "role": "top",
+        })
+        if b == 0:
+            points.append({
+                "key": f"p{len(points)+1}",
+                "short": f"Q{start}-D",
+                "full": f"Question {start} - center of bubble D",
+                "block": b,
+                "role": "optd",
+            })
+        points.append({
+            "key": f"p{len(points)+1}",
+            "short": f"Q{end}-A",
+            "full": f"Question {end} - center of bubble A",
+            "block": b,
+            "role": "bottom",
+        })
+    return points
+
+
 def _relax_blur_only_validation(ok, errors, warnings_):
     """Allow usable OMR photos through when validation rejects only for blur.
 
@@ -6308,7 +6355,7 @@ def page_omr_submit():
                                 )
                                 # Backward compatibility only: retain the old calibration
                                 # path if a legacy deployment has not yet created its master.
-                                points_info = omr_scanner.calibration_points_info(total_q)
+                                points_info = _calibration_points_info_safe(total_q)
                                 calib_points = st.session_state.get("submit_calib_points", [])
                                 if len(calib_points) < len(points_info):
                                     @st.dialog("Legacy OMR Calibration", width="large")
@@ -6426,7 +6473,7 @@ def page_omr_submit():
                                                 calibration={
                                                     info["key"]: pt
                                                     for info, pt in zip(
-                                                        omr_scanner.calibration_points_info(total_q),
+                                                        _calibration_points_info_safe(total_q),
                                                         st.session_state.get("submit_calib_points", []),
                                                     )
                                                 },
@@ -8656,7 +8703,7 @@ def page_mentor_calibration():
             st.session_state[force_key] = False
             st.rerun()
 
-    points_info = omr_scanner.calibration_points_info(total_q)
+    points_info = _calibration_points_info_safe(total_q)
 
     st.markdown(
         f"Upload a **blank {layout_choice.split(' ', 1)[1]} OMR sheet**. "
