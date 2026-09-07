@@ -6083,7 +6083,8 @@ def page_omr_submit():
                                                 if len(adjust_points) < 4:
                                                     adjust_points = adjust_points + [pt_preview]
                                                     st.session_state["submit_corner_adjust_points"] = adjust_points
-                                                    st.rerun(scope="fragment")
+                                                    # The coordinate component causes the rerun for the new click.
+                                                    # Avoid a nested fragment rerun to prevent layout-context errors.
 
                                         st.caption(f"Corners selected: **{len(adjust_points)}/4**")
                                         if adjust_points:
@@ -6120,7 +6121,7 @@ def page_omr_submit():
                                         ):
                                             st.session_state["submit_corner_adjust_points"] = []
                                             st.session_state["submit_corner_last_click"] = None
-                                            st.rerun(scope="fragment")
+                                            st.rerun()
 
                                 _manual_corner_fragment()
                             else:
@@ -6167,8 +6168,11 @@ def page_omr_submit():
                                                     st.session_state["submit_corner_last_click"] = pt_preview
                                                     adjust_points = adjust_points + [pt_preview]
                                                     st.session_state["submit_corner_adjust_points"] = adjust_points
-                                                    if len(adjust_points) < 4:
-                                                        st.rerun(scope="fragment")
+                                                    # streamlit_image_coordinates triggers the
+                                                    # fragment rerun itself after a new click.
+                                                    # Do not call st.rerun() here:
+                                                    # it can run outside Streamlit's active fragment
+                                                    # execution context on some Streamlit versions.
                                         else:
                                             st.image(
                                                 cv2.cvtColor(preview_marked, cv2.COLOR_BGR2RGB),
