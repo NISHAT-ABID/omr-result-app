@@ -340,6 +340,67 @@ def _student_flatten_from_corners(image_bgr, points):
     )
 
 
+def _build_grid_safe(calibration, total_questions=50):
+    """Build the canonical OMR bubble grid without requiring a specific scanner version.
+
+    The deployed app may contain an older omr_scanner.py that does not expose
+    build_grid().  Keep the exact mentor calibration geometry here so the
+    saved p1/p2/... landmarks remain compatible with the existing sheet.
+    """
+    fn = getattr(omr_scanner, "build_grid", None)
+    if callable(fn):
+        return fn(calibration, total_questions=total_questions)
+
+    requested = int(total_questions)
+    physical_total = 50 if requested in (40, 50) else requested
+    blocks = 4 if physical_total > 50 else 2
+    per_block = 25
+    info = _calibration_points_info_safe(requested)
+
+    tops, bottoms = {}, {}
+    q1_a = q1_d = None
+    for item in info:
+        key = item["key"]
+        if key not in calibration:
+            raise ValueError(f"Calibration is missing point {key} ({item['short']}).")
+        pt = np.asarray(calibration[key], dtype=float)
+        block = int(item["block"])
+        role = item["role"]
+        if role == "top":
+            tops[block] = pt
+            if block == 0:
+                q1_a = pt
+        elif role == "bottom":
+            bottoms[block] = pt
+        elif role == "optd" and block == 0:
+            q1_d = pt
+
+    if q1_a is None or q1_d is None:
+        raise ValueError("Calibration is missing the Q1 A/D spacing points.")
+
+    option_step = (q1_d - q1_a) / 3.0
+    grid = {}
+    q_no = 1
+    options = ("A", "B", "C", "D")
+    for block in range(blocks):
+        if block not in tops or block not in bottoms:
+            raise ValueError(f"Calibration is missing block {block + 1} top/bottom points.")
+        row_step = (bottoms[block] - tops[block]) / float(per_block - 1)
+        for row in range(per_block):
+            if q_no > requested:
+                break
+            origin = tops[block] + row * row_step
+            grid[q_no] = {
+                opt: (
+                    int(round((origin + i * option_step)[0])),
+                    int(round((origin + i * option_step)[1])),
+                )
+                for i, opt in enumerate(options)
+            }
+            q_no += 1
+    return grid
+
+
 def _canonical_master_grid(total_q):
     """Load the one-time mentor matrix in canonical 1000x1600 coordinates."""
     all_cal = sh.load_calibration() or {}
@@ -349,7 +410,7 @@ def _canonical_master_grid(total_q):
     if layout.get("coordinate_space") != "canonical_1000x1600":
         return None
     try:
-        return omr_scanner.build_grid(layout, total_questions=int(total_q))
+        return _build_grid_safe(layout, total_questions=int(total_q))
     except Exception:
         return None
 
@@ -4863,7 +4924,7 @@ def _calibration_grid_for_photo(grid_points, grid_json_raw, total_questions, dst
                 if _coord_pair(pt)
             }
             if calibration:
-                rebuilt = omr_scanner.build_grid(
+                rebuilt = _build_grid_safe(
                     calibration,
                     total_questions=total_questions,
                 )
@@ -6388,7 +6449,7 @@ def page_omr_submit():
                                         info["key"]: pt
                                         for info, pt in zip(points_info, calib_points)
                                     }
-                                    master_grid = omr_scanner.build_grid(
+                                    master_grid = _build_grid_safe(
                                         calibration, total_questions=total_q
                                     )
 
@@ -8801,7 +8862,7 @@ def page_mentor_calibration():
 
                 # Validate the matrix before persisting it.
                 try:
-                    omr_scanner.build_grid(layout_calibration, total_questions=total_q)
+                    _build_grid_safe(layout_calibration, total_questions=total_q)
                 except Exception as exc:
                     st.error(f"Master matrix validation failed: {exc}")
                     return
