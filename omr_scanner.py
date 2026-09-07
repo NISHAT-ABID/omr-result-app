@@ -1,408 +1,636 @@
+"""OMR scanner for 40/50/100-question sheets.
+
+Student calibration is performed on the exact uploaded photo. Reading uses
+local bubble-center contrast + ink density instead of a single whole-patch
+mean, which is much less likely to mistake printed bubble outlines/letters
+for filled answers.
+
+Important detection fix:
+- Do NOT use grayscale luminance for bubble darkness.
+- Printed pink/magenta OMR graphics can look dark after grayscale conversion
+  because the green/blue channels are low.
+- Real pen/pencil marks are dark in all RGB channels.
+- Therefore bubble darkness is measured from max(R, G, B), i.e. the HSV
+  "Value" channel. A printed pink mark remains bright in this channel while
+  a genuinely dark pen mark remains dark.
 """
-OMR Image Scanner
------------------
-A lightweight CamScanner-style preprocessing layer for The Med Venture.
-
-It does NOT read OMR answers. Its only job is to:
-  1) detect the OMR sheet in a live camera frame,
-  2) show a live border around it,
-  3) perspective-correct the sheet when captured,
-  4) apply moderate illumination/contrast/sharpness normalization.
-
-The existing omr_scanner.py remains responsible for calibration and answer reading.
-"""
-
-from __future__ import annotations
-
-import threading
-from typing import Optional, Tuple
 
 import cv2
 import numpy as np
 
 
-# Target is deliberately close to the physical portrait OMR geometry used by the app.
-TARGET_ASPECT_MIN = 0.38
-TARGET_ASPECT_MAX = 0.78
-MIN_AREA_RATIO = 0.18
 WARP_WIDTH = 1000
 WARP_HEIGHT = 1600
+TOTAL_QUESTIONS = 100
+OPTIONS = ["A", "B", "C", "D"]
+BUBBLE_SAMPLE_RADIUS = 12
+STUDENT_DISPLAY_MAX_DIM = 1300
+MIN_WIDTH = 500
+MIN_HEIGHT = 700
+BLUR_VARIANCE_THRESHOLD = 60.0
+DARK_MEAN_THRESHOLD = 40.0
+BRIGHT_MEAN_THRESHOLD = 240.0
+LAYOUT_PRESETS = {100: (25, 4), 50: (25, 2), 40: (25, 2)}
 
 
-def _order_quad(points: np.ndarray) -> np.ndarray:
-    """Return 4 points in TL, TR, BR, BL order."""
-    pts = np.asarray(points, dtype=np.float32).reshape(4, 2)
-    s = pts.sum(axis=1)
-    d = np.diff(pts, axis=1).reshape(-1)
-    return np.array(
-        [
-            pts[np.argmin(s)],
-            pts[np.argmin(d)],
-            pts[np.argmax(s)],
-            pts[np.argmax(d)],
-        ],
-        dtype=np.float32,
-    )
+# Answer detection is deliberately based on the INSIDE of each bubble, not
+# on the printed outline.  The final decision is relative to the four options
+# in the same question, so lighting/exposure changes do not require retuning
+# a global threshold for every photo.
+# Answer detection uses local contrast from the raw flattened image.
+# These are deliberately conservative: a second option is MULTI only when
+# it contains real dark ink in its own core AND a strong contrast against
+# its surrounding printed ring.
+FILL_SCORE_THRESHOLD = 9.0
+MIN_STRONG_INK_FRACTION = 0.035
+MULTI_MIN_CONTRAST = 22.0
+MULTI_MIN_INK_FRACTION = 0.075
+MULTI_RATIO_LIMIT = 0.72
+CLEAR_WINNER_MARGIN = 12.0
+MARGIN_EROSION_PX = 2
+DARK_PIXEL_THRESHOLD = 145
 
 
-def _quad_score(quad: np.ndarray, frame_shape) -> float:
-    """Score a document quad using geometry and edge support."""
-    h, w = frame_shape[:2]
-    area = abs(cv2.contourArea(quad.astype(np.float32)))
-    area_ratio = area / float(max(1, w * h))
-    if area_ratio < MIN_AREA_RATIO or area_ratio > 0.995:
-        return -1.0
 
-    q = _order_quad(quad)
-    sides = [np.linalg.norm(q[(i + 1) % 4] - q[i]) for i in range(4)]
-    if min(sides) < min(h, w) * 0.16:
-        return -1.0
+def get_layout(total_questions):
+    """Return the physical OMR geometry for an exam.
 
-    # Portrait OMR sheets are expected to be close to 1000:1600.
-    page_ratio = ((sides[1] + sides[3]) * 0.5) / max(
-        1.0, (sides[0] + sides[2]) * 0.5
-    )
-    expected = WARP_HEIGHT / float(WARP_WIDTH)
-    aspect_err = abs(np.log(max(1e-6, page_ratio / expected)))
-
-    # Reward nearly rectangular quads.
-    pts = q.astype(np.float32)
-    rectangularity = 0.0
-    for i in range(4):
-        a = pts[(i - 1) % 4] - pts[i]
-        b = pts[(i + 1) % 4] - pts[i]
-        denom = max(1e-6, np.linalg.norm(a) * np.linalg.norm(b))
-        rectangularity += abs(float(np.dot(a, b))) / denom
-    rectangularity = 1.0 - rectangularity / 4.0
-
-    return area_ratio * 5.0 + rectangularity * 1.5 - aspect_err * 1.8
-
-
-def _line_based_quad(frame_bgr: np.ndarray) -> Optional[np.ndarray]:
-    """Recover the paper from long page-edge lines when the outer contour is broken."""
-    h, w = frame_bgr.shape[:2]
-    scale = min(1.0, 1100.0 / max(h, w))
-    small = cv2.resize(frame_bgr, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
-    gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
-    gray = cv2.GaussianBlur(gray, (5, 5), 0)
-
-    edges = cv2.Canny(gray, 35, 130)
-    min_len = int(min(small.shape[:2]) * 0.28)
-    lines = cv2.HoughLinesP(
-        edges, 1, np.pi / 180.0, threshold=max(45, int(min(small.shape[:2]) * 0.07)),
-        minLineLength=min_len, maxLineGap=max(20, int(min(small.shape[:2]) * 0.05))
-    )
-    if lines is None:
-        return None
-
-    vertical, horizontal = [], []
-    for item in lines[:, 0]:
-        x1, y1, x2, y2 = map(float, item)
-        dx, dy = x2 - x1, y2 - y1
-        length = float(np.hypot(dx, dy))
-        if length < min_len:
-            continue
-        angle = abs(np.degrees(np.arctan2(dy, dx))) % 180.0
-        if angle < 18 or angle > 162:
-            horizontal.append((x1, y1, x2, y2, length))
-        elif 72 < angle < 108:
-            vertical.append((x1, y1, x2, y2, length))
-
-    if len(horizontal) < 2 or len(vertical) < 2:
-        return None
-
-    def cluster(values, tolerance):
-        groups = []
-        for v in sorted(values):
-            if not groups or abs(v - np.mean(groups[-1])) > tolerance:
-                groups.append([v])
-            else:
-                groups[-1].append(v)
-        return [float(np.mean(g)) for g in groups]
-
-    # Use line midpoints. We want two separated horizontal and two separated
-    # vertical page edges, not internal OMR rows.
-    hs = cluster([0.5 * (y1 + y2) for x1, y1, x2, y2, _ in horizontal], small.shape[0] * 0.06)
-    vs = cluster([0.5 * (x1 + x2) for x1, y1, x2, y2, _ in vertical], small.shape[1] * 0.06)
-
-    if len(hs) < 2 or len(vs) < 2:
-        return None
-
-    # Prefer the outermost separated pair, but reject an implausibly small box.
-    top, bottom = min(hs), max(hs)
-    left, right = min(vs), max(vs)
-    if (bottom - top) < small.shape[0] * 0.45 or (right - left) < small.shape[1] * 0.25:
-        return None
-
-    q = np.array([[left, top], [right, top], [right, bottom], [left, bottom]], dtype=np.float32)
-    q /= scale
-    return _order_quad(q)
-
-
-def detect_sheet_quad(frame_bgr: np.ndarray) -> Optional[np.ndarray]:
-    """Find the OMR sheet using contour hypotheses plus a line fallback.
-
-    The sheet design is fixed, so geometry is intentionally preferred over
-    generic object detection.  This is more tolerant of shadows/background
-    than the old single-outer-contour approach.
+    40-question and 50-question exams intentionally share the same physical
+    50-question sheet: two blocks of 25.  A 40-question exam simply reads
+    Q1-Q40 and silently ignores the unused Q41-Q50 area.
     """
-    if frame_bgr is None or frame_bgr.size == 0:
-        return None
-
-    h, w = frame_bgr.shape[:2]
-    scale = min(1.0, 1100.0 / max(h, w))
-    small = cv2.resize(frame_bgr, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
-    gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
-    gray = cv2.GaussianBlur(gray, (5, 5), 0)
-
-    candidates = []
-
-    for lo, hi, close_frac in ((30, 100, 0.006), (45, 135, 0.004), (65, 180, 0.003)):
-        edges = cv2.Canny(gray, lo, hi)
-        k = max(3, int(round(min(small.shape[:2]) * close_frac)))
-        if k % 2 == 0:
-            k += 1
-        edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, np.ones((k, k), np.uint8), iterations=2)
-
-        contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-        for cnt in sorted(contours, key=cv2.contourArea, reverse=True)[:40]:
-            area = cv2.contourArea(cnt)
-            if area < 0.18 * small.shape[0] * small.shape[1]:
-                continue
-            peri = cv2.arcLength(cnt, True)
-            if peri <= 0:
-                continue
-            for eps in (0.010, 0.016, 0.024, 0.035):
-                approx = cv2.approxPolyDP(cnt, eps * peri, True)
-                if len(approx) == 4 and cv2.isContourConvex(approx):
-                    q = approx.reshape(4, 2).astype(np.float32) / scale
-                    score = _quad_score(q, frame_bgr.shape)
-                    if score > 0:
-                        candidates.append((score, q))
-                    break
-
-    if candidates:
-        candidates.sort(key=lambda x: x[0], reverse=True)
-        return _order_quad(candidates[0][1])
-
-    return _line_based_quad(frame_bgr)
+    total_questions = int(total_questions)
+    if total_questions in (40, 50):
+        return 25, 2
+    if total_questions == 100:
+        return 25, 4
+    if total_questions > 50:
+        blocks = 4
+        per_block = 25
+    else:
+        blocks = 2
+        per_block = 25
+    return per_block, blocks
 
 
-def draw_detection(frame_bgr: np.ndarray, quad: Optional[np.ndarray]) -> np.ndarray:
-    """Draw a clear live green document boundary without altering the frame geometry."""
-    out = frame_bgr.copy()
-    if quad is None:
-        cv2.putText(
-            out,
-            "Point camera at the full OMR sheet",
-            (24, 44),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.85,
-            (255, 255, 255),
-            2,
-            cv2.LINE_AA,
+def calibration_points_info(total_questions):
+    """Return calibration points for the physical sheet geometry.
+
+    The 40/50 layout is the same printed sheet, so both use Q1/Q25/Q26/Q50
+    reference points.  This keeps mentor and student calibration consistent
+    and avoids maintaining two almost-identical sheet geometries.
+    """
+    total_questions = int(total_questions)
+    physical_total = 50 if total_questions in (40, 50) else total_questions
+    per_block, blocks = get_layout(physical_total)
+    points = []
+    for b in range(blocks):
+        start = b * per_block + 1
+        end = min(start + per_block - 1, physical_total)
+        points.append({
+            "key": f"p{len(points)+1}",
+            "short": f"Q{start}-A",
+            "full": f"Question {start} - center of bubble A",
+            "block": b,
+            "role": "top",
+        })
+        if b == 0:
+            points.append({
+                "key": f"p{len(points)+1}",
+                "short": f"Q{start}-D",
+                "full": f"Question {start} - center of bubble D",
+                "block": b,
+                "role": "optd",
+            })
+        points.append({
+            "key": f"p{len(points)+1}",
+            "short": f"Q{end}-A",
+            "full": f"Question {end} - center of bubble A",
+            "block": b,
+            "role": "bottom",
+        })
+    return points
+
+
+def validate_omr_image(image_bgr):
+    errors, warnings = [], []
+
+    if image_bgr is None or image_bgr.size == 0:
+        return False, ["The uploaded file could not be read as an image."], []
+
+    h, w = image_bgr.shape[:2]
+
+    if w < MIN_WIDTH or h < MIN_HEIGHT:
+        errors.append(
+            f"Image resolution is too low ({w}x{h}). "
+            f"Please retake the photo with a higher resolution camera, "
+            f"at least {MIN_WIDTH}x{MIN_HEIGHT}."
         )
-        return out
 
-    q = np.round(quad).astype(np.int32).reshape((-1, 1, 2))
-    cv2.polylines(out, [q], True, (50, 230, 170), 6, cv2.LINE_AA)
-    for i, (x, y) in enumerate(quad.astype(np.int32)):
-        cv2.circle(out, (int(x), int(y)), 10, (50, 230, 170), -1, cv2.LINE_AA)
-    cv2.putText(
-        out,
-        "OMR detected - keep all 4 corners inside",
-        (24, 44),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.78,
-        (50, 230, 170),
-        2,
-        cv2.LINE_AA,
-    )
-    return out
+    gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
+    mean = float(np.mean(gray))
+
+    if mean < DARK_MEAN_THRESHOLD:
+        errors.append(
+            "The photo is too dark to read. Please retake it in better lighting."
+        )
+    elif mean > BRIGHT_MEAN_THRESHOLD:
+        warnings.append(
+            "The photo looks overexposed / very bright - results may be inaccurate."
+        )
+
+    blur = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+
+    if blur < BLUR_VARIANCE_THRESHOLD:
+        errors.append(
+            "The photo looks blurry. Please hold the camera steady and retake it."
+        )
+
+    return len(errors) == 0, errors, warnings
 
 
-def four_point_transform(image_bgr: np.ndarray, points: np.ndarray,
-                        width: int = WARP_WIDTH, height: int = WARP_HEIGHT) -> np.ndarray:
-    """Perspective-correct an OMR sheet to the fixed 1000x1600 master canvas."""
-    q = _order_quad(points)
-    dst = np.array(
-        [[0, 0], [width - 1, 0], [width - 1, height - 1], [0, height - 1]],
-        dtype=np.float32,
-    )
-    matrix = cv2.getPerspectiveTransform(q, dst)
-    return cv2.warpPerspective(
+def resize_max_dim(image_bgr, max_dim=STUDENT_DISPLAY_MAX_DIM):
+    h, w = image_bgr.shape[:2]
+    longest = max(h, w)
+
+    if longest <= max_dim:
+        return image_bgr
+
+    scale = max_dim / float(longest)
+
+    return cv2.resize(
         image_bgr,
-        matrix,
-        (width, height),
-        flags=cv2.INTER_LINEAR,
-        borderMode=cv2.BORDER_REPLICATE,
+        (
+            max(1, int(round(w * scale))),
+            max(1, int(round(h * scale))),
+        ),
+        interpolation=cv2.INTER_AREA,
     )
 
 
-def perspective_flatten(frame_bgr: np.ndarray, quad: np.ndarray,
-                        width: int = WARP_WIDTH, height: int = WARP_HEIGHT) -> np.ndarray:
-    """Backward-compatible wrapper around the fixed-size four-point transform."""
-    return four_point_transform(frame_bgr, quad, width=width, height=height)
+def compute_bubble_radius(image_bgr):
+    h, w = image_bgr.shape[:2]
+    return max(9, int(round(min(h, w) * 0.010)))
 
 
-def detect_and_warp(image_bgr: np.ndarray):
-    """Detect the document contour and flatten it to the canonical canvas."""
-    quad = detect_sheet_quad(image_bgr)
-    if quad is None:
-        return None, False
-    return four_point_transform(image_bgr, quad), True
+def _order_points(pts):
+    rect = np.zeros((4, 2), dtype="float32")
+
+    s = pts.sum(axis=1)
+    rect[0], rect[2] = pts[np.argmin(s)], pts[np.argmax(s)]
+
+    diff = np.diff(pts, axis=1)
+    rect[1], rect[3] = pts[np.argmin(diff)], pts[np.argmax(diff)]
+
+    return rect
 
 
-def preprocess_omr_image(image_bgr: np.ndarray) -> np.ndarray:
-    """Remove red/pink print and compensate for uneven phone-camera lighting.
+def detect_and_warp(image_bgr):
+    orig = image_bgr.copy()
+    gray = cv2.cvtColor(orig, cv2.COLOR_BGR2GRAY)
 
-    OpenCV stores BGR, so channel 2 is the Red channel.  Student ink is then
-    represented by dark pixels while the red/pink printed border is largely
-    suppressed. Adaptive thresholding makes the result substantially less
-    sensitive to shadows and mild illumination gradients.
+    edges = cv2.Canny(
+        cv2.GaussianBlur(gray, (5, 5), 0),
+        50,
+        150,
+    )
+    edges = cv2.dilate(edges, None, iterations=2)
+
+    contours, _ = cv2.findContours(
+        edges,
+        cv2.RETR_EXTERNAL,
+        cv2.CHAIN_APPROX_SIMPLE,
+    )
+
+    sheet = None
+
+    for c in sorted(contours, key=cv2.contourArea, reverse=True)[:5]:
+        peri = cv2.arcLength(c, True)
+        approx = cv2.approxPolyDP(c, 0.02 * peri, True)
+
+        if len(approx) == 4:
+            sheet = approx
+            break
+
+    if sheet is None:
+        return cv2.resize(
+            orig,
+            (WARP_WIDTH, WARP_HEIGHT),
+        ), False
+
+    rect = _order_points(
+        sheet.reshape(4, 2).astype("float32")
+    )
+
+    dst = np.array(
+        [
+            [0, 0],
+            [WARP_WIDTH - 1, 0],
+            [WARP_WIDTH - 1, WARP_HEIGHT - 1],
+            [0, WARP_HEIGHT - 1],
+        ],
+        dtype="float32",
+    )
+
+    matrix = cv2.getPerspectiveTransform(rect, dst)
+
+    return cv2.warpPerspective(
+        orig,
+        matrix,
+        (WARP_WIDTH, WARP_HEIGHT),
+    ), True
+
+
+def build_grid(calibration, total_questions=TOTAL_QUESTIONS):
+    """Build bubble centers from calibration and return only requested Qs."""
+    requested = int(total_questions)
+    physical_total = 50 if requested in (40, 50) else requested
+    per_block, blocks = get_layout(physical_total)
+    info = calibration_points_info(requested)
+    q1_a = q1_d = None
+    tops, bottoms = {}, {}
+
+    for item in info:
+        if item["key"] not in calibration:
+            raise ValueError(f"Calibration is missing point {item['key']} ({item['short']}).")
+        pt = np.asarray(calibration[item["key"]], dtype=float)
+        b = item["block"]
+        if item["role"] == "top":
+            tops[b] = pt
+            if b == 0:
+                q1_a = pt
+        elif item["role"] == "bottom":
+            bottoms[b] = pt
+        else:
+            q1_d = pt
+
+    if q1_a is None or q1_d is None:
+        raise ValueError("Calibration is missing the Q1 A/D spacing points.")
+
+    option_step = (q1_d - q1_a) / 3.0
+    grid, q_no = {}, 1
+    for b in range(blocks):
+        if b not in tops or b not in bottoms:
+            raise ValueError(f"Calibration is missing block {b + 1} top/bottom points.")
+        rows = per_block
+        row_step = (bottoms[b] - tops[b]) / (rows - 1) if rows > 1 else np.array([0.0, 0.0])
+        for r in range(rows):
+            if q_no > requested:
+                break
+            origin = tops[b] + r * row_step
+            grid[q_no] = {
+                opt: (
+                    int(round((origin + i * option_step)[0])),
+                    int(round((origin + i * option_step)[1])),
+                )
+                for i, opt in enumerate(OPTIONS)
+            }
+            q_no += 1
+    return grid
+
+
+def preprocess_omr_image(image_bgr):
+    """Prepare a raw OMR image without photographic enhancement.
+
+    The red channel is intentionally used because the printed OMR artwork is
+    pink/magenta: it is bright in red, while pen/pencil ink is dark in red.
+    This avoids the false dark pixels produced by grayscale conversion and
+    avoids enhancement-induced double touches.
     """
     if image_bgr is None or image_bgr.size == 0:
         raise ValueError("Empty OMR image.")
 
     red = image_bgr[:, :, 2]
     red = cv2.GaussianBlur(red, (3, 3), 0)
-
-    binary = cv2.adaptiveThreshold(
-        red,
-        255,
-        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-        cv2.THRESH_BINARY,
-        31,
-        9,
-    )
-
-    # Tiny isolated noise is removed without eating normal pen strokes.
-    binary = cv2.morphologyEx(
-        binary, cv2.MORPH_OPEN, np.ones((2, 2), np.uint8), iterations=1
-    )
-    return binary
+    return red
 
 
-def process_for_omr_reading(image_bgr: np.ndarray):
-    """Return (flat_color_image, binary_omr_image, detected_quad)."""
-    quad = detect_sheet_quad(image_bgr)
-    if quad is None:
-        return None, None, None
-    flat = four_point_transform(image_bgr, quad)
-    binary = preprocess_omr_image(flat)
-    return flat, binary, quad
+def _bubble_metrics(image_red, center, radius):
+    """Return robust local evidence for ink inside one bubble.
 
-def moderate_enhance(image_bgr: np.ndarray) -> np.ndarray:
-    """Create a clean scan preview while preserving the printed OMR artwork.
+    The score is based on:
+      1) darkness of the inner core,
+      2) contrast between that core and the surrounding ring,
+      3) fraction of genuinely dark pixels in the core.
 
-    This is display/preview processing only.  The raw flattened image is still
-    used for answer reading so enhancement cannot manufacture MULTI answers.
-    A low-frequency illumination field is removed first, which helps with
-    phone-camera shadows and bright/dark corners.
+    The surrounding ring makes the decision resistant to shadows and paper
+    illumination, while the core prevents the printed bubble outline from
+    being mistaken for a mark.
     """
-    if image_bgr is None or image_bgr.size == 0:
-        raise ValueError("Empty OMR image.")
+    x, y = int(round(center[0])), int(round(center[1]))
+    h, w = image_red.shape[:2]
+    r = max(7, int(radius))
 
-    img = image_bgr.astype(np.float32)
-    lab = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2LAB)
-    l, a, b = cv2.split(lab)
+    yy, xx = np.ogrid[-r:r + 1, -r:r + 1]
+    d2 = xx * xx + yy * yy
 
-    # Estimate broad illumination only; bubble outlines and handwriting are
-    # much smaller than this blur and are therefore not treated as shadows.
-    illumination = cv2.GaussianBlur(l.astype(np.float32), (0, 0), 45.0)
-    base = float(np.median(illumination))
-    normalized_l = l.astype(np.float32) * (base / np.maximum(illumination, 1.0))
-    normalized_l = np.clip(normalized_l, 0, 255).astype(np.uint8)
+    core_r = max(3.0, r * 0.42 - MARGIN_EROSION_PX)
+    ring_inner = r * 0.62
+    ring_outer = r * 0.88
 
-    clahe = cv2.createCLAHE(clipLimit=1.20, tileGridSize=(8, 8))
-    normalized_l = clahe.apply(normalized_l)
+    core_mask = d2 <= core_r * core_r
+    ring_mask = (d2 >= ring_inner * ring_inner) & (d2 <= ring_outer * ring_outer)
 
-    enhanced = cv2.cvtColor(cv2.merge((normalized_l, a, b)), cv2.COLOR_LAB2BGR)
+    x0, x1 = max(0, x-r), min(w, x+r+1)
+    y0, y1 = max(0, y-r), min(h, y+r+1)
+    patch = image_red[y0:y1, x0:x1]
+    if patch.size == 0:
+        return 0.0, 0.0, 255.0, 255.0
 
-    # Very mild sharpening for camera softness.
-    blur = cv2.GaussianBlur(enhanced, (0, 0), 0.9)
-    sharp = cv2.addWeighted(enhanced, 1.10, blur, -0.10, 0)
-    return np.clip(sharp, 0, 255).astype(np.uint8)
+    mh, mw = patch.shape[:2]
+    cm = core_mask[:mh, :mw]
+    rm = ring_mask[:mh, :mw]
 
+    core = patch[cm]
+    ring = patch[rm]
+    if core.size == 0:
+        return 0.0, 0.0, 255.0, 255.0
 
-def process_captured_frame(frame_bgr: np.ndarray) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
-    """Return (processed_flat_image, detected_quad) for camera capture."""
-    quad = detect_sheet_quad(frame_bgr)
-    if quad is None:
-        return None, None
-    flat = four_point_transform(frame_bgr, quad)
-    return moderate_enhance(flat), quad
+    core_mean = float(np.mean(core))
+    ring_mean = float(np.mean(ring)) if ring.size else core_mean
+    contrast = max(0.0, ring_mean - core_mean)
 
+    # Dark fraction is measured relative to the local ring rather than a
+    # fixed global threshold.  This handles camera exposure/shadows better.
+    local_cut = min(150.0, ring_mean - 18.0)
+    ink_fraction = float(np.mean(core < local_cut))
 
-# ---------------------------------------------------------------------------
-# Optional live camera integration. Requires streamlit-webrtc + av.
-# ---------------------------------------------------------------------------
-try:
-    from streamlit_webrtc import VideoProcessorBase, WebRtcMode, webrtc_streamer
-    from av import VideoFrame
-
-    _WEBRTC_AVAILABLE = True
-except Exception:
-    _WEBRTC_AVAILABLE = False
+    # Contrast is the primary signal; dark fraction is a safety check.
+    score = contrast * 0.72 + (ink_fraction * 100.0) * 0.28
+    return float(score), ink_fraction, core_mean, ring_mean
 
 
-if _WEBRTC_AVAILABLE:
-    class OMRVideoProcessor(VideoProcessorBase):
-        def __init__(self):
-            self.lock = threading.Lock()
-            self.latest_processed = None
-            self.detected = False
+def read_answers(warped_bgr, grid, dark_threshold=DARK_PIXEL_THRESHOLD, min_gap=15, radius=None):
+    """Read answers from raw perspective-corrected OMR pixels.
 
-        def recv(self, frame: VideoFrame) -> VideoFrame:
-            img = frame.to_ndarray(format="bgr24")
-            quad = detect_sheet_quad(img)
-            display = draw_detection(img, quad)
+    Decision model:
+      - A filled option must have meaningful local core-vs-ring contrast.
+      - A single answer wins when its evidence is clearly above the runner-up.
+      - MULTI requires the second option to independently show substantial
+        local ink/contrast and to be close enough to the first option.
+      - Weak/noisy options are left blank rather than promoted to MULTI.
+    """
+    del dark_threshold, min_gap
+    radius = BUBBLE_SAMPLE_RADIUS if radius is None else int(radius)
+    red = preprocess_omr_image(warped_bgr)
+    answers = {}
 
-            if quad is not None:
-                flat = perspective_flatten(img, quad)
-                flat = moderate_enhance(flat)
-                with self.lock:
-                    self.latest_processed = flat
-                    self.detected = True
-            else:
-                with self.lock:
-                    self.detected = False
+    for q_no, options in grid.items():
+        metrics = {
+            opt: _bubble_metrics(red, center, radius)
+            for opt, center in options.items()
+        }
+        scores = {opt: metrics[opt][0] for opt in OPTIONS}
+        inks = {opt: metrics[opt][1] for opt in OPTIONS}
 
-            return VideoFrame.from_ndarray(display, format="bgr24")
+        ordered = sorted(OPTIONS, key=lambda o: scores[o], reverse=True)
+        best, second = ordered[0], ordered[1]
+        max1, max2 = scores[best], scores[second]
 
-        def get_latest_processed(self):
-            with self.lock:
-                if self.latest_processed is None:
-                    return None
-                return self.latest_processed.copy()
+        # Convert evidence into a 0..1 relative strength.  MULTI needs the
+        # second bubble to be a genuinely marked bubble, not merely close due
+        # to a weak/noisy score.
+        strength2 = 0.0 if max1 <= 0.001 else max2 / max1
 
-        def has_detection(self):
-            with self.lock:
-                return bool(self.detected and self.latest_processed is not None)
+        best_contrast = max(0.0, metrics[best][3] - metrics[best][2])
+        second_contrast = max(0.0, metrics[second][3] - metrics[second][2])
+
+        is_multi = (
+            best_contrast >= MULTI_MIN_CONTRAST
+            and second_contrast >= MULTI_MIN_CONTRAST
+            and inks[best] >= MULTI_MIN_INK_FRACTION
+            and inks[second] >= MULTI_MIN_INK_FRACTION
+            and strength2 >= MULTI_RATIO_LIMIT
+        )
+        if is_multi:
+            answers[q_no] = "MULTI"
+            continue
+
+        if (
+            max1 < FILL_SCORE_THRESHOLD
+            or best_contrast < 14.0
+            or inks[best] < MIN_STRONG_INK_FRACTION
+        ):
+            answers[q_no] = None
+            continue
+
+        # Require an actual evidence margin, not just a ratio.  This prevents
+        # two weak/noisy bubbles from becoming either MULTI or a false answer.
+        margin = max1 - max2
+        if margin >= CLEAR_WINNER_MARGIN or strength2 < 0.55:
+            answers[q_no] = best
+        else:
+            answers[q_no] = None
+
+    return answers
 
 
-def render_live_camera(key: str = "omr_live_camera") -> Optional[np.ndarray]:
-    """Render live OMR detection and return a processed image after capture."""
-    if not _WEBRTC_AVAILABLE:
-        return None
+def score_answers(
+    student_answers,
+    key_string,
+    negative_marking=False,
+    negative_value=0.0,
+):
+    total = len(key_string)
 
-    ctx = webrtc_streamer(
-        key=key,
-        mode=WebRtcMode.SENDRECV,
-        video_processor_factory=OMRVideoProcessor,
-        media_stream_constraints={"video": {"facingMode": {"ideal": "environment"}, "width": {"ideal": 1280}, "height": {"ideal": 1920}}, "audio": False},
-        async_processing=True,
+    correct = 0
+    answered = 0
+    wrong = []
+    wrong_details = {}
+    skipped_questions = []
+
+    for i in range(total):
+        q = i + 1
+        correct_ans = key_string[i].upper()
+        given = student_answers.get(q)
+
+        if given is None:
+            skipped_questions.append(q)
+            continue
+
+        answered += 1
+
+        if given == "MULTI":
+            wrong.append(q)
+            wrong_details[q] = {
+                "given": "Multiple",
+                "correct": correct_ans,
+            }
+
+        elif given == correct_ans:
+            correct += 1
+
+        else:
+            wrong.append(q)
+            wrong_details[q] = {
+                "given": given,
+                "correct": correct_ans,
+            }
+
+    wrong_count = len(wrong)
+
+    penalty = (
+        wrong_count * negative_value
+        if negative_marking
+        else 0
     )
 
-    if ctx.state.playing and ctx.video_processor is not None:
-        detected = ctx.video_processor.has_detection()
-        if detected:
-            st_message = ""
-        else:
-            st_message = ""
+    marks = round(
+        correct - penalty,
+        2,
+    )
 
-    return ctx.video_processor.get_latest_processed() if ctx.video_processor is not None else None
+    accuracy = (
+        round(correct / answered * 100, 2)
+        if answered
+        else 0.0
+    )
+
+    return {
+        "total": total,
+        "answered": answered,
+        "skipped": total - answered,
+        "correct": correct,
+        "wrong_count": wrong_count,
+        "wrong": wrong,
+        "wrong_details": wrong_details,
+        "skipped_questions": skipped_questions,
+        "accuracy": accuracy,
+        "marks": marks,
+        "negative_marking": negative_marking,
+        "negative_value": negative_value,
+    }
 
 
-def camera_available() -> bool:
-    return _WEBRTC_AVAILABLE
+def build_review_rows(student_answers, key_string):
+    rows = []
+
+    for i, correct_ans in enumerate(key_string):
+        q = i + 1
+        given = student_answers.get(q)
+        ca = correct_ans.upper()
+
+        status = (
+            "skipped"
+            if given is None
+            else (
+                "wrong"
+                if given == "MULTI" or given != ca
+                else "correct"
+            )
+        )
+
+        rows.append({
+            "q": q,
+            "given": given,
+            "correct": ca,
+            "status": status,
+        })
+
+    return rows
+
+
+def render_sheet_image(
+    grid,
+    total_questions=100,
+    answers=None,
+):
+    from PIL import Image as PILImage, ImageDraw
+
+    answers = answers or {}
+
+    img = PILImage.new(
+        "RGB",
+        (WARP_WIDTH, WARP_HEIGHT),
+        "white",
+    )
+
+    draw = ImageDraw.Draw(img)
+    r = BUBBLE_SAMPLE_RADIUS + 6
+
+    for q in range(
+        1,
+        total_questions + 1,
+    ):
+        opts = grid.get(q)
+
+        if not opts:
+            continue
+
+        for opt in OPTIONS:
+            x, y = opts[opt]
+            filled = answers.get(q) == opt
+
+            draw.ellipse(
+                [
+                    x - r,
+                    y - r,
+                    x + r,
+                    y + r,
+                ],
+                outline=(30, 30, 30),
+                width=2,
+                fill=(
+                    (20, 20, 20)
+                    if filled
+                    else (255, 255, 255)
+                ),
+            )
+
+            draw.text(
+                (x - 4, y - 6),
+                opt,
+                fill=(
+                    (255, 255, 255)
+                    if filled
+                    else (30, 30, 30)
+                ),
+            )
+
+        ax, ay = opts["A"]
+
+        draw.text(
+            (ax - 44, ay - 7),
+            str(q),
+            fill=(0, 0, 0),
+        )
+
+    return img
+
+
+def find_clicked_bubble(
+    grid,
+    total_questions,
+    x,
+    y,
+    radius=None,
+):
+    radius = (
+        BUBBLE_SAMPLE_RADIUS + 10
+        if radius is None
+        else radius
+    )
+
+    best = None
+    best_d = radius
+
+    for q in range(
+        1,
+        total_questions + 1,
+    ):
+        opts = grid.get(q)
+
+        if not opts:
+            continue
+
+        for opt, (bx, by) in opts.items():
+            d = (
+                (x - bx) ** 2
+                + (y - by) ** 2
+            ) ** 0.5
+
+            if d <= best_d:
+                best_d = d
+                best = (q, opt)
+
+    return best
