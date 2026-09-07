@@ -37,14 +37,18 @@ LAYOUT_PRESETS = {100: (25, 4), 50: (25, 2), 40: (25, 2)}
 # on the printed outline.  The final decision is relative to the four options
 # in the same question, so lighting/exposure changes do not require retuning
 # a global threshold for every photo.
-FILL_SCORE_THRESHOLD = 12.0
-MIN_STRONG_INK_FRACTION = 0.045
-MULTI_MIN_INK_FRACTION = 0.16
-MULTI_SCORE_FLOOR = 18.0
-MULTI_RATIO_LIMIT = 1.22
-CLEAR_WINNER_RATIO = 1.55
+# Answer detection uses local contrast from the raw flattened image.
+# These are deliberately conservative: a second option is MULTI only when
+# it contains real dark ink in its own core AND a strong contrast against
+# its surrounding printed ring.
+FILL_SCORE_THRESHOLD = 9.0
+MIN_STRONG_INK_FRACTION = 0.035
+MULTI_MIN_CONTRAST = 22.0
+MULTI_MIN_INK_FRACTION = 0.075
+MULTI_RATIO_LIMIT = 0.72
+CLEAR_WINNER_MARGIN = 12.0
 MARGIN_EROSION_PX = 2
-DARK_PIXEL_THRESHOLD = 150
+DARK_PIXEL_THRESHOLD = 145
 
 
 
@@ -286,94 +290,134 @@ def build_grid(calibration, total_questions=TOTAL_QUESTIONS):
 
 
 def preprocess_omr_image(image_bgr):
-    """Build a stable binary mask from HSV Value.
+    """Prepare a raw OMR image without photographic enhancement.
 
-    The OMR template uses colored/pink printing.  Value (max RGB channel)
-    keeps that printing bright while real pencil/pen marks remain dark.
-    Adaptive thresholding handles shadows without globally strengthening the
-    image, which is important because enhancement was causing false MULTI.
+    The red channel is intentionally used because the printed OMR artwork is
+    pink/magenta: it is bright in red, while pen/pencil ink is dark in red.
+    This avoids the false dark pixels produced by grayscale conversion and
+    avoids enhancement-induced double touches.
     """
     if image_bgr is None or image_bgr.size == 0:
         raise ValueError("Empty OMR image.")
-    value = np.max(image_bgr, axis=2).astype(np.uint8)
-    value = cv2.GaussianBlur(value, (3, 3), 0)
-    binary = cv2.adaptiveThreshold(
-        value, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 11
-    )
-    binary = cv2.morphologyEx(
-        binary, cv2.MORPH_OPEN, np.ones((2, 2), np.uint8), iterations=1
-    )
-    return binary
+
+    red = image_bgr[:, :, 2]
+    red = cv2.GaussianBlur(red, (3, 3), 0)
+    return red
 
 
-def _bubble_metrics(binary, center, radius):
-    """Measure dark ink only from an eroded inner bubble core."""
+def _bubble_metrics(image_red, center, radius):
+    """Return robust local evidence for ink inside one bubble.
+
+    The score is based on:
+      1) darkness of the inner core,
+      2) contrast between that core and the surrounding ring,
+      3) fraction of genuinely dark pixels in the core.
+
+    The surrounding ring makes the decision resistant to shadows and paper
+    illumination, while the core prevents the printed bubble outline from
+    being mistaken for a mark.
+    """
     x, y = int(round(center[0])), int(round(center[1]))
-    h, w = binary.shape[:2]
+    h, w = image_red.shape[:2]
     r = max(7, int(radius))
-    yy, xx = np.ogrid[-r:r + 1, -r:r + 1]
-    core_radius = max(3, r * 0.46 - MARGIN_EROSION_PX)
-    core_mask = (xx * xx + yy * yy) <= core_radius ** 2
 
-    x0, x1 = max(0, x - r), min(w, x + r + 1)
-    y0, y1 = max(0, y - r), min(h, y + r + 1)
-    patch = binary[y0:y1, x0:x1]
+    yy, xx = np.ogrid[-r:r + 1, -r:r + 1]
+    d2 = xx * xx + yy * yy
+
+    core_r = max(3.0, r * 0.42 - MARGIN_EROSION_PX)
+    ring_inner = r * 0.62
+    ring_outer = r * 0.88
+
+    core_mask = d2 <= core_r * core_r
+    ring_mask = (d2 >= ring_inner * ring_inner) & (d2 <= ring_outer * ring_outer)
+
+    x0, x1 = max(0, x-r), min(w, x+r+1)
+    y0, y1 = max(0, y-r), min(h, y+r+1)
+    patch = image_red[y0:y1, x0:x1]
     if patch.size == 0:
         return 0.0, 0.0, 255.0, 255.0
 
     mh, mw = patch.shape[:2]
-    mask = core_mask[:mh, :mw]
-    pixels = patch[mask]
-    if pixels.size == 0:
+    cm = core_mask[:mh, :mw]
+    rm = ring_mask[:mh, :mw]
+
+    core = patch[cm]
+    ring = patch[rm]
+    if core.size == 0:
         return 0.0, 0.0, 255.0, 255.0
 
-    black = pixels < 128
-    ink_fraction = float(np.mean(black))
-    return ink_fraction * 100.0, ink_fraction, float(np.mean(pixels)), 255.0
+    core_mean = float(np.mean(core))
+    ring_mean = float(np.mean(ring)) if ring.size else core_mean
+    contrast = max(0.0, ring_mean - core_mean)
+
+    # Dark fraction is measured relative to the local ring rather than a
+    # fixed global threshold.  This handles camera exposure/shadows better.
+    local_cut = min(150.0, ring_mean - 18.0)
+    ink_fraction = float(np.mean(core < local_cut))
+
+    # Contrast is the primary signal; dark fraction is a safety check.
+    score = contrast * 0.72 + (ink_fraction * 100.0) * 0.28
+    return float(score), ink_fraction, core_mean, ring_mean
 
 
 def read_answers(warped_bgr, grid, dark_threshold=DARK_PIXEL_THRESHOLD, min_gap=15, radius=None):
-    """Read answers using per-question relative evidence.
+    """Read answers from raw perspective-corrected OMR pixels.
 
-    A single filled bubble wins when it is clearly stronger than the other
-    three.  MULTI is only emitted when TWO bubbles independently have enough
-    core ink *and* are genuinely close in strength.  This prevents small
-    printed/template noise from becoming double-touch while still detecting a
-    real two-bubble mark.
+    Decision model:
+      - A filled option must have meaningful local core-vs-ring contrast.
+      - A single answer wins when its evidence is clearly above the runner-up.
+      - MULTI requires the second option to independently show substantial
+        local ink/contrast and to be close enough to the first option.
+      - Weak/noisy options are left blank rather than promoted to MULTI.
     """
     del dark_threshold, min_gap
     radius = BUBBLE_SAMPLE_RADIUS if radius is None else int(radius)
-    binary = preprocess_omr_image(warped_bgr)
+    red = preprocess_omr_image(warped_bgr)
     answers = {}
 
     for q_no, options in grid.items():
-        metrics = {opt: _bubble_metrics(binary, center, radius) for opt, center in options.items()}
+        metrics = {
+            opt: _bubble_metrics(red, center, radius)
+            for opt, center in options.items()
+        }
         scores = {opt: metrics[opt][0] for opt in OPTIONS}
         inks = {opt: metrics[opt][1] for opt in OPTIONS}
+
         ordered = sorted(OPTIONS, key=lambda o: scores[o], reverse=True)
         best, second = ordered[0], ordered[1]
         max1, max2 = scores[best], scores[second]
 
-        ratio = float('inf') if max2 <= 0.001 else max1 / max2
+        # Convert evidence into a 0..1 relative strength.  MULTI needs the
+        # second bubble to be a genuinely marked bubble, not merely close due
+        # to a weak/noisy score.
+        strength2 = 0.0 if max1 <= 0.001 else max2 / max1
 
-        # Two-touch requires substantial ink in BOTH cores and a close pair.
-        # The score floor prevents weak printed/background noise from entering.
+        best_contrast = max(0.0, metrics[best][3] - metrics[best][2])
+        second_contrast = max(0.0, metrics[second][3] - metrics[second][2])
+
         is_multi = (
-            max1 >= MULTI_SCORE_FLOOR
-            and max2 >= MULTI_SCORE_FLOOR
+            best_contrast >= MULTI_MIN_CONTRAST
+            and second_contrast >= MULTI_MIN_CONTRAST
             and inks[best] >= MULTI_MIN_INK_FRACTION
             and inks[second] >= MULTI_MIN_INK_FRACTION
-            and ratio <= MULTI_RATIO_LIMIT
+            and strength2 >= MULTI_RATIO_LIMIT
         )
         if is_multi:
             answers[q_no] = "MULTI"
             continue
 
-        if max1 < FILL_SCORE_THRESHOLD or inks[best] < MIN_STRONG_INK_FRACTION:
+        if (
+            max1 < FILL_SCORE_THRESHOLD
+            or best_contrast < 14.0
+            or inks[best] < MIN_STRONG_INK_FRACTION
+        ):
             answers[q_no] = None
             continue
 
-        if ratio >= CLEAR_WINNER_RATIO:
+        # Require an actual evidence margin, not just a ratio.  This prevents
+        # two weak/noisy bubbles from becoming either MULTI or a false answer.
+        margin = max1 - max2
+        if margin >= CLEAR_WINNER_MARGIN or strength2 < 0.55:
             answers[q_no] = best
         else:
             answers[q_no] = None
