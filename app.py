@@ -78,108 +78,6 @@ def _reset_submission_state():
         st.session_state.pop(k, None)
 
 
-def _validate_omr_image_safe(image_bgr):
-    """Validate an OMR image without depending on a particular omr_scanner build.
-
-    Some deployed copies of omr_scanner.py may predate validate_omr_image().
-    Keeping this small compatibility wrapper in app.py prevents an AttributeError
-    and preserves the same basic validation rules.
-    """
-    validator = getattr(omr_scanner, "validate_omr_image", None)
-    if callable(validator):
-        return validator(image_bgr)
-
-    errors, warnings = [], []
-    if image_bgr is None or getattr(image_bgr, "size", 0) == 0:
-        return False, ["The uploaded file could not be read as an image."], []
-
-    h, w = image_bgr.shape[:2]
-    min_width = getattr(omr_scanner, "MIN_WIDTH", 500)
-    min_height = getattr(omr_scanner, "MIN_HEIGHT", 700)
-    dark_threshold = getattr(omr_scanner, "DARK_MEAN_THRESHOLD", 35.0)
-    bright_threshold = getattr(omr_scanner, "BRIGHT_MEAN_THRESHOLD", 245.0)
-    blur_threshold = getattr(omr_scanner, "BLUR_VARIANCE_THRESHOLD", 20.0)
-
-    if w < min_width or h < min_height:
-        errors.append(
-            f"Image resolution is too low ({w}x{h}). Please retake the photo with a higher resolution camera."
-        )
-
-    gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
-    mean = float(np.mean(gray))
-    if mean < dark_threshold:
-        errors.append("The photo is too dark to read. Please retake it in better lighting.")
-    elif mean > bright_threshold:
-        warnings.append("The photo looks overexposed / very bright - results may be inaccurate.")
-
-    blur = float(cv2.Laplacian(gray, cv2.CV_64F).var())
-    if blur < blur_threshold:
-        errors.append("The photo looks blurry. Please hold the camera steady and retake it.")
-
-    return len(errors) == 0, errors, warnings
-
-
-def _resize_max_dim_local(image_bgr, max_dim=1200):
-    """Resize an OpenCV image for preview without depending on omr_scanner helpers."""
-    if image_bgr is None or getattr(image_bgr, "size", 0) == 0:
-        return image_bgr
-    h, w = image_bgr.shape[:2]
-    longest = max(h, w)
-    if longest <= max_dim:
-        return image_bgr.copy()
-    scale = float(max_dim) / float(longest)
-    nw = max(1, int(round(w * scale)))
-    nh = max(1, int(round(h * scale)))
-    return cv2.resize(image_bgr, (nw, nh), interpolation=cv2.INTER_AREA)
-
-
-def _calibration_points_info_safe(total_questions):
-    """Return the fixed calibration landmarks without requiring a newer scanner module.
-
-    This keeps app.py compatible with older omr_scanner.py deployments while
-    preserving the same mentor-calibration geometry used by the current scanner.
-    """
-    fn = getattr(omr_scanner, "calibration_points_info", None)
-    if callable(fn):
-        return fn(total_questions)
-
-    total_questions = int(total_questions)
-    physical_total = 50 if total_questions in (40, 50) else total_questions
-    if physical_total > 50:
-        blocks = 4
-    else:
-        blocks = 2
-    per_block = 25
-
-    points = []
-    for b in range(blocks):
-        start = b * per_block + 1
-        end = min(start + per_block - 1, physical_total)
-        points.append({
-            "key": f"p{len(points)+1}",
-            "short": f"Q{start}-A",
-            "full": f"Question {start} - center of bubble A",
-            "block": b,
-            "role": "top",
-        })
-        if b == 0:
-            points.append({
-                "key": f"p{len(points)+1}",
-                "short": f"Q{start}-D",
-                "full": f"Question {start} - center of bubble D",
-                "block": b,
-                "role": "optd",
-            })
-        points.append({
-            "key": f"p{len(points)+1}",
-            "short": f"Q{end}-A",
-            "full": f"Question {end} - center of bubble A",
-            "block": b,
-            "role": "bottom",
-        })
-    return points
-
-
 def _relax_blur_only_validation(ok, errors, warnings_):
     """Allow usable OMR photos through when validation rejects only for blur.
 
@@ -340,67 +238,6 @@ def _student_flatten_from_corners(image_bgr, points):
     )
 
 
-def _build_grid_safe(calibration, total_questions=50):
-    """Build the canonical OMR bubble grid without requiring a specific scanner version.
-
-    The deployed app may contain an older omr_scanner.py that does not expose
-    build_grid().  Keep the exact mentor calibration geometry here so the
-    saved p1/p2/... landmarks remain compatible with the existing sheet.
-    """
-    fn = getattr(omr_scanner, "build_grid", None)
-    if callable(fn):
-        return fn(calibration, total_questions=total_questions)
-
-    requested = int(total_questions)
-    physical_total = 50 if requested in (40, 50) else requested
-    blocks = 4 if physical_total > 50 else 2
-    per_block = 25
-    info = _calibration_points_info_safe(requested)
-
-    tops, bottoms = {}, {}
-    q1_a = q1_d = None
-    for item in info:
-        key = item["key"]
-        if key not in calibration:
-            raise ValueError(f"Calibration is missing point {key} ({item['short']}).")
-        pt = np.asarray(calibration[key], dtype=float)
-        block = int(item["block"])
-        role = item["role"]
-        if role == "top":
-            tops[block] = pt
-            if block == 0:
-                q1_a = pt
-        elif role == "bottom":
-            bottoms[block] = pt
-        elif role == "optd" and block == 0:
-            q1_d = pt
-
-    if q1_a is None or q1_d is None:
-        raise ValueError("Calibration is missing the Q1 A/D spacing points.")
-
-    option_step = (q1_d - q1_a) / 3.0
-    grid = {}
-    q_no = 1
-    options = ("A", "B", "C", "D")
-    for block in range(blocks):
-        if block not in tops or block not in bottoms:
-            raise ValueError(f"Calibration is missing block {block + 1} top/bottom points.")
-        row_step = (bottoms[block] - tops[block]) / float(per_block - 1)
-        for row in range(per_block):
-            if q_no > requested:
-                break
-            origin = tops[block] + row * row_step
-            grid[q_no] = {
-                opt: (
-                    int(round((origin + i * option_step)[0])),
-                    int(round((origin + i * option_step)[1])),
-                )
-                for i, opt in enumerate(options)
-            }
-            q_no += 1
-    return grid
-
-
 def _canonical_master_grid(total_q):
     """Load the one-time mentor matrix in canonical 1000x1600 coordinates."""
     all_cal = sh.load_calibration() or {}
@@ -410,7 +247,7 @@ def _canonical_master_grid(total_q):
     if layout.get("coordinate_space") != "canonical_1000x1600":
         return None
     try:
-        return _build_grid_safe(layout, total_questions=int(total_q))
+        return omr_scanner.build_grid(layout, total_questions=int(total_q))
     except Exception:
         return None
 
@@ -424,7 +261,7 @@ def _process_student_photo_with_master(source_bytes, file_sig, total_q):
     """
     pil_img = ImageOps.exif_transpose(Image.open(io.BytesIO(source_bytes)).convert("RGB"))
     orig_bgr = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
-    ok, errors, warnings_ = _validate_omr_image_safe(orig_bgr)
+    ok, errors, warnings_ = omr_scanner.validate_omr_image(orig_bgr)
     ok, errors, warnings_ = _relax_blur_only_validation(ok, errors, warnings_)
     if not ok:
         return None, None, (ok, errors, warnings_), None
@@ -433,7 +270,7 @@ def _process_student_photo_with_master(source_bytes, file_sig, total_q):
     if quad is None:
         return orig_bgr, None, (False, ["Could not detect the OMR sheet boundary. Please keep all four paper corners visible."], warnings_), None
 
-    preview = _resize_max_dim_local(orig_bgr, max_dim=1200)
+    preview = omr_scanner.resize_max_dim(orig_bgr, max_dim=1200)
     scale_x = orig_bgr.shape[1] / float(preview.shape[1])
     scale_y = orig_bgr.shape[0] / float(preview.shape[0])
     preview_quad = np.asarray(quad, dtype=np.float32).copy()
@@ -4659,19 +4496,7 @@ def page_home():
     # Resume a legitimately started session even when the mentor's exam
     # window has already closed. The exam window controls START permission;
     # the student's personal duration controls the session itself.
-    # Google Sheets can occasionally return a transient API error while the
-    # student is simply opening Home.  Do not let that take down the whole UI;
-    # the next rerun will retry the request.
-    try:
-        resume_session = sh.get_student_resume_session(sid)
-        sheets_home_error = None
-    except Exception as e:
-        resume_session = None
-        sheets_home_error = e
-
-    if sheets_home_error is not None:
-        st.warning("Google Sheets is temporarily unavailable. Your exam data will reload automatically when the connection recovers.")
-
+    resume_session = sh.get_student_resume_session(sid)
     pending_omr_key = None
     if resume_session:
         resume_key = sh.get_answer_key_by_id(resume_session.get("key_id"))
@@ -4691,10 +4516,7 @@ def page_home():
         unsafe_allow_html=True,
     )
 
-    try:
-        active = pending_omr_key or cached_active_answer_key()
-    except Exception:
-        active = pending_omr_key
+    active = pending_omr_key or cached_active_answer_key()
     # Real st.container(key=...) instead of a raw <div class='app-card'>
     # split across two st.markdown() calls - see the note above the
     # ".app-card" CSS rule for why the split version rendered an empty
@@ -4753,20 +4575,14 @@ def page_home():
                 else:
                     st.info("This exam is not ready for OMR submission yet.")
         else:
-            try:
-                upcoming = cached_upcoming_answer_key()
-            except Exception:
-                upcoming = None
+            upcoming = cached_upcoming_answer_key()
             if upcoming:
                 st.info(f"No test is active right now. Next up: **{upcoming['exam_name'] or upcoming['key_id']}** "
                         f"at **{upcoming['start_dt'].strftime('%Y-%m-%d %H:%M')}**.")
             else:
                 st.info("No test is active or upcoming right now.")
 
-    try:
-        results = cached_results()
-    except Exception:
-        results = pd.DataFrame()
+    results = cached_results()
     my_results = results[results["student_id"] == sid] if not results.empty else results
 
     # Last Result + Overall Progress side by side - makes better use of
@@ -4945,7 +4761,7 @@ def _calibration_grid_for_photo(grid_points, grid_json_raw, total_questions, dst
                 if _coord_pair(pt)
             }
             if calibration:
-                rebuilt = _build_grid_safe(
+                rebuilt = omr_scanner.build_grid(
                     calibration,
                     total_questions=total_questions,
                 )
@@ -6182,7 +5998,7 @@ def page_omr_submit():
                     if "submit_validation" not in st.session_state:
                         pil_img = ImageOps.exif_transpose(Image.open(io.BytesIO(source_bytes)).convert("RGB"))
                         orig_bgr = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
-                        ok, errors, warnings_ = _validate_omr_image_safe(orig_bgr)
+                        ok, errors, warnings_ = omr_scanner.validate_omr_image(orig_bgr)
                         ok, errors, warnings_ = _relax_blur_only_validation(ok, errors, warnings_)
                         st.session_state["submit_validation"] = (ok, errors, warnings_)
                         st.session_state["submit_original_bytes"] = source_bytes
@@ -6208,7 +6024,7 @@ def page_omr_submit():
                             if "submit_candidate_image" not in st.session_state:
                                 pil_img = ImageOps.exif_transpose(Image.open(io.BytesIO(source_bytes)).convert("RGB"))
                                 orig_bgr = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
-                                ok, errors, warnings_ = _validate_omr_image_safe(orig_bgr)
+                                ok, errors, warnings_ = omr_scanner.validate_omr_image(orig_bgr)
                                 ok, errors, warnings_ = _relax_blur_only_validation(ok, errors, warnings_)
                                 quad = _detect_sheet_quad_robust(orig_bgr) if ok else None
 
@@ -6237,7 +6053,7 @@ def page_omr_submit():
                                 # selection is isolated in a Streamlit fragment so a tap
                                 # reruns only this small UI instead of refreshing the whole
                                 # OMR page (which caused the image to visibly blink).
-                                preview = _resize_max_dim_local(candidate, max_dim=1200)
+                                preview = omr_scanner.resize_max_dim(candidate, max_dim=1200)
                                 sx = candidate.shape[1] / float(preview.shape[1])
                                 sy = candidate.shape[0] / float(preview.shape[0])
 
@@ -6273,20 +6089,6 @@ def page_omr_submit():
                                         st.caption(f"Corners selected: **{len(adjust_points)}/4**")
                                         if adjust_points:
                                             st.caption("Selected: " + " → ".join(f"({int(x)}, {int(y)})" for x, y in adjust_points))
-                                            # The click canvas itself must stay pixel-identical so the
-                                            # coordinate widget does not remount. Show a SECOND preview
-                                            # with numbered markers so every tap is visibly confirmed.
-                                            marked = preview.copy()
-                                            for i, (px, py) in enumerate(adjust_points, 1):
-                                                cv2.circle(marked, (int(px), int(py)), 13, (0, 200, 255), 3, cv2.LINE_AA)
-                                                cv2.circle(marked, (int(px), int(py)), 4, (0, 200, 255), -1, cv2.LINE_AA)
-                                                cv2.putText(marked, str(i), (int(px) + 15, int(py) - 10),
-                                                            cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 200, 255), 2, cv2.LINE_AA)
-                                            st.image(
-                                                cv2.cvtColor(marked, cv2.COLOR_BGR2RGB),
-                                                caption=f"Selected corners: {len(adjust_points)}/4",
-                                                use_container_width=True,
-                                            )
                                         can_confirm = len(adjust_points) == 4
                                         if st.button(
                                             "✅ Confirm & Flatten",
@@ -6325,60 +6127,76 @@ def page_omr_submit():
                             else:
                                 @st.fragment
                                 def _auto_corner_confirm_fragment():
-                                    # Show a compact four-corner confirmation canvas.
-                                    # The detected points are already populated; adjustment
-                                    # is optional and only requires four taps.
-                                    preview = _resize_max_dim_local(candidate, max_dim=1200)
+                                    preview = omr_scanner.resize_max_dim(candidate, max_dim=1200)
                                     sx = candidate.shape[1] / float(preview.shape[1])
                                     sy = candidate.shape[0] / float(preview.shape[0])
                                     preview_quad = quad.copy()
                                     preview_quad[:, 0] /= sx
                                     preview_quad[:, 1] /= sy
 
+                                    adjust_mode = bool(st.session_state.get("submit_corner_adjust_mode"))
                                     adjust_points = st.session_state.get("submit_corner_adjust_points", [])
+                                    if adjust_mode and len(adjust_points) != 4:
+                                        adjust_points = [tuple(map(float, p)) for p in preview_quad]
+                                        st.session_state["submit_corner_adjust_points"] = adjust_points
+
                                     with st.container(key="omr_corner_confirm_card"):
                                         st.markdown("#### 📐 Check the 4 OMR corners")
                                         st.caption(
-                                            "Corners are detected automatically. Confirm them for a fast scan, "
-                                            "or choose Adjust and tap the 4 corners clockwise."
+                                            "Green points are automatically detected. If one is wrong, click "
+                                            "Adjust 4 Corners, choose the corner, then click its correct position."
                                         )
-                                        # Do not redraw the coordinate component with numbered corner markers.
-                                        # Its input image must stay identical between clicks; otherwise
-                                        # streamlit_image_coordinates remounts and the OMR flashes.
-                                        preview_marked = _draw_quad_preview(
-                                            preview, preview_quad,
-                                            selected=None,
-                                        )
-                                        coords = None
-                                        if st.session_state.get("submit_corner_adjust_mode"):
-                                            # Keep ONE stable component key. Changing the key after
-                                            # every click remounted the image and made the whole OMR
-                                            # visibly blink. The last-click guard prevents a stale
-                                            # coordinate event from being counted twice.
+
+                                        # Keep the clickable image unchanged between clicks. The overlay is
+                                        # rendered separately to make selected points obvious without remounting
+                                        # the coordinate component on every click.
+                                        if adjust_mode:
                                             coords = streamlit_image_coordinates(
-                                                Image.fromarray(cv2.cvtColor(preview_marked, cv2.COLOR_BGR2RGB)),
+                                                Image.fromarray(cv2.cvtColor(preview, cv2.COLOR_BGR2RGB)),
                                                 key=f"submit_corner_adjust_{file_sig}",
                                             )
+                                            labels = [
+                                                "1 · Top-left", "2 · Top-right",
+                                                "3 · Bottom-right", "4 · Bottom-left"
+                                            ]
+                                            selected_idx = st.radio(
+                                                "Corner to edit", range(4),
+                                                format_func=lambda i: labels[i],
+                                                horizontal=True,
+                                                key=f"submit_corner_edit_index_{file_sig}",
+                                            )
+                                            current = adjust_points[selected_idx]
+                                            st.caption(
+                                                f"Click the image to place **{labels[selected_idx]}**. "
+                                                f"Current: ({int(current[0])}, {int(current[1])})"
+                                            )
                                             if coords is not None:
-                                                pt_preview = (round(float(coords["x"]), 1), round(float(coords["y"]), 1))
-                                                last_click = st.session_state.get("submit_corner_last_click")
-                                                if last_click != pt_preview and len(adjust_points) < 4:
-                                                    st.session_state["submit_corner_last_click"] = pt_preview
-                                                    adjust_points = adjust_points + [pt_preview]
-                                                    st.session_state["submit_corner_adjust_points"] = adjust_points
-                                                    # streamlit_image_coordinates triggers the
-                                                    # fragment rerun itself after a new click.
-                                                    # Do not call st.rerun() here:
-                                                    # it can run outside Streamlit's active fragment
-                                                    # execution context on some Streamlit versions.
+                                                pt = (round(float(coords["x"]), 1), round(float(coords["y"]), 1))
+                                                last = st.session_state.get("submit_corner_last_click")
+                                                if last != pt:
+                                                    st.session_state["submit_corner_last_click"] = pt
+                                                    edited = list(adjust_points)
+                                                    edited[selected_idx] = pt
+                                                    st.session_state["submit_corner_adjust_points"] = edited
+                                                    st.rerun()
+
+                                            edited_overlay = _draw_quad_preview(
+                                                preview, np.asarray(adjust_points, dtype=np.float32), selected=adjust_points
+                                            )
+                                            st.image(
+                                                cv2.cvtColor(edited_overlay, cv2.COLOR_BGR2RGB),
+                                                caption="Current corner positions",
+                                                use_container_width=True,
+                                            )
                                         else:
+                                            preview_marked = _draw_quad_preview(preview, preview_quad)
                                             st.image(
                                                 cv2.cvtColor(preview_marked, cv2.COLOR_BGR2RGB),
                                                 caption="Auto-detected corners",
                                                 use_container_width=True,
                                             )
 
-                                        c1, c2 = st.columns(2)
+                                        c1, c2, c3 = st.columns(3)
                                         with c1:
                                             if st.button(
                                                 "✏️ Adjust 4 Corners",
@@ -6386,14 +6204,11 @@ def page_omr_submit():
                                                 use_container_width=True,
                                             ):
                                                 st.session_state["submit_corner_adjust_mode"] = True
-                                                st.session_state["submit_corner_adjust_points"] = []
+                                                st.session_state["submit_corner_adjust_points"] = [tuple(map(float, p)) for p in preview_quad]
                                                 st.session_state["submit_corner_last_click"] = None
                                                 st.rerun()
                                         with c2:
-                                            can_confirm = (
-                                                not st.session_state.get("submit_corner_adjust_mode")
-                                                or len(adjust_points) == 4
-                                            )
+                                            can_confirm = (not adjust_mode) or len(adjust_points) == 4
                                             if st.button(
                                                 "✅ Confirm & Flatten",
                                                 key=f"submit_confirm_corners_{file_sig}",
@@ -6401,78 +6216,46 @@ def page_omr_submit():
                                                 use_container_width=True,
                                                 disabled=not can_confirm,
                                             ):
-                                                if len(adjust_points) == 4:
-                                                    chosen = np.asarray(adjust_points, dtype=np.float32)
-                                                    chosen[:, 0] *= sx
-                                                    chosen[:, 1] *= sy
-                                                    chosen = omr_image_scanner._order_quad(chosen)
-                                                else:
-                                                    chosen = quad
-
+                                                chosen = np.asarray(adjust_points if adjust_mode else preview_quad, dtype=np.float32)
+                                                chosen[:, 0] *= sx
+                                                chosen[:, 1] *= sy
+                                                chosen = omr_image_scanner._order_quad(chosen)
                                                 flat = _student_flatten_from_corners(candidate, chosen)
-                                                # Scan the original flattened image. Do not enhance before
-                                                # read_answers(): enhancement can create false dark pixels.
                                                 st.session_state["submit_prepared_image"] = flat
                                                 st.session_state["submit_enhanced_preview"] = omr_image_scanner.moderate_enhance(flat)
                                                 st.session_state["submit_corner_adjust_points"] = []
                                                 st.session_state["submit_corner_adjust_mode"] = False
                                                 st.session_state["submit_corner_last_click"] = None
-
-                                                # One-time mentor matrix is now directly reusable
-                                                # because every student image is canonical 1000x1600.
-                                                if master_grid is None:
-                                                    st.session_state["submit_master_missing"] = True
-                                                else:
-                                                    st.session_state["submit_master_missing"] = False
+                                                st.session_state["submit_master_missing"] = False
                                                 st.session_state["submit_review_ready"] = False
+                                                st.rerun()
+                                        with c3:
+                                            if st.button(
+                                                "↩️ Reset to Auto",
+                                                key=f"submit_reset_auto_{file_sig}",
+                                                use_container_width=True,
+                                            ):
+                                                st.session_state["submit_corner_adjust_mode"] = False
+                                                st.session_state["submit_corner_adjust_points"] = []
+                                                st.session_state["submit_corner_last_click"] = None
                                                 st.rerun()
 
                                 _auto_corner_confirm_fragment()
                         if st.session_state.get("submit_prepared_image") is not None:
                             img_bgr = st.session_state["submit_prepared_image"]
                             if master_grid is None:
-                                st.warning(
-                                    "⚠️ No saved master OMR coordinate matrix exists for this layout. "
-                                    "Open Mentor → OMR Sheet Setup once to create it."
+                                st.error(
+                                    "❌ No master OMR setup is saved for this exam layout yet. "
+                                    "Student calibration is disabled by design. Please ask the mentor "
+                                    "to complete OMR Sheet Setup for this 50/100-question layout first."
                                 )
-                                # Backward compatibility only: retain the old calibration
-                                # path if a legacy deployment has not yet created its master.
-                                points_info = _calibration_points_info_safe(total_q)
-                                calib_points = st.session_state.get("submit_calib_points", [])
-                                if len(calib_points) < len(points_info):
-                                    @st.dialog("Legacy OMR Calibration", width="large")
-                                    def _legacy_calibration_dialog():
-                                        step = len(st.session_state.get("submit_calib_points", []))
-                                        if step >= len(points_info):
-                                            return
-                                        info = points_info[step]
-                                        st.markdown(
-                                            f"<b>Legacy fallback · {step + 1}/{len(points_info)} · "
-                                            f"{info['full']}</b>",
-                                            unsafe_allow_html=True,
-                                        )
-                                        coords = streamlit_image_coordinates(
-                                            Image.fromarray(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)),
-                                            key=f"legacy_calib_{file_sig}",
-                                        )
-                                        if coords is not None:
-                                            pts = st.session_state.get("submit_calib_points", [])
-                                            pt = (coords["x"], coords["y"])
-                                            if not pts or pts[-1] != pt:
-                                                st.session_state["submit_calib_points"] = pts + [pt]
-                                                # Dialog calibration is not a Streamlit fragment, so fragment-scoped
-                                                # reruns are invalid here. A normal rerun safely
-                                                # advances the calibration step.
-                                                st.rerun()
-                                    _legacy_calibration_dialog()
-                                else:
-                                    calibration = {
-                                        info["key"]: pt
-                                        for info, pt in zip(points_info, calib_points)
-                                    }
-                                    master_grid = _build_grid_safe(
-                                        calibration, total_questions=total_q
-                                    )
+                                st.info(
+                                    "Once the mentor setup is saved, every student photo will use the same "
+                                    "canonical 1000×1600 master geometry automatically."
+                                )
+                                if st.button("↻ Check Master Setup Again", key=f"retry_master_{file_sig}"):
+                                    st.rerun()
+                                return
 
                             if master_grid is not None and not st.session_state.get("submit_review_ready"):
                                 detected = _normalise_answers(
@@ -6488,6 +6271,14 @@ def page_omr_submit():
                                 st.rerun()
                         if st.session_state.get("submit_review_ready") and st.session_state.get("submit_prepared_image") is not None:
                             img_bgr = st.session_state["submit_prepared_image"]
+                            preview_flat = st.session_state.get("submit_enhanced_preview")
+                            if preview_flat is not None:
+                                with st.expander("📄 View flattened scan", expanded=True):
+                                    st.image(
+                                        cv2.cvtColor(preview_flat, cv2.COLOR_BGR2RGB),
+                                        caption="Clean flat scan preview — original flat pixels are used for OMR reading.",
+                                        use_container_width=True,
+                                    )
                             grid = st.session_state.get("submit_grid")
                             detected = st.session_state.get("submit_detected_answers", {})
                             final_answers = st.session_state.get("submit_final_answers", dict(detected))
@@ -6555,7 +6346,7 @@ def page_omr_submit():
                                                 calibration={
                                                     info["key"]: pt
                                                     for info, pt in zip(
-                                                        _calibration_points_info_safe(total_q),
+                                                        omr_scanner.calibration_points_info(total_q),
                                                         st.session_state.get("submit_calib_points", []),
                                                     )
                                                 },
@@ -8785,7 +8576,7 @@ def page_mentor_calibration():
             st.session_state[force_key] = False
             st.rerun()
 
-    points_info = _calibration_points_info_safe(total_q)
+    points_info = omr_scanner.calibration_points_info(total_q)
 
     st.markdown(
         f"Upload a **blank {layout_choice.split(' ', 1)[1]} OMR sheet**. "
@@ -8883,7 +8674,7 @@ def page_mentor_calibration():
 
                 # Validate the matrix before persisting it.
                 try:
-                    _build_grid_safe(layout_calibration, total_questions=total_q)
+                    omr_scanner.build_grid(layout_calibration, total_questions=total_q)
                 except Exception as exc:
                     st.error(f"Master matrix validation failed: {exc}")
                     return
