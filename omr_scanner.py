@@ -33,21 +33,18 @@ BRIGHT_MEAN_THRESHOLD = 240.0
 LAYOUT_PRESETS = {100: (25, 4), 50: (25, 2), 40: (25, 2)}
 
 
-# Detection tuning.
-# The algorithm combines center darkness and local center-vs-ring contrast,
-# then validates candidates against the other bubbles in the same question.
-FILL_SCORE_THRESHOLD = 16.0
-STRONG_FILL_SCORE = 24.0
-MULTI_SECOND_SCORE = 24.0
-MIN_STRONG_INK_FRACTION = 0.055
-MULTI_MIN_INK_FRACTION = 0.24
-MAX1_MAX2_RATIO = 1.55
+# Answer detection is deliberately based on the INSIDE of each bubble, not
+# on the printed outline.  The final decision is relative to the four options
+# in the same question, so lighting/exposure changes do not require retuning
+# a global threshold for every photo.
+FILL_SCORE_THRESHOLD = 12.0
+MIN_STRONG_INK_FRACTION = 0.045
+MULTI_MIN_INK_FRACTION = 0.16
+MULTI_SCORE_FLOOR = 18.0
+MULTI_RATIO_LIMIT = 1.22
+CLEAR_WINNER_RATIO = 1.55
 MARGIN_EROSION_PX = 2
-
-# Value-channel threshold used after the printed pink/red ink is removed.
-# It is intentionally moderate; the decision is also based on local contrast,
-# ink coverage and the gap between the best and second-best option.
-DARK_PIXEL_THRESHOLD = 155
+DARK_PIXEL_THRESHOLD = 150
 
 
 
@@ -289,15 +286,19 @@ def build_grid(calibration, total_questions=TOTAL_QUESTIONS):
 
 
 def preprocess_omr_image(image_bgr):
-    """Create a shadow-resistant binary OMR mask from the Red channel."""
+    """Build a stable binary mask from HSV Value.
+
+    The OMR template uses colored/pink printing.  Value (max RGB channel)
+    keeps that printing bright while real pencil/pen marks remain dark.
+    Adaptive thresholding handles shadows without globally strengthening the
+    image, which is important because enhancement was causing false MULTI.
+    """
     if image_bgr is None or image_bgr.size == 0:
         raise ValueError("Empty OMR image.")
-    red = cv2.GaussianBlur(image_bgr[:, :, 2], (3, 3), 0)
+    value = np.max(image_bgr, axis=2).astype(np.uint8)
+    value = cv2.GaussianBlur(value, (3, 3), 0)
     binary = cv2.adaptiveThreshold(
-        red, 255,
-        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-        cv2.THRESH_BINARY,
-        31, 9,
+        value, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 11
     )
     binary = cv2.morphologyEx(
         binary, cv2.MORPH_OPEN, np.ones((2, 2), np.uint8), iterations=1
@@ -306,13 +307,11 @@ def preprocess_omr_image(image_bgr):
 
 
 def _bubble_metrics(binary, center, radius):
-    """Measure only the eroded bubble margin, returning a comparable fill score."""
+    """Measure dark ink only from an eroded inner bubble core."""
     x, y = int(round(center[0])), int(round(center[1]))
     h, w = binary.shape[:2]
     r = max(7, int(radius))
-
     yy, xx = np.ogrid[-r:r + 1, -r:r + 1]
-    # Deliberately erode the sampling area away from printed bubble outlines.
     core_radius = max(3, r * 0.46 - MARGIN_EROSION_PX)
     core_mask = (xx * xx + yy * yy) <= core_radius ** 2
 
@@ -330,57 +329,43 @@ def _bubble_metrics(binary, center, radius):
 
     black = pixels < 128
     ink_fraction = float(np.mean(black))
-    # Fraction is the main signal; this keeps score stable across resolutions.
-    score = ink_fraction * 100.0
-    center_mean = float(np.mean(pixels))
-    return score, ink_fraction, center_mean, 255.0
+    return ink_fraction * 100.0, ink_fraction, float(np.mean(pixels)), 255.0
 
 
-def read_answers(
-    warped_bgr,
-    grid,
-    dark_threshold=DARK_PIXEL_THRESHOLD,
-    min_gap=15,
-    radius=None,
-):
-    """Read answers from the canonical flat image using pixel-ratio evidence.
+def read_answers(warped_bgr, grid, dark_threshold=DARK_PIXEL_THRESHOLD, min_gap=15, radius=None):
+    """Read answers using per-question relative evidence.
 
-    MAX1/MAX2 >= 1.7 is treated as a clear winner.  If the top two bubbles
-    both contain substantial ink but fail that ratio, the question is MULTI.
-    This is intentionally independent of printed red/pink outlines and local
-    shadows because preprocessing isolates the Red channel and uses adaptive
-    thresholding first.
+    A single filled bubble wins when it is clearly stronger than the other
+    three.  MULTI is only emitted when TWO bubbles independently have enough
+    core ink *and* are genuinely close in strength.  This prevents small
+    printed/template noise from becoming double-touch while still detecting a
+    real two-bubble mark.
     """
-    del dark_threshold, min_gap  # retained for API compatibility
+    del dark_threshold, min_gap
     radius = BUBBLE_SAMPLE_RADIUS if radius is None else int(radius)
     binary = preprocess_omr_image(warped_bgr)
     answers = {}
 
     for q_no, options in grid.items():
-        metrics = {
-            opt: _bubble_metrics(binary, center, radius)
-            for opt, center in options.items()
-        }
+        metrics = {opt: _bubble_metrics(binary, center, radius) for opt, center in options.items()}
         scores = {opt: metrics[opt][0] for opt in OPTIONS}
         inks = {opt: metrics[opt][1] for opt in OPTIONS}
         ordered = sorted(OPTIONS, key=lambda o: scores[o], reverse=True)
         best, second = ordered[0], ordered[1]
         max1, max2 = scores[best], scores[second]
 
-        if max2 <= 0.001:
-            ratio = float("inf") if max1 > 0 else 1.0
-        else:
-            ratio = max1 / max2
+        ratio = float('inf') if max2 <= 0.001 else max1 / max2
 
-        # A second bubble must independently contain enough ink. This prevents
-        # tiny threshold noise from turning an otherwise clear answer into MULTI.
-        if (
-            max1 >= STRONG_FILL_SCORE
-            and max2 >= MULTI_SECOND_SCORE
-            and inks[best] >= MIN_STRONG_INK_FRACTION
+        # Two-touch requires substantial ink in BOTH cores and a close pair.
+        # The score floor prevents weak printed/background noise from entering.
+        is_multi = (
+            max1 >= MULTI_SCORE_FLOOR
+            and max2 >= MULTI_SCORE_FLOOR
+            and inks[best] >= MULTI_MIN_INK_FRACTION
             and inks[second] >= MULTI_MIN_INK_FRACTION
-            and ratio < MAX1_MAX2_RATIO
-        ):
+            and ratio <= MULTI_RATIO_LIMIT
+        )
+        if is_multi:
             answers[q_no] = "MULTI"
             continue
 
@@ -388,14 +373,12 @@ def read_answers(
             answers[q_no] = None
             continue
 
-        if ratio >= MAX1_MAX2_RATIO:
+        if ratio >= CLEAR_WINNER_RATIO:
             answers[q_no] = best
         else:
-            # Ambiguous single-touch evidence is left blank for manual review.
             answers[q_no] = None
 
     return answers
-
 
 
 def score_answers(
