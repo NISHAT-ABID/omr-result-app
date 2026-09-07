@@ -6154,6 +6154,7 @@ def page_omr_submit():
                                                 st.session_state["submit_corner_last_click"] = None
                                                 st.session_state["submit_master_missing"] = master_grid is None
                                                 st.session_state["submit_review_ready"] = False
+                                                st.session_state.pop("submit_alignment_info", None)
                                                 st.rerun()
 
                                 _manual_corner_fragment()
@@ -6222,6 +6223,7 @@ def page_omr_submit():
                                                 st.session_state["submit_corner_last_click"] = None
                                                 st.session_state["submit_master_missing"] = master_grid is None
                                                 st.session_state["submit_review_ready"] = False
+                                                st.session_state.pop("submit_alignment_info", None)
                                                 st.rerun()
 
                                 _auto_corner_confirm_fragment()
@@ -6234,6 +6236,24 @@ def page_omr_submit():
                                 )
 
                             if master_grid is not None and not st.session_state.get("submit_review_ready"):
+                                # The paper corners only provide an initial perspective
+                                # correction.  Register the fixed printed bubble landmarks
+                                # to the mentor's canonical matrix before reading.  This
+                                # removes the small photo-to-photo geometric drift that can
+                                # otherwise make a real A/B/C/D mark land on the wrong cell.
+                                aligned_bgr, align_info = omr_scanner.align_to_master_grid(
+                                    img_bgr, master_grid
+                                )
+                                img_bgr = aligned_bgr
+                                # The alignment function refines the sampling coordinates
+                                # rather than resampling the pixels.  Keep that refined grid
+                                # for both detection and the interactive review overlay.
+                                read_grid = align_info.get("grid") if isinstance(align_info, dict) else None
+                                if isinstance(read_grid, dict) and read_grid:
+                                    master_grid = read_grid
+                                st.session_state["submit_prepared_image"] = img_bgr
+                                st.session_state["submit_enhanced_preview"] = omr_image_scanner.moderate_enhance(img_bgr)
+                                st.session_state["submit_alignment_info"] = align_info
                                 detected = _normalise_answers(
                                     omr_scanner.read_answers(img_bgr, master_grid),
                                     total_q,
@@ -6255,6 +6275,15 @@ def page_omr_submit():
                                         caption="Clean flat scan preview — original flat pixels are used for OMR reading.",
                                         use_container_width=True,
                                     )
+                            align_info = st.session_state.get("submit_alignment_info") or {}
+                            if align_info.get("applied"):
+                                st.success(
+                                    f"✅ OMR template alignment completed ({align_info.get('inliers', 0)} stable bubble landmarks)."
+                                )
+                            elif align_info:
+                                st.warning(
+                                    "⚠️ Automatic template alignment could not be applied; the scanner is using the confirmed flat image."
+                                )
                             grid = st.session_state.get("submit_grid")
                             detected = st.session_state.get("submit_detected_answers", {})
                             final_answers = st.session_state.get("submit_final_answers", dict(detected))
