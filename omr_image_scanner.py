@@ -1,13 +1,4 @@
-"""
-OMR Image Scanner
-A lightweight CamScanner-style preprocessing layer for The Med Venture.
-It does NOT read OMR answers. Its only job is to:
-detect the OMR sheet in a live camera frame,
-show a live border around it,
-perspective-correct the sheet when captured,
-apply moderate illumination/contrast/sharpness normalization.
-The existing omr_scanner.py remains responsible for calibration and answer reading.
-"""
+"""OMR Image Scanner - CamScanner style preprocessing."""
 from __future__ import annotations
 import threading
 from typing import Optional, Tuple
@@ -22,60 +13,46 @@ WARP_HEIGHT = 1600
 
 
 def _order_quad(points: np.ndarray) -> np.ndarray:
-    """Return 4 points in TL, TR, BR, BL order."""
     pts = np.asarray(points, dtype=np.float32).reshape(4, 2)
     s = pts.sum(axis=1)
     d = np.diff(pts, axis=1).reshape(-1)
-    return np.array(
-        [
-            pts[np.argmin(s)],
-            pts[np.argmin(d)],
-            pts[np.argmax(s)],
-            pts[np.argmax(d)],
-        ],
-        dtype=np.float32,
-    )
+    return np.array([pts[np.argmin(s)], pts[np.argmin(d)], pts[np.argmax(s)], pts[np.argmax(d)]], dtype=np.float32)
 
 
 def _quad_score(quad: np.ndarray, frame_shape) -> float:
     h, w = frame_shape[:2]
     area = abs(cv2.contourArea(quad.astype(np.float32)))
     area_ratio = area / float(w * h)
-    if area_ratio < MIN_AREA_RATIO:
-        return -1.0
+    if area_ratio < MIN_AREA_RATIO: return -1.0
     x, y, bw, bh = cv2.boundingRect(quad.astype(np.int32))
-    if bw <= 0 or bh <= 0:
-        return -1.0
+    if bw <= 0 or bh <= 0: return -1.0
     aspect = min(bw, bh) / max(bw, bh)
-    if not (TARGET_ASPECT_MIN <= aspect <= TARGET_ASPECT_MAX):
-        return -1.0
+    if not (TARGET_ASPECT_MIN <= aspect <= TARGET_ASPECT_MAX): return -1.0
     return area_ratio * (1.0 + 0.25 * aspect)
 
 
 def detect_sheet_quad(frame_bgr: np.ndarray) -> Optional[np.ndarray]:
-    """Find the most plausible large rectangular OMR/document contour."""
-    if frame_bgr is None or frame_bgr.size == 0:
-        return None
+    if frame_bgr is None or frame_bgr.size == 0: return None
     h, w = frame_bgr.shape[:2]
     scale = min(1.0, 900.0 / max(h, w))
     small = cv2.resize(frame_bgr, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
     gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
     gray = cv2.GaussianBlur(gray, (5, 5), 0)
-    # IMPROVED: Better edge detection parameters
+    
+    # FIXED: Reduced morphology kernel size to prevent destroying sheet borders
     edges = cv2.Canny(gray, 40, 140)
-    edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8), iterations=2)
+    edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8), iterations=1)
     edges = cv2.dilate(edges, np.ones((3, 3), np.uint8), iterations=1)
+    
     contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     best = None
     best_score = -1.0
     for cnt in contours:
         area = cv2.contourArea(cnt)
-        if area < 0.10 * small.shape[0] * small.shape[1]:
-            continue
+        if area < 0.10 * small.shape[0] * small.shape[1]: continue
         peri = cv2.arcLength(cnt, True)
         approx = cv2.approxPolyDP(cnt, 0.025 * peri, True)
-        if len(approx) != 4 or not cv2.isContourConvex(approx):
-            continue
+        if len(approx) != 4 or not cv2.isContourConvex(approx): continue
         q = approx.reshape(4, 2).astype(np.float32) / scale
         score = _quad_score(q, frame_bgr.shape)
         if score > best_score:
@@ -85,104 +62,56 @@ def detect_sheet_quad(frame_bgr: np.ndarray) -> Optional[np.ndarray]:
 
 
 def draw_detection(frame_bgr: np.ndarray, quad: Optional[np.ndarray]) -> np.ndarray:
-    """Draw a clear live green document boundary without altering the frame geometry."""
     out = frame_bgr.copy()
     if quad is None:
-        cv2.putText(
-            out,
-            "Point camera at the full OMR sheet",
-            (24, 44),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.85,
-            (255, 255, 255),
-            2,
-            cv2.LINE_AA,
-        )
+        cv2.putText(out, "Point camera at the full OMR sheet", (24, 44), cv2.FONT_HERSHEY_SIMPLEX, 0.85, (255, 255, 255), 2, cv2.LINE_AA)
         return out
     q = np.round(quad).astype(np.int32).reshape((-1, 1, 2))
     cv2.polylines(out, [q], True, (50, 230, 170), 6, cv2.LINE_AA)
     for i, (x, y) in enumerate(quad.astype(np.int32)):
         cv2.circle(out, (int(x), int(y)), 10, (50, 230, 170), -1, cv2.LINE_AA)
-    cv2.putText(
-        out,
-        "OMR detected - keep all 4 corners inside",
-        (24, 44),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.78,
-        (50, 230, 170),
-        2,
-        cv2.LINE_AA,
-    )
+    cv2.putText(out, "OMR detected - keep all 4 corners inside", (24, 44), cv2.FONT_HERSHEY_SIMPLEX, 0.78, (50, 230, 170), 2, cv2.LINE_AA)
     return out
 
 
-def four_point_transform(image_bgr: np.ndarray, points: np.ndarray,
-                        width: int = WARP_WIDTH, height: int = WARP_HEIGHT) -> np.ndarray:
-    """Perspective-correct an OMR sheet to the fixed 1000x1600 master canvas."""
+def four_point_transform(image_bgr: np.ndarray, points: np.ndarray, width: int = WARP_WIDTH, height: int = WARP_HEIGHT) -> np.ndarray:
     q = _order_quad(points)
-    dst = np.array(
-        [[0, 0], [width - 1, 0], [width - 1, height - 1], [0, height - 1]],
-        dtype=np.float32,
-    )
+    dst = np.array([[0, 0], [width - 1, 0], [width - 1, height - 1], [0, height - 1]], dtype=np.float32)
     matrix = cv2.getPerspectiveTransform(q, dst)
-    return cv2.warpPerspective(
-        image_bgr,
-        matrix,
-        (width, height),
-        flags=cv2.INTER_LINEAR,
-        borderMode=cv2.BORDER_REPLICATE,
-    )
+    return cv2.warpPerspective(image_bgr, matrix, (width, height), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
 
 
-def perspective_flatten(frame_bgr: np.ndarray, quad: np.ndarray,
-                       width: int = WARP_WIDTH, height: int = WARP_HEIGHT) -> np.ndarray:
-    """Backward-compatible wrapper around the fixed-size four-point transform."""
+def perspective_flatten(frame_bgr: np.ndarray, quad: np.ndarray, width: int = WARP_WIDTH, height: int = WARP_HEIGHT) -> np.ndarray:
     return four_point_transform(frame_bgr, quad, width=width, height=height)
 
 
 def detect_and_warp(image_bgr: np.ndarray):
-    """Detect the document contour and flatten it to the canonical canvas."""
     quad = detect_sheet_quad(image_bgr)
-    if quad is None:
-        return None, False
+    if quad is None: return None, False
     return four_point_transform(image_bgr, quad), True
 
 
-def preprocess_omr_image(image_bgr: np.ndarray) -> np.ndarray:
-    """Remove red/pink print and compensate for uneven phone-camera lighting."""
+def preprocess_omr_image_binary(image_bgr: np.ndarray) -> np.ndarray:
+    """Renamed to avoid conflict with omr_scanner.py"""
     if image_bgr is None or image_bgr.size == 0:
         raise ValueError("Empty OMR image.")
     red = image_bgr[:, :, 2]
     red = cv2.GaussianBlur(red, (3, 3), 0)
-    # IMPROVED: Larger block size for better handling of uneven lighting
-    binary = cv2.adaptiveThreshold(
-        red,
-        255,
-        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-        cv2.THRESH_BINARY,
-        51,  # Increased from 31
-        12,  # Increased from 9
-    )
-    # IMPROVED: Better noise removal
-    binary = cv2.morphologyEx(
-        binary, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8), iterations=2
-    )
-    binary = cv2.medianBlur(binary, 5)
+    binary = cv2.adaptiveThreshold(red, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 9)
+    binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8), iterations=1)
+    binary = cv2.medianBlur(binary, 3)
     return binary
 
 
 def process_for_omr_reading(image_bgr: np.ndarray):
-    """Return (flat_color_image, binary_omr_image, detected_quad)."""
     quad = detect_sheet_quad(image_bgr)
-    if quad is None:
-        return None, None, None
+    if quad is None: return None, None, None
     flat = four_point_transform(image_bgr, quad)
-    binary = preprocess_omr_image(flat)
+    binary = preprocess_omr_image_binary(flat)
     return flat, binary, quad
 
 
 def moderate_enhance(image_bgr: np.ndarray) -> np.ndarray:
-    """Moderate document enhancement designed to preserve OMR bubble geometry."""
     img = image_bgr.copy()
     lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
     l, a, b = cv2.split(lab)
@@ -195,16 +124,12 @@ def moderate_enhance(image_bgr: np.ndarray) -> np.ndarray:
 
 
 def process_captured_frame(frame_bgr: np.ndarray) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
-    """Return (processed_flat_image, detected_quad) for camera capture."""
     quad = detect_sheet_quad(frame_bgr)
-    if quad is None:
-        return None, None
+    if quad is None: return None, None
     flat = four_point_transform(frame_bgr, quad)
     flat = moderate_enhance(flat)
     return flat, quad
 
-
-# WebRTC integration (if available)
 try:
     from streamlit_webrtc import VideoProcessorBase, WebRtcMode, webrtc_streamer
     from av import VideoFrame
@@ -236,8 +161,7 @@ if _WEBRTC_AVAILABLE:
 
         def get_latest_processed(self):
             with self.lock:
-                if self.latest_processed is None:
-                    return None
+                if self.latest_processed is None: return None
                 return self.latest_processed.copy()
 
         def has_detection(self):
@@ -245,22 +169,10 @@ if _WEBRTC_AVAILABLE:
                 return bool(self.detected and self.latest_processed is not None)
 
     def render_live_camera(key: str = "omr_live_camera") -> Optional[np.ndarray]:
-        """Render live OMR detection and return a processed image after capture."""
-        if not _WEBRTC_AVAILABLE:
-            return None
-        ctx = webrtc_streamer(
-            key=key,
-            mode=WebRtcMode.SENDRECV,
-            video_processor_factory=OMRVideoProcessor,
-            media_stream_constraints={"video": {"facingMode": {"ideal": "environment"}, "width": {"ideal": 1280}, "height": {"ideal": 1920}}, "audio": False},
-            async_processing=True,
-        )
+        if not _WEBRTC_AVAILABLE: return None
+        ctx = webrtc_streamer(key=key, mode=WebRtcMode.SENDRECV, video_processor_factory=OMRVideoProcessor, media_stream_constraints={"video": {"facingMode": {"ideal": "environment"}, "width": {"ideal": 1280}, "height": {"ideal": 1920}}, "audio": False}, async_processing=True)
         if ctx.state.playing and ctx.video_processor is not None:
             detected = ctx.video_processor.has_detection()
-            if detected:
-                st_message = ""
-            else:
-                st_message = ""
         return ctx.video_processor.get_latest_processed() if ctx.video_processor is not None else None
 
     def camera_available() -> bool:
