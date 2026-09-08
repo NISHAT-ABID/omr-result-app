@@ -15,12 +15,12 @@ DARK_MEAN_THRESHOLD = 40.0
 BRIGHT_MEAN_THRESHOLD = 240.0
 
 # Balanced thresholds for better detection without false positives
-FILL_SCORE_THRESHOLD = 8.5
-MIN_STRONG_INK_FRACTION = 0.03
-MULTI_MIN_CONTRAST = 20.0
-MULTI_MIN_INK_FRACTION = 0.07
-MULTI_RATIO_LIMIT = 0.65
-CLEAR_WINNER_MARGIN = 10.0
+FILL_SCORE_THRESHOLD = 5.5 
+MIN_STRONG_INK_FRACTION = 0.018  
+MULTI_MIN_CONTRAST = 18.0  
+MULTI_MIN_INK_FRACTION = 0.06  
+MULTI_RATIO_LIMIT = 0.68  
+CLEAR_WINNER_MARGIN = 8.0  
 
 MARGIN_EROSION_PX = 2
 DARK_PIXEL_THRESHOLD = 145
@@ -251,7 +251,11 @@ def read_answers(warped_bgr, grid, dark_threshold=DARK_PIXEL_THRESHOLD, min_gap=
         if is_multi:
             answers[q_no] = "MULTI"
             continue
-        if max1 < FILL_SCORE_THRESHOLD or best_contrast < 14.0 or inks[best] < MIN_STRONG_INK_FRACTION:
+        if (
+             max1 < FILL_SCORE_THRESHOLD
+             or best_contrast < 8.0
+             or inks[best] < MIN_STRONG_INK_FRACTION
+        ):
             answers[q_no] = None
             continue
         margin = max1 - max2
