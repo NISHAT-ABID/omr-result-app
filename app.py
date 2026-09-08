@@ -101,6 +101,9 @@ def _reset_submission_state():
         "submit_review_filter",
         "submit_omr_view",
         "submit_master_missing",
+        "submit_student_recalibrate",
+        "submit_student_recalibration_points",
+        "submit_student_recalibration_last_click",
     ):
         st.session_state.pop(k, None)
 
@@ -5743,7 +5746,7 @@ def _make_detection_overlay(img_bgr, grid_points, detected_answers, radius):
 
 
 def _render_interactive_omr_review(img_bgr, grid_points, detected_answers, final_answers, double_qs, radius):
-    """Show the student's original OMR and an editable Digital OMR."""
+    """Show the flattened OMR with scanner detections and an editable Digital OMR."""
     st.markdown("""
 <style>
 /* Desktop: keep Digital OMR from becoming an oversized wide panel. */
@@ -5850,7 +5853,7 @@ def _render_interactive_omr_review(img_bgr, grid_points, detected_answers, final
         <div class='digital-omr-title'>
             <div>
                 <div class='digital-omr-title-main'>🖥️ OMR Review</div>
-                <div class='digital-omr-sub'>Detected marks on Original OMR · editable Digital OMR below</div>
+                <div class='digital-omr-sub'>Detected marks on flattened OMR · editable answers below</div>
             </div>
         </div>
     """, unsafe_allow_html=True)
@@ -5871,7 +5874,7 @@ def _render_interactive_omr_review(img_bgr, grid_points, detected_answers, final
 
     left, right = st.columns([1.08, 1.12], gap="medium")
     with left:
-        st.markdown("<div class='omr-photo-card'><div class='omr-photo-label'>📷 Original OMR · Scanner Detection</div>", unsafe_allow_html=True)
+        st.markdown("<div class='omr-photo-card'><div class='omr-photo-label'>📄 Flattened OMR · Scanner Detection</div>", unsafe_allow_html=True)
         # Show the real uploaded sheet with a transparent-style visual circle
         # overlay. The original bubble/ink remains visible underneath and the
         # underlying image/state is never modified.
@@ -5880,7 +5883,7 @@ def _render_interactive_omr_review(img_bgr, grid_points, detected_answers, final
             cv2.cvtColor(detection_overlay, cv2.COLOR_BGR2RGB),
             use_container_width=True,
         )
-        st.caption("The circle only shows what the scanner detected. Your original marks remain visible underneath.")
+        st.caption("This is the flat scan used by the reader. Detection circles are drawn directly over your actual marks.")
         st.markdown("</div>", unsafe_allow_html=True)
 
     with right:
@@ -6154,7 +6157,6 @@ def page_omr_submit():
                                                 st.session_state["submit_corner_last_click"] = None
                                                 st.session_state["submit_master_missing"] = master_grid is None
                                                 st.session_state["submit_review_ready"] = False
-                                                st.session_state.pop("submit_alignment_info", None)
                                                 st.rerun()
 
                                 _manual_corner_fragment()
@@ -6223,12 +6225,75 @@ def page_omr_submit():
                                                 st.session_state["submit_corner_last_click"] = None
                                                 st.session_state["submit_master_missing"] = master_grid is None
                                                 st.session_state["submit_review_ready"] = False
-                                                st.session_state.pop("submit_alignment_info", None)
                                                 st.rerun()
 
                                 _auto_corner_confirm_fragment()
                         if st.session_state.get("submit_prepared_image") is not None:
                             img_bgr = st.session_state["submit_prepared_image"]
+
+                            # Optional student-side calibration fallback. The normal path uses
+                            # the mentor's one-time master matrix. If the flat scan is slightly
+                            # misregistered and the answers look wrong, the student can calibrate
+                            # directly on THIS flat image using the same reference points as Mentor.
+                            if st.session_state.get("submit_student_recalibrate"):
+                                points_info = omr_scanner.calibration_points_info(total_q)
+                                pts = st.session_state.get("submit_student_recalibration_points", [])
+                                current_idx = len(pts)
+                                st.markdown("#### 🎯 Improve scan accuracy")
+                                st.caption(
+                                    "Optional. The normal scan uses Mentor's saved matrix. "
+                                    "If detection looks shifted, click the requested bubble centers on the flat scan below."
+                                )
+                                for i, info in enumerate(points_info, start=1):
+                                    st.markdown(f"{i}. **{info['full']}**")
+
+                                flat_pil = Image.fromarray(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB))
+                                if current_idx < len(points_info):
+                                    st.info(f"Now click: **{points_info[current_idx]['full']}**")
+                                    coords = streamlit_image_coordinates(
+                                        flat_pil, key=f"student_recalibrate_{file_sig}"
+                                    )
+                                    if coords is not None:
+                                        pt = (round(float(coords["x"]), 1), round(float(coords["y"]), 1))
+                                        last = st.session_state.get("submit_student_recalibration_last_click")
+                                        if last != pt:
+                                            st.session_state["submit_student_recalibration_last_click"] = pt
+                                            st.session_state["submit_student_recalibration_points"] = pts + [pt]
+                                            st.rerun()
+                                else:
+                                    st.success(f"All {len(points_info)} reference points selected.")
+                                    r1, r2 = st.columns(2)
+                                    with r1:
+                                        if st.button("↩️ Use Mentor Matrix", use_container_width=True, key=f"student_recal_cancel_{file_sig}"):
+                                            st.session_state["submit_student_recalibrate"] = False
+                                            st.session_state["submit_student_recalibration_points"] = []
+                                            st.session_state["submit_student_recalibration_last_click"] = None
+                                            st.rerun()
+                                    with r2:
+                                        if st.button("✅ Use These Points", type="primary", use_container_width=True, key=f"student_recal_save_{file_sig}"):
+                                            calibration = {
+                                                info["key"]: [int(pt[0]), int(pt[1])]
+                                                for info, pt in zip(points_info, pts)
+                                            }
+                                            try:
+                                                recal_grid = omr_scanner.build_grid(calibration, total_questions=total_q)
+                                                detected = _normalise_answers(
+                                                    omr_scanner.read_answers(img_bgr, recal_grid),
+                                                    total_q,
+                                                )
+                                                st.session_state["submit_grid"] = recal_grid
+                                                st.session_state["submit_detected_answers"] = detected
+                                                st.session_state["submit_final_answers"] = dict(detected)
+                                                st.session_state["submit_double_touch"] = [q for q, a in detected.items() if a == "MULTI"]
+                                                st.session_state["submit_student_recalibrate"] = False
+                                                st.session_state["submit_student_recalibration_points"] = []
+                                                st.session_state["submit_student_recalibration_last_click"] = None
+                                                st.session_state["submit_review_ready"] = True
+                                                st.rerun()
+                                            except Exception as exc:
+                                                st.error(f"Student calibration could not be applied: {exc}")
+                                return
+
                             if master_grid is None:
                                 st.warning(
                                     "⚠️ Mentor OMR Setup is not available for this layout. "
@@ -6236,24 +6301,6 @@ def page_omr_submit():
                                 )
 
                             if master_grid is not None and not st.session_state.get("submit_review_ready"):
-                                # The paper corners only provide an initial perspective
-                                # correction.  Register the fixed printed bubble landmarks
-                                # to the mentor's canonical matrix before reading.  This
-                                # removes the small photo-to-photo geometric drift that can
-                                # otherwise make a real A/B/C/D mark land on the wrong cell.
-                                aligned_bgr, align_info = omr_scanner.align_to_master_grid(
-                                    img_bgr, master_grid
-                                )
-                                img_bgr = aligned_bgr
-                                # The alignment function refines the sampling coordinates
-                                # rather than resampling the pixels.  Keep that refined grid
-                                # for both detection and the interactive review overlay.
-                                read_grid = align_info.get("grid") if isinstance(align_info, dict) else None
-                                if isinstance(read_grid, dict) and read_grid:
-                                    master_grid = read_grid
-                                st.session_state["submit_prepared_image"] = img_bgr
-                                st.session_state["submit_enhanced_preview"] = omr_image_scanner.moderate_enhance(img_bgr)
-                                st.session_state["submit_alignment_info"] = align_info
                                 detected = _normalise_answers(
                                     omr_scanner.read_answers(img_bgr, master_grid),
                                     total_q,
@@ -6267,23 +6314,6 @@ def page_omr_submit():
                                 st.rerun()
                         if st.session_state.get("submit_review_ready") and st.session_state.get("submit_prepared_image") is not None:
                             img_bgr = st.session_state["submit_prepared_image"]
-                            preview_flat = st.session_state.get("submit_enhanced_preview")
-                            if preview_flat is not None:
-                                with st.expander("📄 View flattened scan", expanded=True):
-                                    st.image(
-                                        cv2.cvtColor(preview_flat, cv2.COLOR_BGR2RGB),
-                                        caption="Clean flat scan preview — original flat pixels are used for OMR reading.",
-                                        use_container_width=True,
-                                    )
-                            align_info = st.session_state.get("submit_alignment_info") or {}
-                            if align_info.get("applied"):
-                                st.success(
-                                    f"✅ OMR template alignment completed ({align_info.get('inliers', 0)} stable bubble landmarks)."
-                                )
-                            elif align_info:
-                                st.warning(
-                                    "⚠️ Automatic template alignment could not be applied; the scanner is using the confirmed flat image."
-                                )
                             grid = st.session_state.get("submit_grid")
                             detected = st.session_state.get("submit_detected_answers", {})
                             final_answers = st.session_state.get("submit_final_answers", dict(detected))
@@ -6310,9 +6340,11 @@ def page_omr_submit():
                             is_submitting = st.session_state.get(submitting_key, False)
                             cb1, cb2 = st.columns(2)
                             with cb1:
-                                if st.button("🔄 Redo Calibration Points", use_container_width=True, disabled=is_submitting):
-                                    _reset_submission_state()
-                                    st.session_state["submit_file_sig"] = file_sig
+                                if st.button("🎯 Improve Accuracy", use_container_width=True, disabled=is_submitting):
+                                    st.session_state["submit_student_recalibrate"] = True
+                                    st.session_state["submit_student_recalibration_points"] = []
+                                    st.session_state["submit_student_recalibration_last_click"] = None
+                                    st.session_state["submit_review_ready"] = False
                                     st.rerun()
                             with cb2:
                                 submit_clicked = st.button("📤 Confirm & Submit", type="primary", use_container_width=True, disabled=is_submitting)
